@@ -77,12 +77,20 @@ Sai uma URL `https://*.trycloudflare.com`. Serve para testar de ponta a ponta,
 mas **a URL morre quando você fecha o túnel** e o APK fica apontando para o vazio.
 Não use para um app que você quer manter.
 
-Anote a URL final. Vou chamá-la de `<SEU-SITE>` daqui para frente.
+> ✅ **Já está resolvido.** O jogo está publicado em **https://cromyk.github.io/**,
+> pelo repositório `Cromyk/cromyk.github.io`. A publicação é automática: cada
+> `git push` na `main` dispara o workflow, que roda os testes, gera os ícones,
+> faz o build e publica.
+>
+> Está na **raiz da origem** de propósito — o `assetlinks.json` do passo 4 só
+> funciona em `https://cromyk.github.io/.well-known/assetlinks.json`, porque os
+> Digital Asset Links são verificados por origem, nunca por subpasta.
 
-> **Sessão de 12/09/2026.** O túnel foi levantado e o jogo está publicado em
-> `https://longitude-relationship-tennis-reasonable.trycloudflare.com` — já
-> validado pelo `pwa:check`. Essa URL **só vive enquanto o túnel estiver
-> aberto**; ao reabrir, o cloudflared dá outra, e aí o APK precisa ser refeito.
+Para publicar uma alteração daqui em diante:
+
+```bash
+git add -A && git commit -m "..." && git push
+```
 
 ## Passo 2 — Conferir o que foi publicado
 

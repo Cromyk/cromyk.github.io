@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.marcosouza.critterquest",
+      "sha256_cert_fingerprints": [
+        "94:B8:C5:B1:2D:DE:C9:D3:68:DE:26:63:AA:DF:DE:48:E9:F6:A3:BF:BF:53:D6:BE:E7:93:4D:09:0C:01:4C:1C"
+      ]
+    }
+  }
+]
