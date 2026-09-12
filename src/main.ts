@@ -151,7 +151,15 @@ function iniciarModoPlano() {
     jogo.arremessoPlano('fim');
   });
 
-  window.addEventListener('keydown', (e) => tecla.add(e.code));
+  window.addEventListener('keydown', (e) => {
+    tecla.add(e.code);
+    // Sem controles, o teclado faz o papel do gatilho e do painel.
+    if (e.code === 'KeyF') jogo.comandoPlano('atacar');
+    if (e.code === 'KeyQ' || e.code === 'Tab') {
+      e.preventDefault();
+      jogo.comandoPlano('proximo');
+    }
+  });
   window.addEventListener('keyup', (e) => tecla.delete(e.code));
 
   const passo = new THREE.Vector3();

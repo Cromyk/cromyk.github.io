@@ -20,6 +20,7 @@ export class Mao {
   readonly punho: THREE.XRGripSpace; // onde a esfera fica
   lado: 'left' | 'right' | 'none' = 'none';
   conectada = false;
+  /** Grip apertado: é ele que segura a pokébola. */
   segurando = false;
 
   private fonte: XRInputSource | null = null;
@@ -46,6 +47,16 @@ export class Mao {
   /** Posição do punho no mundo. */
   posicaoMundo(alvo = new THREE.Vector3()): THREE.Vector3 {
     return this.punho.getWorldPosition(alvo);
+  }
+
+  /** Raio de mira do controle, para apontar no painel do time. */
+  mira(): { origem: THREE.Vector3; direcao: THREE.Vector3 } {
+    this.alvo.updateMatrixWorld();
+    const origem = this.alvo.getWorldPosition(new THREE.Vector3());
+    const direcao = new THREE.Vector3(0, 0, -1)
+      .applyQuaternion(this.alvo.getWorldQuaternion(new THREE.Quaternion()))
+      .normalize();
+    return { origem, direcao };
   }
 
   amostrar(tempoMs: number) {
@@ -125,8 +136,37 @@ export function construirLuva(cor: number): { grupo: THREE.Group; descartaveis: 
   return { grupo, descartaveis };
 }
 
+/** Raio fino que sai da mão, usado para apontar no painel do time. */
+export class RaioMira {
+  readonly linha: THREE.Line;
+  private geometria: THREE.BufferGeometry;
+  private material: THREE.LineBasicMaterial;
+
+  constructor(cor = 0x8fd2ff) {
+    this.geometria = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -1),
+    ]);
+    this.material = new THREE.LineBasicMaterial({ color: cor, transparent: true, opacity: 0 });
+    this.linha = new THREE.Line(this.geometria, this.material);
+    this.linha.frustumCulled = false;
+  }
+
+  atualizar(dt: number, mostrar: boolean, comprimento: number) {
+    const alvo = mostrar ? 0.75 : 0;
+    this.material.opacity += (alvo - this.material.opacity) * Math.min(1, dt * 12);
+    this.linha.visible = this.material.opacity > 0.02;
+    this.linha.scale.z = comprimento;
+  }
+
+  descartar() {
+    this.geometria.dispose();
+    this.material.dispose();
+  }
+}
+
 /**
- * Arco pontilhado que mostra para onde a esfera vai cair com a velocidade
+ * Arco pontilhado que mostra para onde a pokébola vai cair com a velocidade
  * atual do braço. Só aparece quando a mão está de fato em movimento.
  */
 export class Mira {

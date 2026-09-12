@@ -147,6 +147,80 @@ export class Audio {
     this.tom({ freq: 300, freqFinal: 900, duracao: 0.3, tipo: 'sine', ganho: 0.1 });
     this.sopro({ duracao: 0.3, corteInicial: 600, corteFinal: 2400, ganho: 0.1, q: 2 });
   }
+
+  // ---- batalha ----
+
+  /** Cada tipo soa diferente: o fogo ruge, a água jorra, o raio estala. */
+  golpe(tipo: 'fogo' | 'agua' | 'planta' | 'eletrico') {
+    switch (tipo) {
+      case 'fogo':
+        this.sopro({ duracao: 0.5, corteInicial: 380, corteFinal: 1500, ganho: 0.26, q: 0.9 });
+        this.tom({ freq: 110, freqFinal: 70, duracao: 0.45, tipo: 'sawtooth', ganho: 0.12 });
+        break;
+      case 'agua':
+        this.sopro({ duracao: 0.5, corteInicial: 1800, corteFinal: 700, ganho: 0.24, q: 1.6 });
+        this.tom({ freq: 320, freqFinal: 180, duracao: 0.4, tipo: 'sine', ganho: 0.1 });
+        break;
+      case 'planta':
+        this.sopro({ duracao: 0.22, corteInicial: 2600, corteFinal: 1200, ganho: 0.2, q: 4 });
+        this.tom({ freq: 700, freqFinal: 420, duracao: 0.22, tipo: 'triangle', ganho: 0.12 });
+        break;
+      case 'eletrico':
+        this.sopro({ duracao: 0.32, corteInicial: 3200, corteFinal: 900, ganho: 0.28, q: 0.7 });
+        this.tom({ freq: 1400, freqFinal: 300, duracao: 0.3, tipo: 'square', ganho: 0.12 });
+        break;
+    }
+  }
+
+  /** Impacto do golpe. Super eficaz soa mais grave e mais forte. */
+  impacto(efetividade: number) {
+    const forte = efetividade >= 2;
+    const fraco = efetividade <= 0.5;
+    this.tom({
+      freq: forte ? 200 : fraco ? 420 : 300,
+      freqFinal: forte ? 70 : fraco ? 300 : 130,
+      duracao: forte ? 0.3 : 0.16,
+      tipo: 'square',
+      ganho: forte ? 0.3 : fraco ? 0.12 : 0.2,
+    });
+    this.sopro({
+      duracao: forte ? 0.3 : 0.14,
+      corteInicial: 2400,
+      corteFinal: 300,
+      ganho: forte ? 0.3 : 0.16,
+      q: 1,
+    });
+  }
+
+  critico() {
+    this.tom({ freq: 1200, freqFinal: 2400, duracao: 0.1, tipo: 'square', ganho: 0.16 });
+  }
+
+  desmaiou() {
+    [440, 370, 294, 220].forEach((freq, i) =>
+      this.tom({ freq, duracao: 0.3, tipo: 'triangle', ganho: 0.18, atraso: i * 0.11 }),
+    );
+  }
+
+  /** Clarão da pokébola abrindo para soltar o Pokémon. */
+  invocar() {
+    this.tom({ freq: 300, freqFinal: 1200, duracao: 0.35, tipo: 'sine', ganho: 0.18 });
+    this.sopro({ duracao: 0.4, corteInicial: 600, corteFinal: 3000, ganho: 0.16, q: 1.2 });
+  }
+
+  recolher() {
+    this.tom({ freq: 1200, freqFinal: 300, duracao: 0.3, tipo: 'sine', ganho: 0.16 });
+    this.sopro({ duracao: 0.3, corteInicial: 3000, corteFinal: 500, ganho: 0.14, q: 1.2 });
+  }
+
+  /** Clique seco ao passar a mira por um card do painel. */
+  clique() {
+    this.tom({ freq: 900, freqFinal: 1300, duracao: 0.05, tipo: 'triangle', ganho: 0.1 });
+  }
+
+  abrirPainel() {
+    this.tom({ freq: 500, freqFinal: 900, duracao: 0.14, tipo: 'sine', ganho: 0.1 });
+  }
 }
 
 export const audio = new Audio();

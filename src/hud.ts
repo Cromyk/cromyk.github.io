@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-interface LinhaTexto {
+export interface LinhaTexto {
   texto: string;
   tamanho?: number;
   cor?: string;
@@ -14,17 +14,16 @@ interface LinhaTexto {
  */
 export class Placa {
   readonly malha: THREE.Mesh;
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
+  readonly canvas: HTMLCanvasElement;
+  readonly ctx: CanvasRenderingContext2D;
   private textura: THREE.CanvasTexture;
   private material: THREE.MeshBasicMaterial;
   private geometria: THREE.PlaneGeometry;
 
   constructor(larguraM: number, alturaM: number, px = 512) {
     const canvas = document.createElement('canvas');
-    const proporcao = alturaM / larguraM;
     canvas.width = px;
-    canvas.height = Math.round(px * proporcao);
+    canvas.height = Math.round(px * (alturaM / larguraM));
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
 
@@ -47,13 +46,13 @@ export class Placa {
     this.material.opacity = v;
   }
 
-  /** Redesenha a placa: fundo arredondado + linhas de texto centralizadas. */
-  escrever(linhas: LinhaTexto[], opcoes: { fundo?: string; borda?: string; raio?: number } = {}) {
+  marcarSujo() {
+    this.textura.needsUpdate = true;
+  }
+
+  limpar(fundo = 'rgba(14, 18, 28, 0.88)', borda = 'rgba(255,255,255,0.14)', raio = 28) {
     const { ctx, canvas } = this;
-    const { fundo = 'rgba(14, 18, 28, 0.86)', borda = 'rgba(255,255,255,0.14)', raio = 28 } = opcoes;
-
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     ctx.beginPath();
     ctx.roundRect(2, 2, canvas.width - 4, canvas.height - 4, raio);
     ctx.fillStyle = fundo;
@@ -61,6 +60,11 @@ export class Placa {
     ctx.lineWidth = 3;
     ctx.strokeStyle = borda;
     ctx.stroke();
+  }
+
+  escrever(linhas: LinhaTexto[], opcoes: { fundo?: string; borda?: string; raio?: number } = {}) {
+    const { ctx, canvas } = this;
+    this.limpar(opcoes.fundo, opcoes.borda, opcoes.raio);
 
     const alturaTotal = linhas.reduce(
       (soma, l) => soma + (l.tamanho ?? 44) * 1.28 + (l.espaco ?? 0),
@@ -78,7 +82,7 @@ export class Placa {
       y += tamanho * 1.28 + (linha.espaco ?? 0);
     }
 
-    this.textura.needsUpdate = true;
+    this.marcarSujo();
   }
 
   descartar() {
@@ -88,10 +92,7 @@ export class Placa {
   }
 }
 
-/**
- * Aviso grande que aparece flutuando à frente do jogador e some sozinho.
- * Usado para "Capturado!", "Escapou!", nome da criatura nova, etc.
- */
+/** Aviso grande que aparece à frente do jogador e some sozinho. */
 export class Aviso {
   readonly placa = new Placa(0.46, 0.22, 640);
   private restante = 0;
@@ -109,7 +110,6 @@ export class Aviso {
     this.placa.malha.visible = true;
   }
 
-  /** Fica à frente da cabeça, sempre de frente para ela. */
   atualizar(dt: number, camera: THREE.Camera) {
     if (this.restante <= 0) return;
     this.restante -= dt;
@@ -118,14 +118,12 @@ export class Aviso {
       return;
     }
 
-    const alvo = new THREE.Vector3(0, -0.06, -0.9).applyMatrix4(camera.matrixWorld);
+    const alvo = new THREE.Vector3(0, -0.1, -0.9).applyMatrix4(camera.matrixWorld);
     this.placa.malha.position.lerp(alvo, Math.min(1, dt * 7));
     this.placa.malha.quaternion.copy(camera.quaternion);
 
     const t = this.restante / this.duracao;
-    const entrada = Math.min(1, (1 - t) * 6);
-    const saida = Math.min(1, t * 4);
-    this.placa.opacidade = Math.min(entrada, saida);
+    this.placa.opacidade = Math.min(Math.min(1, (1 - t) * 6), Math.min(1, t * 4));
   }
 
   descartar() {
@@ -134,36 +132,100 @@ export class Aviso {
   }
 }
 
-/** Painel pequeno preso ao pulso: esferas restantes e progresso. */
-export class PainelPulso {
-  readonly grupo = new THREE.Group();
-  private placa = new Placa(0.14, 0.09, 384);
-  private ultimoTexto = '';
+/**
+ * Nome + barra de vida flutuando sobre o Pokémon. Redesenha só quando o HP
+ * muda de fato — canvas por quadro custa caro no headset.
+ */
+export class BarraVida {
+  readonly placa = new Placa(0.26, 0.085, 420);
+  private visivel = 0;
+  private ultimoHp = -1;
+  private ultimoRotulo = '';
 
-  constructor() {
-    this.placa.malha.position.set(0, 0.035, -0.02);
-    this.placa.malha.rotation.x = -Math.PI * 0.32;
-    this.grupo.add(this.placa.malha);
+  constructor(
+    private nome: string,
+    private tipoNome: string,
+    private corTipo: number,
+  ) {}
+
+  private redesenhar(hp: number, hpMax: number, rotulo: string) {
+    const { ctx, canvas } = this.placa;
+    this.placa.limpar('rgba(10, 14, 22, 0.9)', 'rgba(255,255,255,0.16)', 18);
+
+    const fracao = Math.max(0, hp / hpMax);
+    const margem = 22;
+    const larguraBarra = canvas.width - margem * 2;
+
+    // Nome à esquerda, tipo à direita.
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = '700 40px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = '#f2f5fa';
+    ctx.fillText(this.nome, margem, 16, larguraBarra * 0.66);
+
+    ctx.textAlign = 'right';
+    ctx.font = '700 26px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = `#${new THREE.Color(this.corTipo).getHexString()}`;
+    ctx.fillText(this.tipoNome.toUpperCase(), canvas.width - margem, 26);
+
+    // Trilho da barra.
+    const y = 74;
+    const altura = 20;
+    ctx.beginPath();
+    ctx.roundRect(margem, y, larguraBarra, altura, altura / 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fill();
+
+    // Preenchimento: verde → amarelo → vermelho conforme cai.
+    if (fracao > 0) {
+      const cor = fracao > 0.5 ? '#5fd47a' : fracao > 0.22 ? '#ffc94a' : '#ff5f5f';
+      ctx.beginPath();
+      ctx.roundRect(margem, y, Math.max(altura, larguraBarra * fracao), altura, altura / 2);
+      ctx.fillStyle = cor;
+      ctx.fill();
+    }
+
+    ctx.textAlign = 'right';
+    ctx.font = '600 24px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = '#aab4c6';
+    ctx.fillText(`${Math.ceil(hp)}/${hpMax}`, canvas.width - margem, y + altura + 8);
+
+    if (rotulo) {
+      ctx.textAlign = 'left';
+      ctx.font = '700 24px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#9fe0ff';
+      ctx.fillText(rotulo, margem, y + altura + 8);
+    }
+
+    this.placa.marcarSujo();
   }
 
-  atualizar(esferas: number, capturas: number, especies: number, totalEspecies: number) {
-    const assinatura = `${esferas}|${capturas}|${especies}`;
-    if (assinatura === this.ultimoTexto) return; // redesenhar canvas é caro
-    this.ultimoTexto = assinatura;
+  atualizar(
+    dt: number,
+    mostrar: boolean,
+    hp: number,
+    hpMax: number,
+    posicao: THREE.Vector3,
+    alturaPokemon: number,
+    camera: THREE.Camera,
+    rotulo = '',
+  ) {
+    if (hp !== this.ultimoHp || rotulo !== this.ultimoRotulo) {
+      this.ultimoHp = hp;
+      this.ultimoRotulo = rotulo;
+      this.redesenhar(hp, hpMax, rotulo);
+    }
 
-    this.placa.escrever(
-      [
-        { texto: `${esferas}`, tamanho: 86, cor: esferas > 0 ? '#8fd2ff' : '#ff8e8e', peso: 700 },
-        { texto: 'esferas', tamanho: 26, cor: '#8b97ab', peso: 500, espaco: 10 },
-        {
-          texto: `${capturas} capturas · ${especies}/${totalEspecies} espécies`,
-          tamanho: 24,
-          cor: '#b9c4d6',
-          peso: 500,
-        },
-      ],
-      { raio: 22 },
-    );
+    const alvo = mostrar ? 1 : 0;
+    this.visivel += (alvo - this.visivel) * Math.min(1, dt * 7);
+    this.placa.malha.visible = this.visivel > 0.02;
+    if (!this.placa.malha.visible) return;
+
+    this.placa.opacidade = this.visivel;
+    this.placa.malha.position.copy(posicao);
+    this.placa.malha.position.y += alturaPokemon + 0.1 + this.visivel * 0.03;
+    this.placa.malha.scale.setScalar(0.75 + this.visivel * 0.25);
+    this.placa.malha.lookAt(camera.getWorldPosition(new THREE.Vector3()));
   }
 
   descartar() {
@@ -171,37 +233,36 @@ export class PainelPulso {
   }
 }
 
-/** Etiqueta com o nome, que aparece sobre a criatura quando ela repara em você. */
-export class Etiqueta {
-  readonly placa = new Placa(0.24, 0.09, 384);
-  private visivel = 0;
+/** Painel pequeno preso ao pulso: pokébolas e progresso. */
+export class PainelPulso {
+  readonly grupo = new THREE.Group();
+  private placa = new Placa(0.14, 0.09, 384);
+  private ultimo = '';
 
-  constructor(nome: string, elemento: string, corElemento: number, novaEspecie: boolean) {
-    const cor = `#${new THREE.Color(corElemento).getHexString()}`;
-    this.placa.escrever(
-      [
-        { texto: nome, tamanho: 46, cor: '#f2f5fa', peso: 700 },
-        { texto: elemento.toUpperCase(), tamanho: 24, cor, peso: 700, espaco: 4 },
-        ...(novaEspecie
-          ? [{ texto: 'espécie nova', tamanho: 22, cor: '#ffd78a', peso: 600 } as LinhaTexto]
-          : []),
-      ],
-      { raio: 20 },
-    );
-    this.placa.malha.visible = false;
+  constructor() {
+    this.placa.malha.position.set(0, 0.035, -0.02);
+    this.placa.malha.rotation.x = -Math.PI * 0.32;
+    this.grupo.add(this.placa.malha);
   }
 
-  atualizar(dt: number, mostrar: boolean, posicao: THREE.Vector3, camera: THREE.Camera) {
-    const alvo = mostrar ? 1 : 0;
-    this.visivel += (alvo - this.visivel) * Math.min(1, dt * 6);
-    this.placa.malha.visible = this.visivel > 0.02;
-    if (!this.placa.malha.visible) return;
+  atualizar(bolas: number, capturas: number, especies: number, total: number) {
+    const assinatura = `${bolas}|${capturas}|${especies}`;
+    if (assinatura === this.ultimo) return;
+    this.ultimo = assinatura;
 
-    this.placa.opacidade = this.visivel;
-    this.placa.malha.position.copy(posicao);
-    this.placa.malha.position.y += 0.16 + this.visivel * 0.04;
-    this.placa.malha.scale.setScalar(0.7 + this.visivel * 0.3);
-    this.placa.malha.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+    this.placa.escrever(
+      [
+        { texto: `${bolas}`, tamanho: 86, cor: bolas > 0 ? '#ff7a6e' : '#7f8ba0', peso: 700 },
+        { texto: 'pokébolas', tamanho: 26, cor: '#8b97ab', peso: 500, espaco: 10 },
+        {
+          texto: `${capturas} capturas · ${especies}/${total} espécies`,
+          tamanho: 24,
+          cor: '#b9c4d6',
+          peso: 500,
+        },
+      ],
+      { raio: 22 },
+    );
   }
 
   descartar() {

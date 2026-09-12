@@ -15,7 +15,8 @@
     "test": "esbuild tools/smoke.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/smoke.mjs --log-level=error && node node_modules/.cache/smoke.mjs",
     "serve:dist": "node tools/serve.mjs",
     "predev": "node tools/icons.mjs",
-    "prebuild": "node tools/icons.mjs"
+    "prebuild": "node tools/icons.mjs",
+    "render": "esbuild tools/render.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/render.mjs --external:./png.mjs --log-level=error && node -e \"require('fs').copyFileSync('tools/png.mjs','node_modules/.cache/png.mjs')\" && node node_modules/.cache/render.mjs"
   },
   "dependencies": {
     "three": "^0.184.0"

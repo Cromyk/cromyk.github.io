@@ -1,15 +1,16 @@
 import * as THREE from 'three';
-import type { Criatura } from './creature';
-import { facilidadeCaptura } from './species';
+import type { Pokemon } from './creature';
+import { chanceCaptura } from './species';
 import { audio } from './audio';
 
-export type EstadoOrbe =
+export type EstadoBola =
   | 'mao'
   | 'voando'
   | 'sugando'
   | 'sacudindo'
   | 'sucesso'
   | 'falha'
+  | 'soltando'
   | 'inerte';
 
 const GRAVIDADE = -9.81;
@@ -18,21 +19,23 @@ const RAIO = 0.045;
 const SACUDIDAS = 3;
 
 /**
- * A esfera de captura. Casca translúcida, núcleo de energia e aro equatorial —
- * desenho próprio, montado em geometria.
+ * A pokébola: duas meias-esferas, faixa preta e botão. Montada em geometria,
+ * como todo o resto do jogo.
+ *
+ * Serve para duas coisas: capturar um selvagem (arremessada) e soltar um
+ * Pokémon da sua coleção (modo `soltando`).
  */
-export class Orbe {
+export class Pokebola {
   readonly raiz = new THREE.Group();
-  estado: EstadoOrbe = 'mao';
+  estado: EstadoBola = 'mao';
   readonly velocidade = new THREE.Vector3();
 
-  presa: Criatura | null = null;
-  /** Preenchido quando a captura termina — o loop principal lê e reage. */
-  resultado: 'capturou' | 'escapou' | null = null;
+  presa: Pokemon | null = null;
+  resultado: 'capturou' | 'escapou' | 'soltou' | null = null;
 
-  private casca: THREE.Mesh;
-  private nucleo: THREE.Mesh;
-  private aro: THREE.Mesh;
+  private corpo = new THREE.Group();
+  private botao: THREE.Mesh;
+  private matBotao: THREE.MeshStandardMaterial;
   private luz: THREE.PointLight;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
 
@@ -40,13 +43,12 @@ export class Orbe {
   private sacudidaAtual = 0;
   private sacudidasRestantes = SACUDIDAS;
   private chancePorSacudida = 0.6;
-  /** Garante que o desfecho seja anunciado uma única vez. */
   private resolvido = false;
   private tempoInerte = 0;
-  private anguloSacudida = 0;
+  private forcaSacudida = 0;
   private pisoY: number;
 
-  constructor(corAcento: number, pisoY: number) {
+  constructor(pisoY: number, corAcento = 0xff3b30) {
     this.pisoY = pisoY;
 
     const guardar = <T extends THREE.BufferGeometry | THREE.Material>(x: T): T => {
@@ -54,44 +56,65 @@ export class Orbe {
       return x;
     };
 
-    const geoCasca = guardar(new THREE.IcosahedronGeometry(RAIO, 2));
-    // Transparência simples em vez de `transmission`: refração de verdade custa
-    // um passe de render inteiro, e o Quest já desenha a cena duas vezes por frame.
-    const matCasca = guardar(
+    const matTopo = guardar(
+      new THREE.MeshStandardMaterial({ color: corAcento, roughness: 0.25, metalness: 0.15 }),
+    );
+    const matBase = guardar(
+      new THREE.MeshStandardMaterial({ color: 0xf2f2f5, roughness: 0.28, metalness: 0.1 }),
+    );
+    const matFaixa = guardar(
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.4, metalness: 0.2 }),
+    );
+    this.matBotao = guardar(
       new THREE.MeshStandardMaterial({
-        color: 0xdfe8f5,
-        transparent: true,
-        opacity: 0.34,
-        roughness: 0.12,
-        metalness: 0.1,
-        depthWrite: false,
-        side: THREE.DoubleSide,
+        color: 0xffffff,
+        emissive: 0xffffff,
+        emissiveIntensity: 0.35,
+        roughness: 0.2,
       }),
-    );
-    this.casca = new THREE.Mesh(geoCasca, matCasca);
-    this.raiz.add(this.casca);
+    ) as THREE.MeshStandardMaterial;
 
-    const geoNucleo = guardar(new THREE.IcosahedronGeometry(RAIO * 0.46, 2));
-    const matNucleo = guardar(
-      new THREE.MeshStandardMaterial({
-        color: corAcento,
-        emissive: new THREE.Color(corAcento),
-        emissiveIntensity: 1.4,
-        roughness: 0.25,
-      }),
+    // Hemisfério de cima e de baixo.
+    const topo = new THREE.Mesh(
+      guardar(new THREE.SphereGeometry(RAIO, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.5)),
+      matTopo,
     );
-    this.nucleo = new THREE.Mesh(geoNucleo, matNucleo);
-    this.raiz.add(this.nucleo);
-
-    const geoAro = guardar(new THREE.TorusGeometry(RAIO * 1.02, RAIO * 0.08, 10, 36));
-    const matAro = guardar(
-      new THREE.MeshStandardMaterial({ color: 0x8ea2bd, roughness: 0.24, metalness: 0.9 }),
+    const base = new THREE.Mesh(
+      guardar(new THREE.SphereGeometry(RAIO, 28, 16, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5)),
+      matBase,
     );
-    this.aro = new THREE.Mesh(geoAro, matAro);
-    this.aro.rotation.x = Math.PI * 0.5;
-    this.raiz.add(this.aro);
+    topo.castShadow = true;
+    base.castShadow = true;
+    this.corpo.add(topo, base);
 
-    this.luz = new THREE.PointLight(corAcento, 0.7, 0.9, 2);
+    // Faixa equatorial.
+    const faixa = new THREE.Mesh(
+      guardar(new THREE.CylinderGeometry(RAIO * 1.008, RAIO * 1.008, RAIO * 0.17, 28)),
+      matFaixa,
+    );
+    this.corpo.add(faixa);
+
+    // Botão: um anel escuro com o miolo claro, nos dois lados.
+    for (const frente of [1, -1]) {
+      const anel = new THREE.Mesh(
+        guardar(new THREE.CylinderGeometry(RAIO * 0.3, RAIO * 0.3, RAIO * 0.1, 20)),
+        matFaixa,
+      );
+      anel.rotation.x = Math.PI * 0.5;
+      anel.position.z = frente * RAIO * 0.94;
+      this.corpo.add(anel);
+    }
+    this.botao = new THREE.Mesh(
+      guardar(new THREE.CylinderGeometry(RAIO * 0.19, RAIO * 0.19, RAIO * 0.14, 18)),
+      this.matBotao,
+    );
+    this.botao.rotation.x = Math.PI * 0.5;
+    this.botao.position.z = RAIO * 0.97;
+    this.corpo.add(this.botao);
+
+    this.raiz.add(this.corpo);
+
+    this.luz = new THREE.PointLight(0xffffff, 0.25, 0.7, 2);
     this.raiz.add(this.luz);
   }
 
@@ -103,7 +126,6 @@ export class Orbe {
     return RAIO;
   }
 
-  /** Arremessada: a partir daqui a física toma conta. */
   lancar(velocidade: THREE.Vector3) {
     this.estado = 'voando';
     this.velocidade.copy(velocidade);
@@ -111,60 +133,73 @@ export class Orbe {
     audio.arremesso(velocidade.length() * 0.2);
   }
 
-  /**
-   * Acertou uma criatura: ela é sugada para dentro.
-   * `precisao` vai de 0 (raspou na borda) a 1 (bem no meio) e vira bônus —
-   * é o que faz valer a pena mirar em vez de só jogar na direção geral.
-   */
-  capturar(criatura: Criatura, precisao = 0.5) {
-    this.presa = criatura;
+  /** Acertou um selvagem: ele é sugado para dentro. */
+  capturar(pokemon: Pokemon, precisao = 0.5) {
+    this.presa = pokemon;
     this.estado = 'sugando';
     this.cronometro = 0;
     this.velocidade.multiplyScalar(0.1);
-    criatura.serCapturada();
+    pokemon.serCapturado();
     audio.acerto();
     audio.succao();
 
-    // Criaturas nervosas escapam mais; acerto no centro compensa.
-    const base = facilidadeCaptura(criatura.especie);
-    const bonus = 1 + precisao * 0.16;
+    const base = chanceCaptura(pokemon.especie, pokemon.hpFracao, pokemon.alarme);
+    this.chancePorSacudida = THREE.MathUtils.clamp(base * (1 + precisao * 0.14), 0.14, 0.95);
     this.sacudidasRestantes = SACUDIDAS;
-    this.chancePorSacudida = THREE.MathUtils.clamp(
-      base * bonus * (1 - criatura.alarme * 0.28),
-      0.12,
-      0.95,
-    );
+  }
+
+  /** Arremessada para soltar um Pokémon da coleção, não para capturar. */
+  soltar(pokemon: Pokemon) {
+    this.presa = pokemon;
+    this.estado = 'soltando';
+    this.cronometro = 0;
+    audio.succao();
   }
 
   atualizar(dt: number) {
     this.cronometro += dt;
-    this.nucleo.rotation.y += dt * 2.2;
-    this.nucleo.rotation.x += dt * 1.1;
 
     switch (this.estado) {
       case 'mao':
-        // Posição controlada pela mão; só pulsa de leve.
-        this.nucleo.scale.setScalar(1 + Math.sin(this.cronometro * 6) * 0.07);
+        this.matBotao.emissiveIntensity = 0.35 + Math.sin(this.cronometro * 6) * 0.15;
         break;
 
       case 'voando':
         this.integrar(dt);
-        this.raiz.rotation.x += this.velocidade.z * dt * 2.5;
-        this.raiz.rotation.z -= this.velocidade.x * dt * 2.5;
-        // Uma esfera que errou tudo vira sucata no chão.
+        // Gira no eixo do movimento — o arremesso fica muito mais legível.
+        this.raiz.rotation.x += this.velocidade.z * dt * 3;
+        this.raiz.rotation.z -= this.velocidade.x * dt * 3;
         if (this.cronometro > 6) this.estado = 'inerte';
         break;
+
+      case 'soltando': {
+        this.integrar(dt);
+        // Abre, solta um clarão e o Pokémon cresce de dentro dela.
+        const t = Math.min(1, this.cronometro / 0.5);
+        this.luz.intensity = Math.sin(t * Math.PI) * 3.2;
+        this.matBotao.emissiveIntensity = 0.35 + Math.sin(t * Math.PI) * 3;
+        if (this.presa) {
+          this.presa.raiz.visible = true;
+          const escala = THREE.MathUtils.smoothstep(t, 0.15, 1);
+          this.presa.raiz.scale.setScalar(Math.max(0.001, escala));
+        }
+        if (t >= 1 && !this.resolvido) {
+          this.resolvido = true;
+          this.resultado = 'soltou';
+        }
+        break;
+      }
 
       case 'sugando': {
         this.integrar(dt);
         const t = Math.min(1, this.cronometro / 0.55);
         if (this.presa) {
-          // Puxa a criatura para dentro da esfera enquanto ela encolhe.
           this.presa.raiz.position.lerp(this.raiz.position, Math.min(1, dt * 9));
           this.presa.raiz.scale.setScalar(Math.max(0.001, (1 - t) * 0.9));
           this.presa.raiz.rotation.y += dt * 10 * t;
         }
-        this.luz.intensity = 0.7 + t * 2.2;
+        this.luz.intensity = 0.25 + t * 2.4;
+        this.matBotao.emissiveIntensity = 0.35 + t * 3;
         if (t >= 1) {
           if (this.presa) this.presa.raiz.visible = false;
           this.estado = 'sacudindo';
@@ -176,15 +211,16 @@ export class Orbe {
 
       case 'sacudindo': {
         this.integrar(dt);
-        this.luz.intensity = 1.2 + Math.sin(this.cronometro * 10) * 0.4;
+        // O botão pisca em vermelho enquanto decide.
+        this.matBotao.emissiveIntensity = 1 + Math.sin(this.cronometro * 9) * 0.7;
+        this.matBotao.emissive.setHex(0xff4433);
 
-        // Uma sacudida a cada 0.85s; entre elas, suspense.
         const indice = Math.floor(this.cronometro / 0.85);
         if (indice > this.sacudidaAtual && indice <= SACUDIDAS) {
           this.sacudidaAtual = indice;
           this.sacudidasRestantes--;
           audio.sacudida(indice - 1);
-          this.anguloSacudida = 1;
+          this.forcaSacudida = 1;
 
           if (Math.random() > this.chancePorSacudida) {
             this.estado = 'falha';
@@ -202,10 +238,9 @@ export class Orbe {
           }
         }
 
-        // O corpo da esfera treme logo depois de cada clique.
-        if (this.anguloSacudida > 0) {
-          this.anguloSacudida = Math.max(0, this.anguloSacudida - dt * 3.2);
-          const t = this.anguloSacudida;
+        if (this.forcaSacudida > 0) {
+          this.forcaSacudida = Math.max(0, this.forcaSacudida - dt * 3.2);
+          const t = this.forcaSacudida;
           this.raiz.rotation.z = Math.sin(this.cronometro * 34) * 0.5 * t;
           this.raiz.rotation.x = Math.cos(this.cronometro * 27) * 0.3 * t;
         }
@@ -213,12 +248,9 @@ export class Orbe {
       }
 
       case 'falha': {
-        // Abre, devolve a criatura e apaga.
         const t = Math.min(1, this.cronometro / 0.4);
         this.luz.intensity = (1 - t) * 2.5;
-        this.casca.scale.setScalar(1 + t * 0.6);
-        (this.casca.material as THREE.MeshStandardMaterial).opacity = 0.34 * (1 - t);
-        this.nucleo.scale.setScalar(Math.max(0.001, 1 - t));
+        this.corpo.scale.setScalar(1 + t * 0.5);
         if (t >= 1 && !this.resolvido) {
           this.resolvido = true;
           this.resultado = 'escapou';
@@ -228,8 +260,9 @@ export class Orbe {
 
       case 'sucesso': {
         const t = Math.min(1, this.cronometro / 0.9);
-        this.raiz.position.y += dt * 0.25 * (1 - t); // flutua um pouco
-        this.luz.intensity = 1.4 + Math.sin(this.cronometro * 14) * 0.8 * (1 - t);
+        this.raiz.position.y += dt * 0.2 * (1 - t);
+        this.matBotao.emissive.setHex(0x7fffa0);
+        this.matBotao.emissiveIntensity = 1.6 + Math.sin(this.cronometro * 14) * 0.9 * (1 - t);
         this.raiz.rotation.y += dt * 3 * (1 - t);
         break;
       }
@@ -237,12 +270,11 @@ export class Orbe {
       case 'inerte':
         this.integrar(dt);
         this.tempoInerte += dt;
-        this.luz.intensity = Math.max(0, 0.7 - this.tempoInerte * 0.2);
+        this.luz.intensity = Math.max(0, 0.25 - this.tempoInerte * 0.1);
         break;
     }
   }
 
-  /** Integração + quique no piso. Simples, mas o suficiente para a sensação. */
   private integrar(dt: number) {
     this.velocidade.y += GRAVIDADE * dt;
     this.raiz.position.addScaledVector(this.velocidade, dt);
@@ -256,17 +288,16 @@ export class Orbe {
         audio.quique();
       } else {
         this.velocidade.set(0, 0, 0);
-        // Assim que pousa, para de rodar.
         this.raiz.rotation.x *= 0.9;
         this.raiz.rotation.z *= 0.9;
       }
     }
   }
 
-  /** Pronta para ser removida da cena. */
   get acabou(): boolean {
     if (this.estado === 'falha') return this.cronometro > 0.6;
     if (this.estado === 'sucesso') return this.cronometro > 1.6;
+    if (this.estado === 'soltando') return this.cronometro > 0.9;
     if (this.estado === 'inerte') return this.tempoInerte > 4;
     return false;
   }

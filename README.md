@@ -1,16 +1,17 @@
 # Critter Quest
 
-Um jogo de capturar criaturas em **realidade mista** no Meta Quest 3. As criaturas
-aparecem no seu quarto de verdade — no seu chão, em cima da sua mesa — e você as
-captura **arremessando uma esfera com o braço**, com a força e a direção reais do
-seu movimento.
+Um jogo de **Pokémon em realidade mista** no Meta Quest 3. Os Pokémon aparecem
+no seu quarto de verdade — no seu chão, em cima da sua mesa. Você **solta o seu
+numa batalha**, enfraquece o selvagem e então **arremessa a pokébola com o
+braço**, com a força e a direção reais do movimento.
 
-Roda em WebXR: é uma página web. Não precisa de Unity, de sideload nem de conta de
-desenvolvedor para jogar.
+Roda em WebXR: é uma página web. Não precisa de Unity, de sideload nem de conta
+de desenvolvedor para jogar.
 
-> As criaturas, os nomes e os tipos elementais são originais. Nada aqui é da
-> Nintendo — a mecânica de encontrar, capturar e colecionar é livre, os
-> personagens deles não são.
+> **Fan game.** Charmander, Squirtle, Bulbasaur e Pikachu são da Nintendo /
+> Game Freak / The Pokémon Company. Isto é um projeto pessoal, para jogar em
+> casa — não é para publicar em loja nem distribuir. Os corpos são geometria
+> original escrita aqui, mas os personagens não são meus nem seus.
 
 ## Rodando no Quest
 
@@ -61,68 +62,72 @@ sem pôr o headset a cada mudança:
 
 | Ação | Controle |
 |---|---|
-| Materializar a esfera na mão | segurar o **gatilho** |
-| Arremessar | **soltar o gatilho** no meio do movimento do braço |
-| Ver as superfícies que o Quest reconheceu | **grip** da mão direita |
-| Esferas restantes e coleção | olhar para o **pulso esquerdo** |
+| Pegar a pokébola | segurar o **GRIP** |
+| Arremessar | **soltar o GRIP** no meio do movimento do braço |
+| Mandar seu Pokémon atacar | **GATILHO** |
+| Abrir o painel do time | virar a **palma esquerda** para cima |
+| Escolher / recolher um Pokémon | apontar com a direita e puxar o **GATILHO** |
+| Ver as superfícies que o Quest reconheceu | **GRIP** direito segurando (debug) |
 
-O arco pontilhado aparece enquanto você move o braço e mostra onde a esfera vai
-cair com a velocidade atual. Ele some quando a mão está parada — mirar é
-movimento, não apontar.
+O arco pontilhado aparece enquanto você move o braço e mostra onde a bola vai
+cair. Ele some quando a mão está parada — mirar é movimento, não apontar.
 
-## Como funciona a captura
+## O laço do jogo
 
-A esfera acerta, a criatura é sugada e a esfera sacode **três vezes**. Cada
-sacudida é uma chance de escapar:
+1. Um Pokémon selvagem aparece no seu chão ou em cima de um móvel.
+2. Vire a palma esquerda para cima, escolha quem vai lutar e feche a mão.
+3. **GRIP** pega a pokébola dele (ela vem na cor do tipo), arremesse: ele entra em campo.
+4. **GATILHO** manda atacar. O selvagem revida sozinho.
+5. Quando o selvagem estiver quase sem HP, **GRIP** de novo pega uma bola vazia — arremesse e capture.
 
-| Raridade | Chance final |
-|---|---|
-| Comum | ~59% |
-| Incomum | ~29% |
-| Raro | ~10% |
+Enfraquecer muda tudo: com HP cheio a captura fica em torno de **24%**, quase
+desmaiado passa de **80%**. Mas se o HP chegar a zero ele fica exausto e some em
+nove segundos — você tem essa janela para acertar a bola.
 
-Dois fatores mexem nisso: **acertar no centro** do corpo dá bônus, e uma criatura
-**assustada** escapa mais fácil. O que assusta é você chegar perto rápido demais e
-esfera que passa raspando. Se o alarme estourar, ela foge e some.
+## Os quatro iniciais
 
-## As criaturas
+![Os quatro Pokémon](pokemon.png)
 
-Oito espécies, todas geradas em código — não há um único arquivo de modelo 3D nem
-de textura no projeto. O corpo, os olhos que piscam, a cauda que balança e as asas
-que batem são geometria montada em tempo de execução, e o áudio inteiro é
-sintetizado na WebAudio.
+Gerados em código: não há um único modelo 3D nem textura no repositório. Corpo,
+olhos que piscam, chama que diminui junto com o HP do Charmander, bochechas do
+Pikachu que acendem no ataque — tudo é geometria montada em tempo de execução, e
+o áudio inteiro é sintetizado na WebAudio.
 
-| Espécie | Elemento | Raridade |
-|---|---|---|
-| Flamito | Brasa | comum |
-| Brotinho | Limo | comum |
-| Pingolim | Gota | comum |
-| Pedrusco | Pedra | comum |
-| Zapik | Faísca | incomum |
-| Ventusco | Sopro | incomum |
-| Sombrino | Névoa | incomum |
-| Lunaris | Névoa | **raro** |
+| Pokémon | Tipo | Golpe | HP |
+|---|---|---|---|
+| Charmander | Fogo | Brasa | 39 |
+| Squirtle | Água | Jato d'Água | 44 |
+| Bulbasaur | Planta | Folha Navalha | 45 |
+| Pikachu | Elétrico | Choque do Trovão | 35 |
 
-A coleção fica salva no próprio headset (`localStorage`). Espécies que você ainda
-não capturou aparecem com mais frequência.
+A tabela de tipos é a clássica — fogo queima planta, água apaga fogo, planta
+bebe água, elétrico frita água. Com vantagem de tipo a batalha dura ~4 golpes;
+sem ela, ~9. Escolher quem mandar para o campo importa.
+
+Sua coleção fica salva no headset, com o HP de cada um. Quem está fora de campo
+se recupera sozinho com o tempo.
 
 ## O código
 
 ```
 src/
   main.ts       bootstrap, sessão WebXR, loop, modo sem headset
-  game.ts       o jogo: spawn, colisão, desfechos, HUD
-  creature.ts   uma criatura viva: pulinhos, atenção, susto, fuga
-  species.ts    catálogo das 8 espécies + construção procedural do corpo
-  orb.ts        a esfera: física de arremesso, quique e ciclo de captura
+  game.ts       o jogo: batalha, captura, spawn, controles
+  pokemon.ts    os quatro corpos, montados em geometria
+  species.ts    tipos, golpes, dano, tabela de efetividade
+  creature.ts   um Pokémon vivo — selvagem que foge ou parceiro que luta
+  attacks.ts    efeitos dos golpes (partículas e o raio do Pikachu)
+  orb.ts        a pokébola: arremesso, quique, captura e invocação
+  menu.ts       o painel do time, que abre virando a palma
   room.ts       leitura dos planos reais do Quest (chão, mesa, sofá)
-  hands.ts      controles, medição da velocidade do arremesso, arco de mira
-  hud.ts        texto e painéis desenhados em canvas 2D
-  state.ts      a coleção salva
+  hands.ts      controles, velocidade do arremesso, arco de mira
+  hud.ts        texto, barras de vida e painéis em canvas 2D
+  state.ts      a coleção salva, com o HP de cada um
   audio.ts      todos os sons, sintetizados
   rng.ts        aleatoriedade determinística
 tools/
   smoke.ts      simula o jogo sem navegador (npm test)
+  render.ts     rasteriza os Pokémon num PNG, sem WebGL (npm run render)
   quest.mjs     adb reverse para o headset
 ```
 
@@ -131,14 +136,21 @@ tools/
 ```bash
 npm run dev        # servidor de desenvolvimento
 npm run quest      # encaminha a porta para o headset
-npm test           # simula o jogo em Node: física, IA, captura
+npm test           # simula o jogo em Node: batalha, captura, IA
+npm run render     # redesenha pokemon.png para conferir a silhueta
 npm run build      # typecheck + bundle em dist/
 ```
 
-O `npm test` roda o jogo sem navegador nenhum — 60 segundos de comportamento de
-criatura, 200 ciclos de captura, 500 sorteios de spawn — e falha se algo virar
-NaN, atravessar o chão ou nunca resolver. Foi ele que pegou dois bugs reais
-durante o desenvolvimento.
+O `npm test` roda o jogo sem navegador nenhum — combates até o nocaute em todos
+os confrontos possíveis, 200 ciclos de captura, 60 segundos de companheiro
+seguindo o treinador — e falha se algo virar NaN, atravessar o chão, nunca
+resolver, ou se o ritmo da batalha sair da faixa jogável. Ele já pegou três
+problemas reais: geometria com NaN, distância medida em 3D quando devia ser no
+plano, e batalhas de 17 golpes.
+
+O `npm run render` desenha os quatro num PNG usando um rasterizador próprio em
+Node, com z-buffer e luz difusa — dá para conferir a silhueta depois de mexer na
+geometria sem abrir navegador nem pôr o headset.
 
 ### Depurando ao vivo
 
