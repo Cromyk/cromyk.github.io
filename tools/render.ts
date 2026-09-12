@@ -16,8 +16,8 @@ import { ESPECIES } from '../src/species';
 const require = createRequire(import.meta.url);
 const { codificarPng } = require('./png.mjs');
 
-const LARGURA = 1000;
-const ALTURA = 420;
+const LARGURA = 1400;
+const ALTURA = 620;
 const FUNDO: [number, number, number] = [26, 33, 48];
 
 interface Triangulo {
@@ -26,6 +26,10 @@ interface Triangulo {
   normal: THREE.Vector3;
   cor: THREE.Color;
   emissivo: number;
+  /** true para as cascas de contorno, desenhadas pelo avesso. */
+  avesso: boolean;
+  /** Contorno não recebe luz: é chapado. */
+  chapado: boolean;
 }
 
 const LUZ = new THREE.Vector3(0.5, 0.85, 0.6).normalize();
@@ -50,6 +54,8 @@ function coletarTriangulos(raiz: THREE.Object3D, camera: THREE.Camera): Triangul
     const indice = geo.index;
 
     const material = malha.material as THREE.MeshStandardMaterial;
+    const avesso = material.side === THREE.BackSide;
+    const chapado = (material as unknown as { isMeshBasicMaterial?: boolean }).isMeshBasicMaterial === true;
     const cor = material.color ?? new THREE.Color(0xffffff);
     const emissivo = material.emissive
       ? material.emissive.getHSL({ h: 0, s: 0, l: 0 }).l * (material.emissiveIntensity ?? 1)
@@ -89,7 +95,7 @@ function coletarTriangulos(raiz: THREE.Object3D, camera: THREE.Camera): Triangul
       // Descarta o que saiu atrás da câmera.
       if (tela.some((t) => !Number.isFinite(t.x) || t.z < -1 || t.z > 1)) continue;
 
-      triangulos.push({ tela, normal, cor, emissivo: Math.min(1, emissivo) });
+      triangulos.push({ tela, normal, cor, emissivo: Math.min(1, emissivo), avesso, chapado });
     }
   });
 
@@ -115,9 +121,9 @@ function rasterizar(triangulos: Triangulo[]): Uint8Array {
   for (const tri of triangulos) {
     const [p0, p1, p2] = tri.tela;
 
-    // Backface culling no espaço de tela.
+    // Backface culling no espaço de tela — invertido para as cascas de contorno.
     const area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
-    if (area >= 0) continue;
+    if (tri.avesso ? area <= 0 : area >= 0) continue;
 
     const minX = Math.max(0, Math.floor(Math.min(p0.x, p1.x, p2.x)));
     const maxX = Math.min(LARGURA - 1, Math.ceil(Math.max(p0.x, p1.x, p2.x)));
@@ -126,9 +132,13 @@ function rasterizar(triangulos: Triangulo[]): Uint8Array {
     if (minX > maxX || minY > maxY) continue;
 
     // Luz difusa de duas fontes + um ambiente, no estilo do jogo.
+    // Luz em degraus, como o MeshToonMaterial faz no jogo.
     const difusa = Math.max(0, tri.normal.dot(LUZ)) * 0.85;
     const preenchimento = Math.max(0, tri.normal.dot(LUZ2)) * 0.3;
-    const luz = Math.min(1.6, 0.32 + difusa + preenchimento + tri.emissivo * 1.4);
+    const continua = 0.32 + difusa + preenchimento;
+    const degraus = [0.42, 0.68, 0.87, 1];
+    const emDegrau = degraus[Math.min(degraus.length - 1, Math.floor(continua * degraus.length))];
+    const luz = tri.chapado ? 1 : Math.min(1.6, emDegrau + tri.emissivo * 1.4);
 
     const r = Math.min(255, tri.cor.r * 255 * luz);
     const g = Math.min(255, tri.cor.g * 255 * luz);
@@ -180,8 +190,8 @@ ESPECIES.forEach((especie, i) => {
 });
 
 const camera = new THREE.PerspectiveCamera(34, LARGURA / ALTURA, 0.05, 20);
-camera.position.set(0, 0.3, 1.72);
-camera.lookAt(0, 0.19, 0);
+camera.position.set(0, 0.26, 1.35);
+camera.lookAt(0, 0.17, 0);
 camera.updateMatrixWorld(true);
 camera.updateProjectionMatrix();
 camera.matrixWorldInverse.copy(camera.matrixWorld).invert();

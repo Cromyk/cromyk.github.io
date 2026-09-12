@@ -95,6 +95,18 @@ export class Mao {
     this.amostras.length = 0;
   }
 
+  /**
+   * Inclinação horizontal do analógico, de -1 a 1.
+   * Nos controles do Quest o stick fica nos eixos 2 e 3; 0 e 1 são o touchpad,
+   * que não existe ali — por isso tentamos os dois pares.
+   */
+  analogicoX(): number {
+    const eixos = this.fonte?.gamepad?.axes;
+    if (!eixos) return 0;
+    const x = eixos[2] ?? eixos[0] ?? 0;
+    return Math.abs(x) < 0.15 ? 0 : x; // zona morta
+  }
+
   /** Vibração curta no controle, quando o runtime suportar. */
   vibrar(intensidade = 0.4, duracaoMs = 40) {
     const atuador = this.fonte?.gamepad?.hapticActuators?.[0] as

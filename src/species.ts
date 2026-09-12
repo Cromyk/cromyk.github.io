@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONSTRUTORES, type Partes } from './pokemon';
+import { CONSTRUTORES, type Partes } from './criaturas';
 
 export type Tipo = 'fogo' | 'agua' | 'planta' | 'eletrico';
 
@@ -32,9 +32,7 @@ export interface Golpe {
   nome: string;
   tipo: Tipo;
   potencia: number;
-  /** Como o efeito viaja até o alvo. */
   formato: 'jato' | 'projetil' | 'raio';
-  /** Segundos entre um uso e outro. */
   recarga: number;
 }
 
@@ -50,81 +48,73 @@ export interface Especie {
   golpe: Golpe;
   /** Quanto menor, mais difícil de capturar. */
   taxaCaptura: number;
+  /** Pode ser escolhido como inicial. */
+  inicial: boolean;
   descricao: string;
 }
 
 export const ESPECIES: readonly Especie[] = [
   {
-    id: 'charmander',
-    nome: 'Charmander',
+    id: 'fagulho',
+    nome: 'Fagulho',
     tipo: 'fogo',
-    altura: 0.34,
-    hpMax: 39,
-    ataque: 52,
-    defesa: 43,
-    golpe: { nome: 'Brasa', tipo: 'fogo', potencia: 40, formato: 'jato', recarga: 1.1 },
-    descricao: 'A chama da cauda mostra o humor dele. Fraca quando está cansado.',
-    taxaCaptura: 0.62,
+    altura: 0.36,
+    hpMax: 40,
+    ataque: 54,
+    defesa: 42,
+    golpe: { nome: 'Lufada de Brasa', tipo: 'fogo', potencia: 42, formato: 'jato', recarga: 1.1 },
+    taxaCaptura: 0.78,
+    inicial: true,
+    descricao: 'A crista acende quando ele respira fundo. Dorme em cima de pedra morna.',
   },
   {
-    id: 'squirtle',
-    nome: 'Squirtle',
+    id: 'marolo',
+    nome: 'Marolo',
     tipo: 'agua',
-    altura: 0.32,
-    hpMax: 44,
-    ataque: 48,
-    defesa: 65,
-    golpe: { nome: 'Jato d’Água', tipo: 'agua', potencia: 40, formato: 'jato', recarga: 1.1 },
-    descricao: 'Esconde a cabeça no casco e dispara água com uma pontaria absurda.',
-    taxaCaptura: 0.62,
-  },
-  {
-    id: 'bulbasaur',
-    nome: 'Bulbasaur',
-    tipo: 'planta',
     altura: 0.3,
-    hpMax: 45,
-    ataque: 49,
-    defesa: 49,
-    golpe: {
-      nome: 'Folha Navalha',
-      tipo: 'planta',
-      potencia: 45,
-      formato: 'projetil',
-      recarga: 1.25,
-    },
-    descricao: 'O bulbo nas costas cresce sugando energia do sol.',
-    taxaCaptura: 0.62,
+    hpMax: 46,
+    ataque: 47,
+    defesa: 66,
+    golpe: { nome: 'Esguicho', tipo: 'agua', potencia: 40, formato: 'jato', recarga: 1.05 },
+    taxaCaptura: 0.78,
+    inicial: true,
+    descricao: 'O casco é liso feito seixo de rio. Ele se enrola e desce ladeira rolando.',
   },
   {
-    id: 'pikachu',
-    nome: 'Pikachu',
+    id: 'sementil',
+    nome: 'Sementil',
+    tipo: 'planta',
+    altura: 0.33,
+    hpMax: 47,
+    ataque: 50,
+    defesa: 50,
+    golpe: { nome: 'Folha Afiada', tipo: 'planta', potencia: 45, formato: 'projetil', recarga: 1.2 },
+    taxaCaptura: 0.78,
+    inicial: true,
+    descricao: 'A flor da cabeça fecha à noite. Se você chegar devagar, ela não fecha.',
+  },
+  {
+    id: 'trovisco',
+    nome: 'Trovisco',
     tipo: 'eletrico',
-    altura: 0.31,
-    hpMax: 35,
-    ataque: 55,
+    altura: 0.29,
+    hpMax: 36,
+    ataque: 57,
     defesa: 40,
-    golpe: {
-      nome: 'Choque do Trovão',
-      tipo: 'eletrico',
-      potencia: 50,
-      formato: 'raio',
-      recarga: 1.4,
-    },
-    descricao: 'Guarda eletricidade nas bochechas. Solta tudo quando se assusta.',
-    taxaCaptura: 0.45,
+    golpe: { nome: 'Estalo', tipo: 'eletrico', potencia: 50, formato: 'raio', recarga: 1.35 },
+    taxaCaptura: 0.6,
+    inicial: false,
+    descricao: 'Abre a cauda em leque quando se assusta, e aí o pelo todo arrepia.',
   },
 ];
 
+export const INICIAIS = ESPECIES.filter((e) => e.inicial);
+
 export const porId = (id: string) => ESPECIES.find((e) => e.id === id);
 
-/** Pikachu aparece menos que os três iniciais. */
-export const pesoSpawn = (e: Especie) => (e.id === 'pikachu' ? 2.2 : 6);
+/** Trovisco aparece menos: ele é o que você caça, não o que ganha. */
+export const pesoSpawn = (e: Especie) => (e.inicial ? 6 : 2.6);
 
-/**
- * Dano de um golpe, no espírito da fórmula clássica: potência, ataque de quem
- * bate, defesa de quem apanha, tipo, e uma variação para não ficar previsível.
- */
 export function calcularDano(
   atacante: Especie,
   defensor: Especie,
@@ -133,12 +123,11 @@ export function calcularDano(
   const efetividade = multiplicador(golpe.tipo, defensor.tipo);
   const critico = Math.random() < 0.08;
   const variacao = 0.85 + Math.random() * 0.15;
-  // Bônus quando o tipo do golpe é o mesmo do atacante.
   const mesmoTipo = golpe.tipo === atacante.tipo ? 1.5 : 1;
 
-  // A tabela de tipos continua clássica (2× e 0,5×) para o que é mostrado na
-  // tela, mas no dano ela entra comprimida: num jogo de VR, um confronto ruim
-  // que exigisse 17 arremessos de golpe cansaria antes de ensinar.
+  // A tabela de tipos continua clássica (2× e 0,5×) no que aparece na tela, mas
+  // no dano ela entra comprimida: em VR, um confronto ruim que exigisse 17
+  // golpes cansaria antes de ensinar qualquer coisa.
   const efetividadeDano = Math.pow(efetividade, 0.72);
   const forca = Math.pow(atacante.ataque / defensor.defesa, 0.7);
 
@@ -149,15 +138,30 @@ export function calcularDano(
 }
 
 /**
- * Chance de escapar de cada uma das três sacudidas. Um Pokémon quase sem HP é
- * bem mais fácil de pegar — é o que faz valer a pena batalhar antes.
+ * Chance de sobreviver a cada uma das três sacudidas — a captura é isso ao cubo.
+ *
+ * A bola não entra somando: ela DIVIDE a chance de escapar. Uma bola 2× não
+ * dobra o acerto, ela corta o escape pela metade — que é o que se sente
+ * justamente nos alvos difíceis, onde uma soma não mudaria nada.
  */
-export function chanceCaptura(especie: Especie, hpFracao: number, alarme: number): number {
-  const porHp = 1 - hpFracao * 0.55; // HP cheio ≈ 0.45, desmaiando ≈ 1
-  return THREE.MathUtils.clamp(especie.taxaCaptura * (0.55 + porHp) * (1 - alarme * 0.25), 0.14, 0.95);
+export function chanceCaptura(
+  especie: Especie,
+  hpFracao: number,
+  alarme: number,
+  multiplicadorBola = 1,
+): number {
+  // Calibrado para a captura final (isto ao cubo) andar de ~33% com o alvo
+  // inteiro até ~80% com ele quase desmaiado, usando a bola comum. Generoso o
+  // bastante para não travar o começo, e ainda assim recompensando a batalha.
+  const desgaste = 1 - hpFracao;
+  const base = THREE.MathUtils.clamp(
+    especie.taxaCaptura * (0.885 + 0.323 * desgaste) * (1 - alarme * 0.18),
+    0.16,
+    0.94,
+  );
+  const comBola = 1 - (1 - base) / Math.max(1, multiplicadorBola);
+  return THREE.MathUtils.clamp(comBola, 0.16, 0.985);
 }
-
-// ---- ponte com o construtor de geometria ----
 
 export type PartesCriatura = Partes;
 

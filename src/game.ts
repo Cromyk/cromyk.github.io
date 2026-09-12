@@ -14,14 +14,16 @@ import { Sala } from './room';
 import { Mao, Mira, RaioMira, construirLuva } from './hands';
 import { Aviso, BarraVida, PainelPulso } from './hud';
 import { PainelTime } from './menu';
+import { EscolhaInicial } from './starter';
+import { BOLAS, BOLA_PADRAO, bolaPorId } from './balls';
 import { Efeito, Impacto } from './attacks';
 import { Dex } from './state';
 import { audio } from './audio';
 import { escolherPesado } from './rng';
 
 const MAX_SELVAGENS = 2;
-const MAX_BOLAS = 10;
-const RECARGA_BOLA = 6;
+/** Só a bola comum recarrega sozinha; as outras vêm de capturas. */
+const RECARGA_BOLA_COMUM = 5;
 const ALCANCE_BATALHA = 4.5;
 const RECARGA_SELVAGEM = 2.6;
 /** Fora de campo, cada Pokémon recupera 1 de HP a cada tanto de segundos. */
@@ -67,7 +69,11 @@ export class Jogo {
   private painelTime = new PainelTime();
   private pulsoAnexado = false;
 
-  private bolas_restantes = MAX_BOLAS;
+  /** Existe só até você escolher o parceiro inicial. */
+  private escolha: EscolhaInicial | null = null;
+  /** Trava o analógico para trocar de bola um passo por inclinada. */
+  private analogicoNeutro = true;
+
   private recarga = 0;
   private proximoSpawn = 2;
   private tempoLeituraSala = 0;
@@ -170,19 +176,25 @@ export class Jogo {
     const ativo = this.dex.ativo;
     const vaiInvocar = !this.temCompanheiroEmCampo && ativo !== null && (this.dex.de(ativo)?.hp ?? 0) > 0;
 
-    if (!vaiInvocar && this.bolas_restantes <= 0) {
+    const tipoBola = bolaPorId(this.dex.bolaAtiva) ?? BOLA_PADRAO;
+
+    if (!vaiInvocar && this.dex.bolas(tipoBola.id) <= 0) {
       this.aviso.mostrar(
         [
-          { texto: 'sem pokébolas', tamanho: 44, cor: '#ff9f9f' },
-          { texto: 'espere recarregar', tamanho: 26, cor: '#9aa5b8', peso: 500 },
+          { texto: `sem ${tipoBola.nome}`, tamanho: 40, cor: '#ff9f9f' },
+          { texto: 'vire a palma e escolha outra', tamanho: 25, cor: '#9aa5b8', peso: 500 },
         ],
-        1.6,
+        1.8,
       );
       return;
     }
 
     const especieAtiva = vaiInvocar ? porId(ativo!) : null;
-    const bola = new Pokebola(this.sala.pisoY, especieAtiva ? TIPOS[especieAtiva.tipo].cor : 0xff3b30);
+    const bola = new Pokebola(
+      this.sala.pisoY,
+      especieAtiva ? TIPOS[especieAtiva.tipo].cor : tipoBola.corTopo,
+      especieAtiva ? 0xf2f2f5 : tipoBola.corBase,
+    );
     this.cena.add(bola.raiz);
     this.bolas.push(bola);
     this.bolaNaMao.set(mao.indice, bola);
@@ -190,7 +202,11 @@ export class Jogo {
     if (vaiInvocar) {
       this.bolaDeInvocacao.set(mao.indice, ativo!);
     } else {
-      this.bolas_restantes--;
+      this.dex.gastarBola(tipoBola.id);
+      // A bola guarda com que força ela foi lançada — trocar de bola no meio do
+      // voo não pode mudar a chance daquele arremesso.
+      bola.raiz.userData.multiplicador = tipoBola.multiplicador;
+      bola.raiz.userData.nomeBola = tipoBola.nome;
     }
 
     mao.segurando = true;
@@ -219,15 +235,75 @@ export class Jogo {
   // ------------------------------------------------------------ gatilho
 
   private puxarGatilho(mao: Mao) {
-    // Painel aberto: o gatilho escolhe o card sob a mira.
-    if (this.painelTime.aberto && this.painelTime.selecao) {
-      this.escolherDoTime(this.painelTime.selecao.especie.id);
+    // Escolha do inicial na frente de tudo: nada mais funciona antes dela.
+    if (this.escolha) {
+      const especie = this.escolha.confirmar();
+      if (especie) {
+        mao.vibrar(0.8, 120);
+        this.receberInicial(especie);
+      }
+      return;
+    }
+
+    // Painel aberto: o gatilho escolhe o que estiver sob a mira.
+    const selecao = this.painelTime.aberto ? this.painelTime.selecao : null;
+    if (selecao) {
       mao.vibrar(0.4, 40);
+      if (selecao.tipo === 'criatura') this.escolherDoTime(selecao.entrada.especie.id);
+      else this.escolherBola(selecao.entrada.tipo.id);
       return;
     }
 
     // Sem painel: manda o companheiro atacar.
     this.comandarAtaque(mao);
+  }
+
+  private escolherBola(id: string) {
+    const tipo = bolaPorId(id);
+    if (!tipo) return;
+
+    if (this.dex.bolas(id) <= 0) {
+      this.aviso.mostrar(
+        [
+          { texto: `sem ${tipo.nome}`, tamanho: 36, cor: '#ff9f9f' },
+          { texto: 'elas vêm de capturas bem-sucedidas', tamanho: 23, cor: '#9aa5b8', peso: 500 },
+        ],
+        2,
+      );
+      return;
+    }
+
+    this.dex.definirBolaAtiva(id);
+    audio.clique();
+    this.aviso.mostrar(
+      [
+        { texto: tipo.nome, tamanho: 40, cor: `#${new THREE.Color(tipo.corTopo).getHexString()}` },
+        { texto: tipo.descricao, tamanho: 23, cor: '#9aa5b8', peso: 500 },
+      ],
+      2.2,
+    );
+  }
+
+  /** Fecha a escolha inicial e entrega o parceiro com a vida cheia. */
+  private receberInicial(especie: Especie) {
+    this.dex.receberInicial(especie.id);
+    if (this.escolha) {
+      this.escolha.descartar(this.cena);
+      this.escolha = null;
+    }
+    this.proximoSpawn = 4;
+    this.aviso.mostrar(
+      [
+        {
+          texto: `${especie.nome} é seu!`,
+          tamanho: 46,
+          cor: `#${new THREE.Color(TIPOS[especie.tipo].cor).getHexString()}`,
+        },
+        { texto: especie.descricao, tamanho: 21, cor: '#9aa5b8', peso: 400, espaco: 6 },
+        { texto: 'aperte o GRIP e arremesse para soltar ele', tamanho: 23, cor: '#ffd78a', peso: 600 },
+      ],
+      6,
+    );
   }
 
   private escolherDoTime(id: string) {
@@ -452,17 +528,26 @@ export class Jogo {
     const agora = performance.now();
     this.camera.getWorldPosition(this.posicaoJogador);
 
+    // Antes de qualquer coisa: sem um parceiro você não batalha, e sem batalhar
+    // capturar é quase impossível. A escolha vem primeiro e segura o resto.
+    if (!this.dex.escolheuInicial) {
+      this.atualizarEscolhaInicial(dt, agora);
+      this.aviso.atualizar(dt, this.camera);
+      return;
+    }
+
     this.tempoLeituraSala -= dt;
     if (this.tempoLeituraSala <= 0) {
       this.tempoLeituraSala = 0.5;
       this.sala.atualizar(this.renderer.xr.getFrame() ?? null, this.renderer.xr.getReferenceSpace());
     }
 
-    if (this.bolas_restantes < MAX_BOLAS) {
+    const comum = BOLA_PADRAO;
+    if (this.dex.bolas(comum.id) < comum.maximo) {
       this.recarga += dt;
-      if (this.recarga >= RECARGA_BOLA) {
+      if (this.recarga >= RECARGA_BOLA_COMUM) {
         this.recarga = 0;
-        this.bolas_restantes++;
+        this.dex.ganharBola(comum.id, 1);
       }
     }
 
@@ -482,12 +567,34 @@ export class Jogo {
     this.atualizarEfeitos(dt);
 
     this.painelPulso.atualizar(
-      this.bolas_restantes,
+      this.dex.totalBolas,
       this.dex.totalCapturas,
       this.dex.especiesCapturadas,
       this.dex.totalEspecies,
     );
     this.aviso.atualizar(dt, this.camera);
+  }
+
+  /** A vitrine dos três iniciais, enquanto você não escolheu. */
+  private atualizarEscolhaInicial(dt: number, agora: number) {
+    if (!this.escolha) {
+      this.escolha = new EscolhaInicial();
+      this.cena.add(this.escolha.grupo);
+      this.escolha.posicionar(this.camera);
+    }
+
+    // As mãos continuam vivas: é com elas que você aponta.
+    for (const mao of this.maos) {
+      if (!mao.conectada) continue;
+      mao.amostrar(agora);
+      const raio = this.raios.get(mao.indice);
+      if (raio) raio.atualizar(dt, mao.lado === 'right', 0.9);
+    }
+
+    const direita = this.maos.find((m) => m.lado === 'right' && m.conectada);
+    const qualquer = this.maos.find((m) => m.conectada);
+    const mira = (direita ?? qualquer)?.mira() ?? null;
+    this.escolha.atualizar(dt, mira, this.camera);
   }
 
   /** Quem está fora de campo se recupera devagar. */
@@ -533,6 +640,34 @@ export class Jogo {
       const raio = this.raios.get(mao.indice);
       if (raio) raio.atualizar(dt, this.painelTime.aberto && mao.lado === 'right', 0.6);
 
+      // Analógico da direita troca de bola sem abrir o painel. Um passo por
+      // inclinada: só volta a valer depois que o stick passa pelo centro.
+      if (mao.lado === 'right') {
+        const x = mao.analogicoX();
+        if (this.analogicoNeutro && Math.abs(x) > 0.7) {
+          this.analogicoNeutro = false;
+          const id = this.dex.cicloBola(x > 0 ? 1 : -1);
+          const tipo = bolaPorId(id);
+          if (tipo) {
+            audio.clique();
+            mao.vibrar(0.3, 25);
+            this.aviso.mostrar(
+              [
+                {
+                  texto: tipo.nome,
+                  tamanho: 38,
+                  cor: `#${new THREE.Color(tipo.corTopo).getHexString()}`,
+                },
+                { texto: `${this.dex.bolas(id)} na mochila`, tamanho: 24, cor: '#9aa5b8', peso: 500 },
+              ],
+              1.4,
+            );
+          }
+        } else if (Math.abs(x) < 0.3) {
+          this.analogicoNeutro = true;
+        }
+      }
+
       if (!this.pulsoAnexado && mao.lado === 'left') {
         mao.punho.add(this.painelPulso.grupo);
         this.pulsoAnexado = true;
@@ -550,10 +685,8 @@ export class Jogo {
       hp: this.companheiro?.especie.id === id && this.companheiro.viva ? this.companheiro.hp : registro.hp,
       capturados: registro.capturados,
     }));
-
-    const mudouTamanho = entradas.length !== this.painelTime.time.length;
-    if (mudouTamanho) this.painelTime.definirTime(entradas);
-    else this.painelTime.definirTime(entradas);
+    const bolas = BOLAS.map((tipo) => ({ tipo, quantidade: this.dex.bolas(tipo.id) }));
+    this.painelTime.definirConteudo(entradas, bolas);
 
     const estavaAberto = this.painelTime.aberto;
     this.painelTime.atualizar(
@@ -561,6 +694,7 @@ export class Jogo {
       esquerda?.punho ?? null,
       direita ? direita.mira() : null,
       this.companheiro?.viva ? this.companheiro.especie.id : this.dex.ativo,
+      this.dex.bolaAtiva,
       this.camera,
     );
     if (this.painelTime.aberto && !estavaAberto) audio.abrirPainel();
@@ -664,7 +798,7 @@ export class Jogo {
         const presa = bola.presa;
         if (presa) {
           this.dex.registrarCaptura(presa.especie.id, Math.max(1, presa.hp));
-          this.bolas_restantes = Math.min(MAX_BOLAS, this.bolas_restantes + 2);
+          for (const tipo of BOLAS) this.dex.ganharBola(tipo.id, tipo.recompensa);
           const primeiraVez = (this.dex.de(presa.especie.id)?.capturados ?? 0) === 1;
           this.aviso.mostrar(
             [
@@ -764,7 +898,8 @@ export class Jogo {
 
       if (dist <= alcance) {
         const precisao = THREE.MathUtils.clamp(1 - dist / alcance, 0, 1);
-        bola.capturar(pokemon, precisao);
+        const multiplicador = (bola.raiz.userData.multiplicador as number) ?? 1;
+        bola.capturar(pokemon, precisao, multiplicador);
         for (const mao of this.maos) mao.vibrar(0.8, 90);
         return;
       }
@@ -795,15 +930,24 @@ export class Jogo {
       if (this.bolaNaMao.has(99)) return;
       const ativo = this.dex.ativo;
       const vaiInvocar = !this.temCompanheiroEmCampo && ativo !== null && (this.dex.de(ativo)?.hp ?? 0) > 0;
-      if (!vaiInvocar && this.bolas_restantes <= 0) return;
+      const tipoBola = bolaPorId(this.dex.bolaAtiva) ?? BOLA_PADRAO;
+      if (!vaiInvocar && this.dex.bolas(tipoBola.id) <= 0) return;
 
       const especieAtiva = vaiInvocar ? porId(ativo!) : null;
-      const bola = new Pokebola(this.sala.pisoY, especieAtiva ? TIPOS[especieAtiva.tipo].cor : 0xff3b30);
+      const bola = new Pokebola(
+        this.sala.pisoY,
+        especieAtiva ? TIPOS[especieAtiva.tipo].cor : tipoBola.corTopo,
+        especieAtiva ? 0xf2f2f5 : tipoBola.corBase,
+      );
       this.cena.add(bola.raiz);
       this.bolas.push(bola);
       this.bolaNaMao.set(99, bola);
-      if (vaiInvocar) this.bolaDeInvocacao.set(99, ativo!);
-      else this.bolas_restantes--;
+      if (vaiInvocar) {
+        this.bolaDeInvocacao.set(99, ativo!);
+      } else {
+        this.dex.gastarBola(tipoBola.id);
+        bola.raiz.userData.multiplicador = tipoBola.multiplicador;
+      }
       this.carregando = 0;
       return;
     }
@@ -841,7 +985,6 @@ export class Jogo {
   }
 
   aoEntrarNaSessao() {
-    this.bolas_restantes = MAX_BOLAS;
     this.proximoSpawn = 3;
     this.aviso.mostrar(
       [

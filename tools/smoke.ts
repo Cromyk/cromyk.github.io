@@ -11,6 +11,7 @@ import {
   multiplicador,
   porId,
 } from '../src/species';
+import { BOLAS } from '../src/balls';
 
 let falhas = 0;
 const checar = (cond: boolean, msg: string) => {
@@ -23,7 +24,7 @@ const finito = (v: THREE.Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y
 const JOGADOR = new THREE.Vector3(0, 1.6, 0);
 
 // 1. Os quatro montam corpo válido e do tamanho certo.
-console.log('1. construção dos Pokémon');
+console.log('1. construção das criaturas');
 for (const especie of ESPECIES) {
   const partes = construirCriatura(especie);
   const caixa = new THREE.Box3().setFromObject(partes.raiz);
@@ -47,16 +48,16 @@ console.log('2. efetividade dos tipos');
   checar(multiplicador('eletrico', 'agua') === 2, 'elétrico deveria ser forte contra água');
   checar(multiplicador('fogo', 'agua') === 0.5, 'fogo deveria ser fraco contra água');
 
-  const charmander = porId('charmander')!;
-  const bulbasaur = porId('bulbasaur')!;
-  const squirtle = porId('squirtle')!;
+  const fagulho = porId('fagulho')!;
+  const sementil = porId('sementil')!;
+  const marolo = porId('marolo')!;
   let forte = 0;
   let fraco = 0;
   for (let i = 0; i < 400; i++) {
-    forte += calcularDano(charmander, bulbasaur, charmander.golpe).dano;
-    fraco += calcularDano(charmander, squirtle, charmander.golpe).dano;
+    forte += calcularDano(fagulho, sementil, fagulho.golpe).dano;
+    fraco += calcularDano(fagulho, marolo, fagulho.golpe).dano;
   }
-  console.log(`   Brasa em Bulbasaur ${(forte / 400).toFixed(1)} vs em Squirtle ${(fraco / 400).toFixed(1)}`);
+  console.log(`   fogo em planta ${(forte / 400).toFixed(1)} vs em água ${(fraco / 400).toFixed(1)}`);
   checar(forte > fraco * 2.5, 'a vantagem de tipo mal aparece no dano');
 }
 
@@ -100,8 +101,9 @@ console.log('3. golpes até o nocaute');
   );
 }
 
-// 4. Enfraquecer precisa valer a pena na captura.
-console.log('4. captura vs HP');
+// 4. Enfraquecer e usar bola melhor precisam valer a pena, e o começo não
+//    pode ser impossível para quem ainda só tem a bola comum.
+console.log('4. captura: HP e tipo de bola');
 {
   for (const especie of ESPECIES) {
     const cheio = chanceCaptura(especie, 1, 0) ** 3;
@@ -109,9 +111,21 @@ console.log('4. captura vs HP');
     console.log(
       `   ${especie.nome.padEnd(11)} HP cheio ${(cheio * 100).toFixed(0)}%  →  quase KO ${(quaseZero * 100).toFixed(0)}%`,
     );
-    checar(quaseZero > cheio * 1.5, `${especie.nome}: enfraquecer quase não ajuda`);
-    checar(quaseZero < 0.99, `${especie.nome}: captura virou garantida`);
+    checar(quaseZero > cheio * 1.8, `${especie.nome}: enfraquecer quase não ajuda`);
+    checar(quaseZero < 0.95, `${especie.nome}: captura virou garantida`);
+    checar(cheio > 0.12, `${especie.nome}: impossível de pegar sem batalhar antes`);
   }
+
+  console.log('   --- com o alvo inteiro, por tipo de bola ---');
+  const alvo = porId('trovisco')!;
+  let anterior = 0;
+  for (const bola of BOLAS) {
+    const chance = chanceCaptura(alvo, 1, 0, bola.multiplicador) ** 3;
+    console.log(`   ${bola.nome.padEnd(16)} ${(chance * 100).toFixed(0)}%`);
+    checar(chance > anterior, `${bola.nome} não é melhor que a anterior`);
+    anterior = chance;
+  }
+  checar(anterior > 0.8, 'nem a melhor bola resolve um alvo difícil');
 }
 
 // 5. Ciclo completo da pokébola sempre resolve.
@@ -143,13 +157,13 @@ console.log('5. ciclo da pokébola');
   const taxa = (contagem.capturou / 200) * 100;
   console.log(`   com 30% de HP: ${contagem.capturou} capturas, ${contagem.escapou} escapes (${taxa.toFixed(0)}%)`);
   checar(contagem.travou === 0, `${contagem.travou} capturas nunca resolveram`);
-  checar(taxa > 20 && taxa < 90, `taxa fora do razoável: ${taxa.toFixed(0)}%`);
+  checar(taxa > 30 && taxa < 92, `taxa fora do razoável: ${taxa.toFixed(0)}%`);
 }
 
 // 6. O companheiro acompanha o treinador sem enlouquecer.
 console.log('6. companheiro seguindo o treinador');
 {
-  const especie = porId('pikachu')!;
+  const especie = porId('trovisco')!;
   const companheiro = new Pokemon(especie, new THREE.Vector3(0, 0, -1), 0, 'companheiro', 3);
   const jogador = new THREE.Vector3(0, 1.6, 0);
   let maxDist = 0;

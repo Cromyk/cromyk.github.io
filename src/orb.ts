@@ -48,7 +48,7 @@ export class Pokebola {
   private forcaSacudida = 0;
   private pisoY: number;
 
-  constructor(pisoY: number, corAcento = 0xff3b30) {
+  constructor(pisoY: number, corAcento = 0xff3b30, corBase = 0xf2f2f5) {
     this.pisoY = pisoY;
 
     const guardar = <T extends THREE.BufferGeometry | THREE.Material>(x: T): T => {
@@ -60,7 +60,7 @@ export class Pokebola {
       new THREE.MeshStandardMaterial({ color: corAcento, roughness: 0.25, metalness: 0.15 }),
     );
     const matBase = guardar(
-      new THREE.MeshStandardMaterial({ color: 0xf2f2f5, roughness: 0.28, metalness: 0.1 }),
+      new THREE.MeshStandardMaterial({ color: corBase, roughness: 0.28, metalness: 0.1 }),
     );
     const matFaixa = guardar(
       new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.4, metalness: 0.2 }),
@@ -134,7 +134,7 @@ export class Pokebola {
   }
 
   /** Acertou um selvagem: ele é sugado para dentro. */
-  capturar(pokemon: Pokemon, precisao = 0.5) {
+  capturar(pokemon: Pokemon, precisao = 0.5, multiplicadorBola = 1) {
     this.presa = pokemon;
     this.estado = 'sugando';
     this.cronometro = 0;
@@ -143,8 +143,13 @@ export class Pokebola {
     audio.acerto();
     audio.succao();
 
-    const base = chanceCaptura(pokemon.especie, pokemon.hpFracao, pokemon.alarme);
-    this.chancePorSacudida = THREE.MathUtils.clamp(base * (1 + precisao * 0.14), 0.14, 0.95);
+    const base = chanceCaptura(
+      pokemon.especie,
+      pokemon.hpFracao,
+      pokemon.alarme,
+      multiplicadorBola,
+    );
+    this.chancePorSacudida = THREE.MathUtils.clamp(base * (1 + precisao * 0.1), 0.16, 0.985);
     this.sacudidasRestantes = SACUDIDAS;
   }
 

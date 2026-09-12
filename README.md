@@ -1,17 +1,16 @@
 # Critter Quest
 
-Um jogo de **Pokémon em realidade mista** no Meta Quest 3. Os Pokémon aparecem
-no seu quarto de verdade — no seu chão, em cima da sua mesa. Você **solta o seu
-numa batalha**, enfraquece o selvagem e então **arremessa a pokébola com o
-braço**, com a força e a direção reais do movimento.
+Um jogo de **capturar criaturas em realidade mista** no Meta Quest 3. Elas
+aparecem no seu quarto de verdade — no seu chão, em cima da sua mesa. Você
+**solta a sua numa batalha**, enfraquece a selvagem e então **arremessa a
+esfera com o braço**, com a força e a direção reais do movimento.
 
 Roda em WebXR: é uma página web. Não precisa de Unity, de sideload nem de conta
 de desenvolvedor para jogar.
 
-> **Fan game.** Charmander, Squirtle, Bulbasaur e Pikachu são da Nintendo /
-> Game Freak / The Pokémon Company. Isto é um projeto pessoal, para jogar em
-> casa — não é para publicar em loja nem distribuir. Os corpos são geometria
-> original escrita aqui, mas os personagens não são meus nem seus.
+> As criaturas, os nomes e os golpes são originais deste projeto. O gênero de
+> caçar e colecionar é livre; os personagens de outras franquias não são, e não
+> há nenhum deles aqui.
 
 ## Rodando no Quest
 
@@ -62,50 +61,73 @@ sem pôr o headset a cada mudança:
 
 | Ação | Controle |
 |---|---|
-| Pegar a pokébola | segurar o **GRIP** |
+| Pegar a esfera | segurar o **GRIP** |
 | Arremessar | **soltar o GRIP** no meio do movimento do braço |
-| Mandar seu Pokémon atacar | **GATILHO** |
+| Mandar seu criatura atacar | **GATILHO** |
 | Abrir o painel do time | virar a **palma esquerda** para cima |
-| Escolher / recolher um Pokémon | apontar com a direita e puxar o **GATILHO** |
-| Ver as superfícies que o Quest reconheceu | **GRIP** direito segurando (debug) |
+| Escolher / recolher um criatura | apontar com a direita e puxar o **GATILHO** |
+| Trocar de esfera | **analógico direito** para os lados |
+| Escolher a inicial (só na primeira vez) | apontar e **GATILHO** |
 
 O arco pontilhado aparece enquanto você move o braço e mostra onde a bola vai
 cair. Ele some quando a mão está parada — mirar é movimento, não apontar.
 
 ## O laço do jogo
 
-1. Um Pokémon selvagem aparece no seu chão ou em cima de um móvel.
-2. Vire a palma esquerda para cima, escolha quem vai lutar e feche a mão.
-3. **GRIP** pega a pokébola dele (ela vem na cor do tipo), arremesse: ele entra em campo.
-4. **GATILHO** manda atacar. O selvagem revida sozinho.
-5. Quando o selvagem estiver quase sem HP, **GRIP** de novo pega uma bola vazia — arremesse e capture.
+Na primeira vez, **três criaturas flutuam à sua frente**: aponte e puxe o
+gatilho para escolher sua parceira. Sem alguém para lutar, capturar seria quase
+impossível — por isso a escolha vem antes de tudo.
 
-Enfraquecer muda tudo: com HP cheio a captura fica em torno de **24%**, quase
-desmaiado passa de **80%**. Mas se o HP chegar a zero ele fica exausto e some em
-nove segundos — você tem essa janela para acertar a bola.
+1. Uma criatura selvagem aparece no seu chão ou em cima de um móvel.
+2. **GRIP** pega a esfera da sua parceira (ela vem na cor do tipo); arremesse e ela entra em campo.
+3. **GATILHO** manda atacar. A selvagem revida sozinha.
+4. Com ela quase sem vida, **GRIP** pega uma esfera vazia — arremesse e capture.
 
-## Os quatro iniciais
+Enfraquecer muda muito: com vida cheia a captura fica em **33%**, quase
+desmaiada passa de **80%**. Mas se a vida chegar a zero ela fica exausta e some
+em nove segundos — essa é a sua janela.
 
-![Os quatro Pokémon](pokemon.png)
+## As esferas
 
-Gerados em código: não há um único modelo 3D nem textura no repositório. Corpo,
-olhos que piscam, chama que diminui junto com o HP do Charmander, bochechas do
-Pikachu que acendem no ataque — tudo é geometria montada em tempo de execução, e
-o áudio inteiro é sintetizado na WebAudio.
+Quatro tipos. O multiplicador não soma na chance: ele **divide a chance de
+fuga**, que é o que se sente justamente nos alvos difíceis.
 
-| Pokémon | Tipo | Golpe | HP |
+| Esfera | Efeito | Contra um alvo difícil e inteiro |
+|---|---|---|
+| Comum | — | 15% |
+| Reforçada | 1,9× | 43% |
+| Prisma | 3,2× | 62% |
+| Lacuna | 8× | 83% |
+
+A comum recarrega sozinha; as outras vêm de capturas bem-sucedidas, e as boas
+aparecem aos pouquinhos. Troque com o **analógico direito**, ou pela fileira de
+baixo do painel do time.
+
+## As quatro criaturas
+
+![As quatro criaturas](pokemon.png)
+
+Geradas em código: não há um único modelo 3D nem textura no repositório. O
+tronco é um corpo de revolução a partir de um perfil desenhado à mão — pilha de
+esferas deixa degraus na silhueta, o torno não — com sombreado em degraus e
+contorno preto por fora.
+
+| Criatura | Tipo | Golpe | Vida |
 |---|---|---|---|
-| Charmander | Fogo | Brasa | 39 |
-| Squirtle | Água | Jato d'Água | 44 |
-| Bulbasaur | Planta | Folha Navalha | 45 |
-| Pikachu | Elétrico | Choque do Trovão | 35 |
+| Fagulho | Fogo | Lufada de Brasa | 40 |
+| Marolo | Água | Esguicho | 46 |
+| Sementil | Planta | Folha Afiada | 47 |
+| Trovisco | Elétrico | Estalo | 36 |
+
+Os três primeiros são as opções de início. Trovisco aparece menos e resiste mais
+à captura: é o que você caça, não o que ganha.
 
 A tabela de tipos é a clássica — fogo queima planta, água apaga fogo, planta
-bebe água, elétrico frita água. Com vantagem de tipo a batalha dura ~4 golpes;
-sem ela, ~9. Escolher quem mandar para o campo importa.
+bebe água, elétrico frita água. Com vantagem a batalha dura ~4 golpes; sem ela,
+~9. Escolher quem mandar para o campo importa.
 
-Sua coleção fica salva no headset, com o HP de cada um. Quem está fora de campo
-se recupera sozinho com o tempo.
+Sua coleção e sua mochila ficam salvas no headset. Quem está fora de campo se
+recupera sozinha com o tempo.
 
 ## O código
 
@@ -115,9 +137,9 @@ src/
   game.ts       o jogo: batalha, captura, spawn, controles
   pokemon.ts    os quatro corpos, montados em geometria
   species.ts    tipos, golpes, dano, tabela de efetividade
-  creature.ts   um Pokémon vivo — selvagem que foge ou parceiro que luta
+  creature.ts   um criatura vivo — selvagem que foge ou parceiro que luta
   attacks.ts    efeitos dos golpes (partículas e o raio do Pikachu)
-  orb.ts        a pokébola: arremesso, quique, captura e invocação
+  orb.ts        a esfera: arremesso, quique, captura e invocação
   menu.ts       o painel do time, que abre virando a palma
   room.ts       leitura dos planos reais do Quest (chão, mesa, sofá)
   hands.ts      controles, velocidade do arremesso, arco de mira
@@ -127,7 +149,7 @@ src/
   rng.ts        aleatoriedade determinística
 tools/
   smoke.ts      simula o jogo sem navegador (npm test)
-  render.ts     rasteriza os Pokémon num PNG, sem WebGL (npm run render)
+  render.ts     rasteriza os criatura num PNG, sem WebGL (npm run render)
   quest.mjs     adb reverse para o headset
 ```
 
