@@ -102,6 +102,56 @@ Isso busca o site de verdade e confere manifest, ícones, service worker e HTTPS
 Nesta etapa ele ainda vai avisar que falta o `assetlinks.json` — correto, ele só
 existe a partir do passo 4.
 
+## Atalho: o caminho já está montado
+
+Em `../critter-quest-apk` o pacote já foi preparado nesta sessão, **sem passar
+pelo `bubblewrap init`** — o CLI dele é interativo e o inquirer exige um TTY de
+verdade, então dois scripts chamam a mesma API por baixo:
+
+| Arquivo | O que faz |
+|---|---|
+| `gerar-manifest.mjs` | monta o `twa-manifest.json` a partir do manifest publicado |
+| `gerar-projeto.mjs` | gera o projeto Android a partir dele |
+
+O `gerar-manifest.mjs` força três coisas que importam:
+
+- `isMetaQuest: true` — pacote compatível com o Horizon OS
+- `horizonOSAppMode: 'immersive'` — abre direto no passthrough
+- **`enableXRScene: true`** — a permissão `USE_SCENE`. **Sem ela o jogo não
+  enxerga o chão nem os móveis**, e as criaturas não teriam onde nascer. É o
+  ajuste mais fácil de esquecer.
+
+Também foi preciso um **SDK espelho** em `~/.bubblewrap/android_sdk`: o
+Bubblewrap procura `tools/` ou `bin/` na raiz do SDK (layout antigo), e o SDK
+desta máquina usa `cmdline-tools/`. O espelho é só um conjunto de junctions
+apontando para o SDK real — nada foi alterado no SDK que o `cromyk-game` usa.
+
+Para recompilar depois de mudar algo no `twa-manifest.json`:
+
+```bash
+cd ../critter-quest-apk
+node gerar-projeto.mjs
+JAVA_HOME="/c/Users/marco.souza/Apps/jdk17_extract/jdk-17.0.17+10" \
+  ./gradlew assembleRelease --no-daemon
+node assinar.mjs
+adb install -r app-release-signed.apk
+```
+
+Três coisas que custaram tempo e vão morder de novo:
+
+- **`local.properties` precisa de barras normais.** Num arquivo `.properties` a
+  barra invertida é caractere de escape, então `sdk.dir=C:\Users\...` vira lixo
+  silenciosamente e o Gradle falha lá na frente com um enigmático
+  *"A sintaxe do nome do arquivo … está incorreta"* dentro do R8.
+- **O Node não executa `.bat`.** Desde as correções de injeção de argumentos no
+  Windows, `execFileSync` recusa `apksigner.bat` com `EINVAL`. Por isso o
+  `assinar.mjs` chama `java -jar lib/apksigner.jar` direto.
+- **`--no-daemon` sempre.** Mesma armadilha do `cromyk-game`: um daemon do
+  Gradle que ficou vivo com outro JDK é reaproveitado e o build falha como se a
+  correção não tivesse funcionado.
+
+O resto desta seção descreve o caminho interativo oficial, caso você prefira.
+
 ## Passo 3 — Inicializar o pacote
 
 ```bash
