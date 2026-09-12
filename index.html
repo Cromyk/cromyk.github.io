@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Critter Quest</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+    <meta name="theme-color" content="#0b0d12" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12; }
+      canvas { display: block; }
+
+      #ui {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #e8ecf4;
+        pointer-events: none;
+      }
+      #ui > * { pointer-events: auto; }
+
+      .card {
+        max-width: 460px;
+        text-align: center;
+        background: rgba(18, 22, 32, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 18px;
+        padding: 28px 26px 24px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      }
+      .card h1 {
+        margin: 0 0 4px;
+        font-size: 28px;
+        letter-spacing: -0.02em;
+        background: linear-gradient(100deg, #7fe7c4, #6db8ff 60%, #c69bff);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .card p { margin: 0 0 18px; color: #9aa5b8; font-size: 14px; }
+      .card ol { text-align: left; margin: 0 0 18px; padding-left: 20px; color: #b8c2d4; font-size: 13.5px; }
+      .card li { margin-bottom: 5px; }
+
+      button {
+        font: inherit;
+        font-weight: 600;
+        border: 0;
+        border-radius: 11px;
+        padding: 13px 22px;
+        cursor: pointer;
+        background: linear-gradient(180deg, #4d8dff, #3a6fe0);
+        color: #fff;
+        width: 100%;
+      }
+      button:hover:not(:disabled) { filter: brightness(1.08); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      button.ghost {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        color: #b8c2d4;
+        margin-top: 9px;
+        font-weight: 500;
+      }
+      .note { margin: 14px 0 0; font-size: 12.5px; color: #6f7b90; }
+      .note code { color: #9aa5b8; }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <div class="card">
+        <h1>Critter Quest</h1>
+        <p>Criaturas no seu quarto de verdade. Ache, mire e arremesse.</p>
+        <ol>
+          <li><b>Gatilho</b> — materializa uma esfera na mão</li>
+          <li><b>Solte</b> no meio do movimento para arremessar</li>
+          <li>Acerte a criatura e espere a esfera parar de sacudir</li>
+        </ol>
+        <button id="enter" disabled>verificando o dispositivo…</button>
+        <button id="flat" class="ghost">jogar na tela (sem headset)</button>
+        <p class="note" id="note"></p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

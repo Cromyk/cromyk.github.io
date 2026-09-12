@@ -1,0 +1,30 @@
+{
+  "name": "critter-quest",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "dev:https": "node tools/dev-https.mjs",
+    "quest": "node tools/quest.mjs",
+    "icons": "node tools/icons.mjs",
+    "assetlinks": "node tools/assetlinks.mjs",
+    "pwa:check": "node tools/pwa-check.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "test": "esbuild tools/smoke.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/smoke.mjs --log-level=error && node node_modules/.cache/smoke.mjs",
+    "serve:dist": "node tools/serve.mjs",
+    "predev": "node tools/icons.mjs",
+    "prebuild": "node tools/icons.mjs"
+  },
+  "dependencies": {
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.184.0",
+    "@types/webxr": "^0.5.24",
+    "@vitejs/plugin-basic-ssl": "^2.1.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0"
+  }
+}

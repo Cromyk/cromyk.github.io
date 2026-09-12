@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+# Gerados por `npm run icons` — o repositório não guarda binários.
+public/icons/
+
+# A chave de assinatura nunca entra no repositório.
+# (o assetlinks.json, esse sim, precisa ser publicado: a impressão SHA-256
+#  é pública por definição — fica exposta na web para o Android verificar)
+*.keystore
+*.jks
+android.keystore
