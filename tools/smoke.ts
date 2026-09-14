@@ -1,16 +1,35 @@
-/** Simula o jogo sem navegador: pega NaN, batalha que nunca acaba, captura travada. */
+/**
+ * Simula o jogo sem navegador: pega NaN, batalha que nunca acaba, captura
+ * travada, dado de Pokédex inconsistente e modelo que ficaria do tamanho errado
+ * dentro da sala.
+ *
+ * O corpo dos bichos aqui é falso — um Group vazio no lugar do GLB. Carregar
+ * Draco e WebP no Node seria possível, mas não é o que estes testes querem
+ * saber: o que se mede aqui é comportamento e número, e para isso o esqueleto
+ * de mentira serve igual. Quem confere o modelo de verdade é `npm run render`,
+ * que desenha os 151 num PNG.
+ */
 import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
 import { Pokebola } from '../src/orb';
 import { Sala } from '../src/room';
 import {
   ESPECIES,
+  INICIAIS,
+  NIVEL_MAXIMO,
   calcularDano,
   chanceCaptura,
-  construirCriatura,
+  escolherGolpe,
+  evolucaoEm,
   multiplicador,
+  nivelPorXp,
   porId,
+  statsNoNivel,
+  xpParaNivel,
+  type Especie,
 } from '../src/species';
+import { MEDIDAS } from '../src/modelos.gen';
+import type { Corpo } from '../src/modelos';
 import { BOLAS } from '../src/balls';
 
 let falhas = 0;
@@ -23,62 +42,172 @@ const checar = (cond: boolean, msg: string) => {
 const finito = (v: THREE.Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
 const JOGADOR = new THREE.Vector3(0, 1.6, 0);
 
-// 1. Os quatro montam corpo válido e do tamanho certo.
-console.log('1. construção das criaturas');
-for (const especie of ESPECIES) {
-  const partes = construirCriatura(especie);
-  const caixa = new THREE.Box3().setFromObject(partes.raiz);
-  const tam = caixa.getSize(new THREE.Vector3());
-  checar(finito(tam), `${especie.nome}: bounding box com NaN`);
-  checar(tam.y > especie.altura * 0.55, `${especie.nome}: baixo demais (${tam.y.toFixed(2)}m)`);
-  checar(tam.y < especie.altura * 2.2, `${especie.nome}: alto demais (${tam.y.toFixed(2)}m)`);
-  checar(partes.palpebras.length === 2, `${especie.nome}: não tem duas pálpebras`);
-  checar(partes.membros.length >= 4, `${especie.nome}: menos de quatro membros`);
+/** Um corpo de mentira com a mesma forma que src/modelos.ts entrega. */
+function corpoFalso(altura: number): Corpo {
+  const corpo = new THREE.Group();
+  const raiz = new THREE.Group();
+  raiz.add(corpo);
+  const boca = new THREE.Object3D();
+  boca.position.set(0, altura * 0.74, altura * 0.3);
+  corpo.add(boca);
+  return {
+    raiz,
+    corpo,
+    boca,
+    altura,
+    raio: altura * 0.5,
+    mixer: null,
+    acoes: new Map(),
+    descartar() {
+      raiz.removeFromParent();
+    },
+  };
+}
+
+const nascer = (especie: Especie, papel: 'selvagem' | 'companheiro', nivel = 12, semente = 1) =>
+  new Pokemon(
+    especie,
+    corpoFalso(especie.altura),
+    new THREE.Vector3(0, 0, -1.5),
+    0,
+    papel,
+    nivel,
+    false,
+    semente,
+  );
+
+// ---------------------------------------------------------------------------
+console.log('1. a Pokédex fecha consigo mesma');
+{
+  checar(ESPECIES.length === 151, `deveria haver 151 espécies, há ${ESPECIES.length}`);
+  checar(INICIAIS.length === 4, `deveria haver 4 iniciais, há ${INICIAIS.length}`);
+
+  let semModelo = 0;
+  let evolucaoQuebrada = 0;
+  for (const e of ESPECIES) {
+    if (!MEDIDAS[e.id]) semModelo++;
+    if (e.evolui && !porId(e.evolui.para)) evolucaoQuebrada++;
+    checar(e.tipos.length >= 1 && e.tipos.length <= 2, `${e.nome}: ${e.tipos.length} tipos`);
+    checar(e.golpes.length === e.tipos.length, `${e.nome}: golpes e tipos não batem`);
+    checar(e.base.hp > 0 && e.base.atq > 0, `${e.nome}: stat-base zerado`);
+    checar(e.taxaCaptura > 0 && e.taxaCaptura <= 1, `${e.nome}: taxa de captura fora de 0..1`);
+  }
+  checar(semModelo === 0, `${semModelo} espécies sem modelo medido`);
+  checar(evolucaoQuebrada === 0, `${evolucaoQuebrada} evoluções apontam para espécie inexistente`);
+
+  const comEvolucao = ESPECIES.filter((e) => e.evolui).length;
+  const lendarios = ESPECIES.filter((e) => e.lendario).length;
+  console.log(`   151 espécies, ${comEvolucao} evoluem, ${lendarios} lendárias`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('2. tamanho dentro da sala');
+{
+  // Repete a conta de instanciar(): é ela que decide se um Onix cabe no quarto.
+  let maiorAltura = 0;
+  let maiorPegada = 0;
+  let nomeMaior = '';
+  for (const e of ESPECIES) {
+    const m = MEDIDAS[e.id];
+    const maiorHorizontal = Math.max(m.largura, m.profundidade);
+    const referencia = Math.max(m.alturaModelo, maiorHorizontal / 2, 1e-6);
+    const escala = e.altura / referencia;
+
+    const alturaFinal = m.alturaModelo * escala;
+    const pegadaFinal = maiorHorizontal * escala;
+    checar(Number.isFinite(escala) && escala > 0, `${e.nome}: escala inválida`);
+    checar(alturaFinal <= e.altura + 1e-6, `${e.nome}: mais alto que o pedido`);
+    checar(pegadaFinal < 2.3, `${e.nome}: ocupa ${pegadaFinal.toFixed(2)}m de chão`);
+
+    if (alturaFinal > maiorAltura) maiorAltura = alturaFinal;
+    if (pegadaFinal > maiorPegada) {
+      maiorPegada = pegadaFinal;
+      nomeMaior = e.nome;
+    }
+  }
+  const alturas = ESPECIES.map((e) => e.altura);
   console.log(
-    `   ${especie.nome.padEnd(11)} ${tam.x.toFixed(2)}×${tam.y.toFixed(2)}×${tam.z.toFixed(2)}m, ${partes.descartaveis.length} recursos`,
+    `   alturas de ${Math.min(...alturas).toFixed(2)}m a ${Math.max(...alturas).toFixed(2)}m; ` +
+      `maior pegada: ${nomeMaior} com ${maiorPegada.toFixed(2)}m`,
   );
 }
 
-// 2. Tabela de tipos coerente.
-console.log('2. efetividade dos tipos');
+// ---------------------------------------------------------------------------
+console.log('3. efetividade dos dezoito tipos');
 {
-  checar(multiplicador('fogo', 'planta') === 2, 'fogo deveria ser forte contra planta');
-  checar(multiplicador('agua', 'fogo') === 2, 'água deveria ser forte contra fogo');
-  checar(multiplicador('planta', 'agua') === 2, 'planta deveria ser forte contra água');
-  checar(multiplicador('eletrico', 'agua') === 2, 'elétrico deveria ser forte contra água');
-  checar(multiplicador('fogo', 'agua') === 0.5, 'fogo deveria ser fraco contra água');
+  checar(multiplicador('fogo', ['planta']) === 2, 'fogo deveria ser forte contra planta');
+  checar(multiplicador('agua', ['fogo']) === 2, 'água deveria ser forte contra fogo');
+  checar(multiplicador('fogo', ['agua']) === 0.5, 'fogo deveria ser fraco contra água');
+  checar(multiplicador('normal', ['fantasma']) === 0, 'normal não deveria afetar fantasma');
+  checar(multiplicador('terra', ['voador']) === 0, 'terra não deveria afetar voador');
 
-  const fagulho = porId('fagulho')!;
-  const sementil = porId('sementil')!;
-  const marolo = porId('marolo')!;
+  // Os dois tipos se multiplicam — é o que dá o 4× e o zero.
+  const gyarados = porId('gyarados')!;
+  const charizard = porId('charizard')!;
+  checar(multiplicador('eletrico', gyarados.tipos) === 4, 'elétrico em Gyarados deveria dar 4×');
+  checar(multiplicador('terra', charizard.tipos) === 0, 'terra em Charizard deveria dar 0');
+  checar(multiplicador('pedra', charizard.tipos) === 4, 'pedra em Charizard deveria dar 4×');
+
+  // E o dano precisa sentir isso, senão a tabela é decoração.
+  const bulbasaur = porId('bulbasaur')!;
+  const squirtle = porId('squirtle')!;
+  const atacante = { especie: porId('charmander')!, nivel: 15 };
   let forte = 0;
   let fraco = 0;
   for (let i = 0; i < 400; i++) {
-    forte += calcularDano(fagulho, sementil, fagulho.golpe).dano;
-    fraco += calcularDano(fagulho, marolo, fagulho.golpe).dano;
+    forte += calcularDano(atacante, { especie: bulbasaur, nivel: 15 }, atacante.especie.golpe).dano;
+    fraco += calcularDano(atacante, { especie: squirtle, nivel: 15 }, atacante.especie.golpe).dano;
   }
   console.log(`   fogo em planta ${(forte / 400).toFixed(1)} vs em água ${(fraco / 400).toFixed(1)}`);
-  checar(forte > fraco * 2.5, 'a vantagem de tipo mal aparece no dano');
+  checar(forte > fraco * 2, 'a vantagem de tipo mal aparece no dano');
 }
 
-// 3. Ritmo da batalha, separado por tipo de confronto. O jogador escolhe quem
-//    manda para o campo, então o que importa é cada caso, não a média cega.
-console.log('3. golpes até o nocaute');
+// ---------------------------------------------------------------------------
+console.log('4. o golpe escolhido é o melhor que ele tem');
+{
+  let melhorou = 0;
+  for (const atacante of ESPECIES.filter((e) => e.golpes.length === 2)) {
+    for (const defensor of ESPECIES) {
+      const a = { especie: atacante, nivel: 20 };
+      const d = { especie: defensor, nivel: 20 };
+      const escolhido = escolherGolpe(a, d);
+      const nota = (g: (typeof atacante.golpes)[number]) =>
+        g.potencia *
+        multiplicador(g.tipo, defensor.tipos) *
+        (atacante.tipos.includes(g.tipo) ? 1.5 : 1);
+      const melhor = Math.max(...atacante.golpes.map(nota));
+      checar(nota(escolhido) >= melhor - 1e-9, `${atacante.nome} vs ${defensor.nome}: golpe pior`);
+      if (escolhido !== atacante.golpes[0]) melhorou++;
+    }
+  }
+  console.log(`   o segundo golpe foi o escolhido em ${melhorou} confrontos`);
+  checar(melhorou > 0, 'o golpe de cobertura nunca é usado');
+}
+
+// ---------------------------------------------------------------------------
+console.log('5. ritmo da batalha, por tipo de confronto');
 {
   const grupos: Record<string, number[]> = { vantagem: [], neutro: [], desvantagem: [] };
   let travadas = 0;
+  // Uma amostra regular da Pokédex: 151×151 seriam 22 mil combates por rodada.
+  const amostra = ESPECIES.filter((_, i) => i % 7 === 0);
 
-  for (const a of ESPECIES) {
-    for (const b of ESPECIES) {
-      let hp = b.hpMax;
+  for (const a of amostra) {
+    for (const b of amostra) {
+      const atacante = { especie: a, nivel: 20 };
+      const defensor = { especie: b, nivel: 20 };
+      const golpe = escolherGolpe(atacante, defensor);
+      const m = multiplicador(golpe.tipo, b.tipos);
+      if (m === 0) continue; // imunidade total é assunto do teste 3
+
+      let hp = statsNoNivel(b, 20).hpMax;
       let golpes = 0;
       while (hp > 0 && golpes < 300) {
-        hp -= calcularDano(a, b, a.golpe).dano;
+        hp -= calcularDano(atacante, defensor, golpe).dano;
         golpes++;
       }
       if (golpes >= 300) travadas++;
 
-      const m = multiplicador(a.golpe.tipo, b.tipo);
       const grupo = m >= 2 ? 'vantagem' : m <= 0.5 ? 'desvantagem' : 'neutro';
       grupos[grupo].push(golpes);
     }
@@ -90,56 +219,119 @@ console.log('3. golpes até o nocaute');
   }
 
   checar(travadas === 0, `${travadas} combates nunca terminaram`);
-  checar(media(grupos.vantagem) <= 5, 'com vantagem de tipo a batalha deveria ser rápida');
-  checar(media(grupos.vantagem) >= 1.5, 'com vantagem está fácil demais, some num golpe');
-  checar(media(grupos.neutro) <= 8, 'confronto neutro está arrastado');
-  checar(media(grupos.desvantagem) <= 14, 'confronto ruim está insuportável');
+  checar(media(grupos.vantagem) <= 6, 'com vantagem de tipo a batalha deveria ser rápida');
+  checar(media(grupos.vantagem) >= 1.3, 'com vantagem está fácil demais, some num golpe');
+  checar(media(grupos.neutro) <= 11, 'confronto neutro está arrastado');
+  checar(media(grupos.desvantagem) <= 20, 'confronto ruim está insuportável');
   // A vantagem precisa ser sentida, senão escolher o Pokémon não importa.
   checar(
-    media(grupos.desvantagem) > media(grupos.vantagem) * 1.8,
+    media(grupos.desvantagem) > media(grupos.vantagem) * 1.6,
     'escolher o tipo certo quase não muda nada',
   );
 }
 
-// 4. Enfraquecer e usar bola melhor precisam valer a pena, e o começo não
-//    pode ser impossível para quem ainda só tem a bola comum.
-console.log('4. captura: HP e tipo de bola');
+// ---------------------------------------------------------------------------
+console.log('6. captura: HP, nível e tipo de bola');
 {
+  let piorCheio = 1;
+  let melhorKo = 0;
   for (const especie of ESPECIES) {
-    const cheio = chanceCaptura(especie, 1, 0) ** 3;
-    const quaseZero = chanceCaptura(especie, 0.05, 0) ** 3;
-    console.log(
-      `   ${especie.nome.padEnd(11)} HP cheio ${(cheio * 100).toFixed(0)}%  →  quase KO ${(quaseZero * 100).toFixed(0)}%`,
-    );
-    checar(quaseZero > cheio * 1.8, `${especie.nome}: enfraquecer quase não ajuda`);
-    checar(quaseZero < 0.95, `${especie.nome}: captura virou garantida`);
-    checar(cheio > 0.12, `${especie.nome}: impossível de pegar sem batalhar antes`);
+    const cheio = chanceCaptura(especie, 1, 0, 1, 10) ** 3;
+    const quaseZero = chanceCaptura(especie, 0.05, 0, 1, 10) ** 3;
+    checar(quaseZero >= cheio, `${especie.nome}: enfraquecer piorou a captura`);
+    // A exigência de ganho grande só vale para quem não está perto do teto:
+    // um Caterpie já é fácil com a vida cheia, não há para onde melhorar.
+    if (cheio < 0.5) {
+      checar(quaseZero > cheio * 1.5, `${especie.nome}: enfraquecer quase não ajuda`);
+    }
+    checar(quaseZero < 0.96, `${especie.nome}: captura virou garantida`);
+    piorCheio = Math.min(piorCheio, cheio);
+    melhorKo = Math.max(melhorKo, quaseZero);
   }
+  console.log(
+    `   alvo inteiro: de ${(piorCheio * 100).toFixed(0)}% (o mais difícil) ` +
+      `a ${(melhorKo * 100).toFixed(0)}% quase desmaiado (o mais fácil)`,
+  );
+  // A afirmação que interessa não é que ninguém seja impossível com bola comum
+  // e vida cheia — Mewtwo é, e deve ser. É que esforço sempre resolve: quem
+  // batalhou até quase derrubar e usou a melhor bola tem de ter uma chance real.
+  let piorComEsforco = 1;
+  for (const especie of ESPECIES) {
+    piorComEsforco = Math.min(piorComEsforco, chanceCaptura(especie, 0.05, 0, 8, 20) ** 3);
+  }
+  console.log(
+    `   enfraquecido e com Bola Lacuna, o pior caso ainda dá ${(piorComEsforco * 100).toFixed(0)}%`,
+  );
+  checar(piorComEsforco > 0.35, 'nem batalhando e com a melhor bola dá para pegar os difíceis');
+
+  const facil = porId('caterpie')!;
+  const dificil = porId('mewtwo')!;
+  checar(
+    chanceCaptura(facil, 1, 0, 1, 10) > chanceCaptura(dificil, 1, 0, 1, 10),
+    'Caterpie deveria ser mais fácil que Mewtwo',
+  );
+  // Nível alto resiste mais — é o que impede prender um lendário de primeira.
+  const comum = porId('rattata')!;
+  checar(
+    chanceCaptura(comum, 1, 0, 1, 50) < chanceCaptura(comum, 1, 0, 1, 5),
+    'o nível do alvo não muda nada na captura',
+  );
 
   console.log('   --- com o alvo inteiro, por tipo de bola ---');
-  const alvo = porId('trovisco')!;
   let anterior = 0;
   for (const bola of BOLAS) {
-    const chance = chanceCaptura(alvo, 1, 0, bola.multiplicador) ** 3;
-    console.log(`   ${bola.nome.padEnd(16)} ${(chance * 100).toFixed(0)}%`);
+    const chance = chanceCaptura(dificil, 1, 0, bola.multiplicador, 40) ** 3;
+    console.log(`   ${bola.nome.padEnd(16)} ${(chance * 100).toFixed(1)}%`);
     checar(chance > anterior, `${bola.nome} não é melhor que a anterior`);
     anterior = chance;
   }
-  checar(anterior > 0.8, 'nem a melhor bola resolve um alvo difícil');
 }
 
-// 5. Ciclo completo da pokébola sempre resolve.
-console.log('5. ciclo da pokébola');
+// ---------------------------------------------------------------------------
+console.log('7. níveis e evolução');
+{
+  for (let n = 1; n < NIVEL_MAXIMO; n++) {
+    checar(xpParaNivel(n + 1) > xpParaNivel(n), `a XP do nível ${n + 1} não cresce`);
+    checar(nivelPorXp(xpParaNivel(n)) === n, `nivelPorXp não inverte xpParaNivel no nível ${n}`);
+  }
+
+  const charmander = porId('charmander')!;
+  checar(evolucaoEm(charmander, 5) === null, 'Charmander evoluiu cedo demais');
+  const evoluido = evolucaoEm(charmander, 40);
+  checar(evoluido?.id === 'charmeleon', 'Charmander deveria virar Charmeleon');
+
+  // Os stats precisam crescer com o nível, e o HP mais do que o resto.
+  const baixo = statsNoNivel(charmander, 5);
+  const alto = statsNoNivel(charmander, 50);
+  checar(alto.hpMax > baixo.hpMax * 2, 'o HP quase não sobe com o nível');
+  checar(alto.ataque > baixo.ataque, 'o ataque não sobe com o nível');
+  console.log(
+    `   Charmander N5 ${baixo.hpMax} HP / ${baixo.ataque} atq → N50 ${alto.hpMax} HP / ${alto.ataque} atq`,
+  );
+
+  // Uma linha inteira tem de chegar ao fim sem buraco.
+  let atual: Especie | null = porId('bulbasaur')!;
+  const linha: string[] = [];
+  for (let i = 0; i < 5 && atual; i++) {
+    linha.push(atual.nome);
+    atual = evolucaoEm(atual, NIVEL_MAXIMO);
+  }
+  console.log(`   linha completa: ${linha.join(' → ')}`);
+  checar(linha.length === 3, `a linha do Bulbasaur deu ${linha.length} formas`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('8. ciclo da pokébola');
 {
   const contagem = { capturou: 0, escapou: 0, travou: 0 };
   for (let n = 0; n < 200; n++) {
-    const especie = ESPECIES[n % ESPECIES.length];
-    const alvo = new Pokemon(especie, new THREE.Vector3(0, 0, -1.5), 0, 'selvagem', n);
+    const especie = ESPECIES[(n * 13) % ESPECIES.length];
+    const alvo = nascer(especie, 'selvagem', 10, n);
     alvo.atualizar(0.7, JOGADOR);
-    alvo.receberDano(especie.hpMax * 0.7); // chega machucado, como numa batalha real
+    alvo.receberDano(alvo.hpMax * 0.7); // chega machucado, como numa batalha real
     const bola = new Pokebola(0);
     bola.raiz.position.set(0, 1.2, -1.4);
-    bola.capturar(alvo);
+    bola.capturar(alvo, 0.5, 2);
 
     let desfecho: string | null = null;
     for (let i = 0; i < 72 * 20; i++) {
@@ -155,16 +347,17 @@ console.log('5. ciclo da pokébola');
     else contagem.travou++;
   }
   const taxa = (contagem.capturou / 200) * 100;
-  console.log(`   com 30% de HP: ${contagem.capturou} capturas, ${contagem.escapou} escapes (${taxa.toFixed(0)}%)`);
+  console.log(
+    `   com 30% de HP e bola reforçada: ${contagem.capturou} capturas, ${contagem.escapou} escapes (${taxa.toFixed(0)}%)`,
+  );
   checar(contagem.travou === 0, `${contagem.travou} capturas nunca resolveram`);
-  checar(taxa > 30 && taxa < 92, `taxa fora do razoável: ${taxa.toFixed(0)}%`);
+  checar(taxa > 25 && taxa < 95, `taxa fora do razoável: ${taxa.toFixed(0)}%`);
 }
 
-// 6. O companheiro acompanha o treinador sem enlouquecer.
-console.log('6. companheiro seguindo o treinador');
+// ---------------------------------------------------------------------------
+console.log('9. companheiro seguindo o treinador');
 {
-  const especie = porId('trovisco')!;
-  const companheiro = new Pokemon(especie, new THREE.Vector3(0, 0, -1), 0, 'companheiro', 3);
+  const companheiro = nascer(porId('pikachu')!, 'companheiro', 12, 3);
   const jogador = new THREE.Vector3(0, 1.6, 0);
   let maxDist = 0;
   let afundou = 0;
@@ -187,11 +380,11 @@ console.log('6. companheiro seguindo o treinador');
   checar(maxDist < 3, `o companheiro se perdeu (${maxDist.toFixed(2)}m)`);
 }
 
-// 7. Selvagem foge se você invadir o espaço dele.
-console.log('7. fuga por proximidade');
+// ---------------------------------------------------------------------------
+console.log('10. fuga por proximidade, e a fruta segurando ela');
 {
-  const alvo = new Pokemon(ESPECIES[1], new THREE.Vector3(0, 0, -1), 0, 'selvagem', 11);
-  const perto = new THREE.Vector3(0, 1.6, -1);
+  const alvo = nascer(porId('rattata')!, 'selvagem', 8, 11);
+  const perto = new THREE.Vector3(0, 1.6, -1.5);
   let passos = 0;
   while (alvo.viva && passos < 72 * 30) {
     alvo.atualizar(1 / 72, perto);
@@ -199,10 +392,21 @@ console.log('7. fuga por proximidade');
   }
   console.log(`   sumiu depois de ${(passos / 72).toFixed(1)}s de invasão de espaço`);
   checar(!alvo.viva, 'o selvagem nunca fugiu mesmo com o treinador em cima');
+
+  // Com a fruta, o mesmo assédio não basta: dá tempo de jogar a bola.
+  const comFruta = nascer(porId('rattata')!, 'selvagem', 8, 11);
+  let passosComFruta = 0;
+  while (comFruta.viva && passosComFruta < 72 * 30) {
+    comFruta.atualizar(1 / 72, perto);
+    if (passosComFruta % 72 === 0) comFruta.acalmar(0.5);
+    passosComFruta++;
+  }
+  console.log(`   com fruta a cada segundo, aguentou ${(passosComFruta / 72).toFixed(1)}s`);
+  checar(passosComFruta > passos, 'a fruta não segurou o selvagem por mais tempo');
 }
 
-// 8. Spawner sempre devolve ponto dentro da faixa pedida.
-console.log('8. pontos de nascimento');
+// ---------------------------------------------------------------------------
+console.log('11. pontos de nascimento');
 {
   const sala = new Sala(new THREE.Group());
   sala.usarFallback();

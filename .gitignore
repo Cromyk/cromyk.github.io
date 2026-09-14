@@ -4,6 +4,25 @@ dist/
 # Gerados por `npm run icons` — o repositório não guarda binários.
 public/icons/
 
+# Os 54 MB de modelos Pokémon, baixados por `npm run modelos` (roda sozinho
+# no predev e no prebuild). O manifesto com as medidas, esse é versionado:
+# é texto, o build precisa dele para compilar, e é o que permite pular a
+# remedição de 151 malhas a cada publicação.
+public/pokemon/*.glb
+
+# Decodificador Draco, copiado do three instalado por `tools/draco.mjs`.
+public/draco/
+
+# Cache das respostas da PokeAPI e da árvore do repositório de modelos.
+.cache/
+
+# Folhas de contato geradas por `npm run render`. A dos 151 fica versionada
+# porque é ela que o README mostra; as de diagnóstico, não.
+# (as de diagnóstico saem com --vistas e --candidatos)
+folha-vistas.png
+folha-[A-Z].png
+pokemon.png
+
 # A chave de assinatura nunca entra no repositório.
 # (o assetlinks.json, esse sim, precisa ser publicado: a impressão SHA-256
 #  é pública por definição — fica exposta na web para o Android verificar)

@@ -14,17 +14,23 @@
     "preview": "vite preview --host",
     "test": "esbuild tools/smoke.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/smoke.mjs --log-level=error && node node_modules/.cache/smoke.mjs",
     "serve:dist": "node tools/serve.mjs",
-    "predev": "node tools/icons.mjs",
-    "prebuild": "node tools/icons.mjs",
-    "render": "esbuild tools/render.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/render.mjs --external:./png.mjs --log-level=error && node -e \"require('fs').copyFileSync('tools/png.mjs','node_modules/.cache/png.mjs')\" && node node_modules/.cache/render.mjs"
+    "predev": "node tools/icons.mjs && node tools/draco.mjs && node tools/modelos.mjs",
+    "prebuild": "node tools/icons.mjs && node tools/draco.mjs && node tools/modelos.mjs",
+    "render": "node tools/folha.mjs",
+    "pokedex": "node tools/pokedex.mjs",
+    "modelos": "node tools/modelos.mjs",
+    "encaixe": "node tools/encaixe.mjs"
   },
   "dependencies": {
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
     "@types/three": "^0.184.0",
     "@types/webxr": "^0.5.24",
     "@vitejs/plugin-basic-ssl": "^2.1.0",
+    "draco3d": "^1.5.7",
     "typescript": "^5.9.2",
     "vite": "^7.1.0"
   }

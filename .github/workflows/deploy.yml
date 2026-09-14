@@ -30,7 +30,15 @@ jobs:
 
       - run: npm test
 
-      # `prebuild` gera os ícones, que não são versionados por serem binários.
+      # Os 151 modelos não estão no repositório: o prebuild baixa do
+      # Pokemon-3D-api. São 54 MB, então guardamos entre publicações — a
+      # chave é o manifesto, que só muda quando o elenco muda.
+      - uses: actions/cache@v4
+        with:
+          path: public/pokemon
+          key: modelos-${{ hashFiles('public/pokemon/manifesto.json') }}
+
+      # `prebuild` gera os ícones, copia o Draco e baixa o que faltar de modelo.
 
       - run: npm run build
 

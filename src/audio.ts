@@ -1,3 +1,27 @@
+import type { Tipo } from './pokedex.gen';
+
+/** Em que família sonora cada um dos dezoito tipos cai. */
+const FAMILIA_SONORA: Record<Tipo, 'rugido' | 'jorro' | 'corte' | 'estalo' | 'baque' | 'sombra'> = {
+  fogo: 'rugido',
+  agua: 'jorro',
+  gelo: 'jorro',
+  planta: 'corte',
+  inseto: 'corte',
+  voador: 'corte',
+  aco: 'corte',
+  eletrico: 'estalo',
+  psiquico: 'estalo',
+  fada: 'estalo',
+  normal: 'baque',
+  lutador: 'baque',
+  terra: 'baque',
+  pedra: 'baque',
+  veneno: 'sombra',
+  fantasma: 'sombra',
+  sombrio: 'sombra',
+  dragao: 'sombra',
+};
+
 /**
  * Áudio 100% sintetizado na WebAudio — nenhum arquivo de som no pacote.
  * Tudo aqui é osciladores e ruído com envelope.
@@ -150,24 +174,38 @@ export class Audio {
 
   // ---- batalha ----
 
-  /** Cada tipo soa diferente: o fogo ruge, a água jorra, o raio estala. */
-  golpe(tipo: 'fogo' | 'agua' | 'planta' | 'eletrico') {
-    switch (tipo) {
-      case 'fogo':
+  /**
+   * Cada tipo soa diferente, mas dezoito timbres distintos não se distinguem
+   * numa batalha de três segundos — e cada um seria mais código de áudio para o
+   * headset processar. Então os dezoito caem em seis famílias, escolhidas pelo
+   * que a gente REPARA: o fogo ruge, a água jorra, o corte assobia, a energia
+   * estala, o golpe de corpo dá um baque e o sombrio sopra grave.
+   */
+  golpe(tipo: Tipo) {
+    switch (FAMILIA_SONORA[tipo]) {
+      case 'rugido':
         this.sopro({ duracao: 0.5, corteInicial: 380, corteFinal: 1500, ganho: 0.26, q: 0.9 });
         this.tom({ freq: 110, freqFinal: 70, duracao: 0.45, tipo: 'sawtooth', ganho: 0.12 });
         break;
-      case 'agua':
+      case 'jorro':
         this.sopro({ duracao: 0.5, corteInicial: 1800, corteFinal: 700, ganho: 0.24, q: 1.6 });
         this.tom({ freq: 320, freqFinal: 180, duracao: 0.4, tipo: 'sine', ganho: 0.1 });
         break;
-      case 'planta':
+      case 'corte':
         this.sopro({ duracao: 0.22, corteInicial: 2600, corteFinal: 1200, ganho: 0.2, q: 4 });
         this.tom({ freq: 700, freqFinal: 420, duracao: 0.22, tipo: 'triangle', ganho: 0.12 });
         break;
-      case 'eletrico':
+      case 'estalo':
         this.sopro({ duracao: 0.32, corteInicial: 3200, corteFinal: 900, ganho: 0.28, q: 0.7 });
         this.tom({ freq: 1400, freqFinal: 300, duracao: 0.3, tipo: 'square', ganho: 0.12 });
+        break;
+      case 'baque':
+        this.sopro({ duracao: 0.18, corteInicial: 900, corteFinal: 200, ganho: 0.3, q: 1.2 });
+        this.tom({ freq: 160, freqFinal: 60, duracao: 0.24, tipo: 'triangle', ganho: 0.16 });
+        break;
+      case 'sombra':
+        this.sopro({ duracao: 0.55, corteInicial: 700, corteFinal: 160, ganho: 0.22, q: 2.2 });
+        this.tom({ freq: 90, freqFinal: 52, duracao: 0.5, tipo: 'sine', ganho: 0.14 });
         break;
     }
   }

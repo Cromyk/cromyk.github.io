@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
-import { INICIAIS, TIPOS, type Especie } from './species';
+import { INICIAIS, TIPOS, corHexDe, textoTipos, type Especie } from './species';
 import { Pokemon } from './creature';
+import { instanciar, precarregar } from './modelos';
 import { audio } from './audio';
 
 /**
@@ -11,12 +12,24 @@ import { audio } from './audio';
  * Três criaturas flutuam à sua frente, girando devagar. Aponte e puxe o gatilho.
  */
 export class EscolhaInicial {
+  /**
+   * Põe os modelos dos iniciais em memória. Tem de terminar antes de construir
+   * a tela: sem o GLB carregado não há o que mostrar no pedestal, e uma vitrine
+   * de pedestais vazios é pior do que um segundo de espera.
+   */
+  static carregar(): Promise<void> {
+    return precarregar(INICIAIS.map((e) => e.id));
+  }
+
   readonly grupo = new THREE.Group();
   /** Vira true quando alguém foi escolhido. */
   escolhido: Especie | null = null;
   destacado = -1;
 
-  private opcoes: Pokemon[] = [];
+  // Alinhado com INICIAIS, com buraco se algum modelo faltar: os cartões e os
+  // alvos de mira são indexados por INICIAIS, e desalinhar isso escolheria o
+  // bicho errado no gatilho.
+  private opcoes: Array<Pokemon | null> = [];
   private cartoes: Placa[] = [];
   private alvos: THREE.Mesh[] = [];
   private titulo = new Placa(0.5, 0.11, 640);
@@ -26,7 +39,7 @@ export class EscolhaInicial {
   private ultimoDestaque = -1;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
 
-  private static readonly ESPACO = 0.42;
+  private static readonly ESPACO = 0.34;
   private static readonly DISTANCIA = 1.15;
   private static readonly ALTURA = 1.15;
 
@@ -44,12 +57,18 @@ export class EscolhaInicial {
     INICIAIS.forEach((especie, i) => {
       const x = (i - (INICIAIS.length - 1) / 2) * EscolhaInicial.ESPACO;
 
-      // O bicho, parado e girando devagar.
-      const bicho = new Pokemon(especie, new THREE.Vector3(0, 0, 0), 0, 'companheiro', i * 131 + 9);
-      bicho.raiz.position.set(x, -0.06, 0);
-      bicho.raiz.scale.setScalar(1);
-      this.grupo.add(bicho.raiz);
-      this.opcoes.push(bicho);
+      // O bicho, parado e girando devagar. O modelo já está em memória: quem
+      // constrói esta tela é responsável por ter chamado carregar() antes.
+      const corpo = instanciar(especie.id, especie.altura);
+      if (corpo) {
+        const bicho = new Pokemon(especie, corpo, new THREE.Vector3(0, 0, 0), 0, 'companheiro', 5, false, i * 131 + 9);
+        bicho.raiz.position.set(x, -0.06, 0);
+        bicho.raiz.scale.setScalar(1);
+        this.grupo.add(bicho.raiz);
+        this.opcoes.push(bicho);
+      } else {
+        this.opcoes.push(null);
+      }
 
       // Pedestal de luz sob ele.
       const geoDisco = new THREE.CylinderGeometry(0.13, 0.13, 0.006, 28);
@@ -90,13 +109,13 @@ export class EscolhaInicial {
 
   private redesenharCartoes() {
     INICIAIS.forEach((especie, i) => {
-      const cor = `#${new THREE.Color(TIPOS[especie.tipo].cor).getHexString()}`;
+      const cor = corHexDe(especie);
       const sobMira = i === this.destacado;
       this.cartoes[i].escrever(
         [
           { texto: especie.nome, tamanho: 36, cor: '#f2f5fa', peso: 700 },
-          { texto: TIPOS[especie.tipo].nome.toUpperCase(), tamanho: 23, cor, peso: 700, espaco: 4 },
-          { texto: especie.golpe.nome, tamanho: 21, cor: '#9aa5b8', peso: 500 },
+          { texto: textoTipos(especie).toUpperCase(), tamanho: 22, cor, peso: 700, espaco: 4 },
+          { texto: especie.golpe.nome, tamanho: 20, cor: '#9aa5b8', peso: 500 },
         ],
         {
           raio: 18,
@@ -136,6 +155,7 @@ export class EscolhaInicial {
     const jogador = camera.getWorldPosition(new THREE.Vector3());
 
     this.opcoes.forEach((bicho, i) => {
+      if (!bicho) return;
       bicho.atualizar(dt, jogador);
       // Aqui eles são bonecos de vitrine: não passeiam, só giram e flutuam.
       const x = (i - (this.opcoes.length - 1) / 2) * EscolhaInicial.ESPACO;
@@ -174,7 +194,7 @@ export class EscolhaInicial {
 
   descartar(cena: THREE.Object3D) {
     cena.remove(this.grupo);
-    for (const bicho of this.opcoes) bicho.descartar(this.grupo);
+    for (const bicho of this.opcoes) bicho?.descartar(this.grupo);
     for (const cartao of this.cartoes) cartao.descartar();
     this.titulo.descartar();
     for (const d of this.descartaveis) d.dispose();

@@ -148,8 +148,9 @@ export class Pokebola {
       pokemon.hpFracao,
       pokemon.alarme,
       multiplicadorBola,
+      pokemon.nivel,
     );
-    this.chancePorSacudida = THREE.MathUtils.clamp(base * (1 + precisao * 0.1), 0.16, 0.985);
+    this.chancePorSacudida = THREE.MathUtils.clamp(base * (1 + precisao * 0.1), 0.1, 0.985);
     this.sacudidasRestantes = SACUDIDAS;
   }
 

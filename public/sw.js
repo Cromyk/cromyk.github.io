@@ -5,8 +5,12 @@
  * Estratégia: network-first para o HTML (para o jogo atualizar sozinho quando
  * você publica uma versão nova) e cache-first para o resto, que tem hash no
  * nome e portanto nunca muda de conteúdo.
+ *
+ * Os modelos dos Pokémon entram nesse cache-first conforme você encontra cada
+ * espécie: são 54 MB no total e ninguém quer baixar isso de uma vez, mas o
+ * bicho que você já viu uma vez nunca mais precisa de rede.
  */
-const CACHE = 'critter-quest-v1';
+const CACHE = 'critter-quest-v2';
 
 self.addEventListener('install', (evento) => {
   // Assume o controle já na primeira carga, sem esperar um recarregamento.

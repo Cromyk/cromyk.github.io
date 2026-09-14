@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { construirCriatura, type Especie, type PartesCriatura } from './species';
+import { statsNoNivel, type Especie } from './species';
+import type { Corpo } from './modelos';
 import { criarRng, entre, type Rng } from './rng';
 
 export type Papel = 'selvagem' | 'companheiro';
@@ -21,12 +22,21 @@ const GRAVIDADE = -9.0;
  * Um Pokémon vivo no seu quarto. O mesmo corpo serve para o selvagem — que
  * passeia, repara em você e foge se levar susto — e para o companheiro, que
  * anda ao seu lado e ataca quando você manda.
+ *
+ * O corpo é um modelo 3D de verdade (ver src/modelos.ts), não geometria
+ * montada aqui. Dezenove dos 151 arquivos trazem animação assada; os outros
+ * 132 chegam parados, então toda a vida deles é a animação procedural abaixo:
+ * respiração, squash no salto, inclinação na corrida, tremor ao apanhar. É
+ * pouca conta por quadro de propósito — o headset desenha a cena duas vezes.
  */
 export class Pokemon {
   readonly especie: Especie;
-  readonly partes: PartesCriatura;
+  readonly corpo: Corpo;
   readonly raiz: THREE.Group;
   readonly papel: Papel;
+  readonly nivel: number;
+  readonly shiny: boolean;
+  readonly hpMax: number;
 
   ancora: THREE.Vector3;
   pisoY: number;
@@ -38,6 +48,11 @@ export class Pokemon {
   viva = true;
   /** Para quem ele está virado enquanto luta. */
   alvo: Pokemon | null = null;
+  /**
+   * Se este encontro já rendeu experiência. Um selvagem derrubado e depois
+   * capturado é UM encontro, e pagaria duas vezes sem esta marca.
+   */
+  xpConcedida = false;
 
   private rng: Rng;
   private tempo: number;
@@ -45,51 +60,63 @@ export class Pokemon {
   private noChao = true;
   private destino = new THREE.Vector3();
   private proximoPulo: number;
-  private proximaPiscada: number;
-  private piscando = 0;
   private cronometroEstado = 0;
   private escalaAlvo = 1;
   private olharPara: THREE.Vector3 | null = null;
   private recarga = 0;
   private tremor = 0;
-  private brilhoAtaque = 0;
-  private intensidadeBase: number[] = [];
+  /** Achatada ao aterrissar, volta sozinha. */
+  private impacto = 0;
+  private velocidadeAndando = 0;
 
   private static readonly RAIO_PASSEIO = 0.85;
 
   constructor(
     especie: Especie,
+    corpo: Corpo,
     ancora: THREE.Vector3,
     pisoY: number,
     papel: Papel = 'selvagem',
+    nivel = 5,
+    shiny = false,
     semente = Math.random() * 1e9,
   ) {
     this.especie = especie;
+    this.corpo = corpo;
     this.papel = papel;
+    this.nivel = nivel;
+    this.shiny = shiny;
     this.ancora = ancora.clone();
     this.pisoY = pisoY;
-    this.hp = especie.hpMax;
+    this.hpMax = statsNoNivel(especie, nivel).hpMax;
+    this.hp = this.hpMax;
     this.rng = criarRng(semente);
     this.tempo = this.rng() * 10;
     this.proximoPulo = entre(this.rng, 1.2, 3.0);
-    this.proximaPiscada = entre(this.rng, 2, 5);
 
-    this.partes = construirCriatura(especie);
-    this.raiz = this.partes.raiz;
+    this.raiz = corpo.raiz;
     this.raiz.position.copy(ancora);
     this.raiz.position.y = pisoY;
     this.raiz.rotation.y = this.rng() * Math.PI * 2;
     this.raiz.scale.setScalar(0.001);
     this.destino.copy(this.raiz.position);
 
-    // Guarda o brilho original para poder pulsar durante o ataque.
-    for (const mat of this.partes.emissivos) {
-      this.intensidadeBase.push((mat as THREE.MeshStandardMaterial).emissiveIntensity ?? 1);
+    // Um clipe assado, quando o arquivo trouxe algum, roda por baixo da
+    // animação procedural. Vale a pena: quem tem, tem "Impactrueno" e afins,
+    // que são muito melhores do que qualquer coisa que a gente inventasse.
+    const primeira = corpo.acoes.values().next();
+    if (!primeira.done) {
+      primeira.value.reset().play();
+      primeira.value.setEffectiveTimeScale(0.85);
     }
   }
 
+  get altura(): number {
+    return this.corpo.altura;
+  }
+
   get hpFracao(): number {
-    return THREE.MathUtils.clamp(this.hp / this.especie.hpMax, 0, 1);
+    return THREE.MathUtils.clamp(this.hp / this.hpMax, 0, 1);
   }
 
   /** Segundos desde a última troca de estado. */
@@ -104,17 +131,17 @@ export class Pokemon {
   /** Centro do corpo no mundo — alvo dos golpes e da pokébola. */
   get centro(): THREE.Vector3 {
     const p = this.raiz.position;
-    return new THREE.Vector3(p.x, p.y + this.especie.altura * 0.5 * this.raiz.scale.y, p.z);
+    return new THREE.Vector3(p.x, p.y + this.altura * 0.5 * this.raiz.scale.y, p.z);
   }
 
   /** De onde sai o golpe. */
   get boca(): THREE.Vector3 {
     this.raiz.updateMatrixWorld();
-    return this.partes.boca.getWorldPosition(new THREE.Vector3());
+    return this.corpo.boca.getWorldPosition(new THREE.Vector3());
   }
 
   get raio(): number {
-    return this.especie.altura * 0.55;
+    return this.corpo.raio;
   }
 
   get podeAtacar(): boolean {
@@ -128,13 +155,12 @@ export class Pokemon {
   }
 
   /** Dispara a animação de ataque. O dano em si é resolvido pela batalha. */
-  atacar(alvo: Pokemon) {
+  atacar(alvo: Pokemon, recarga: number) {
     if (!this.podeAtacar) return false;
     this.alvo = alvo;
     this.estado = 'atacando';
     this.cronometroEstado = 0;
-    this.recarga = this.especie.golpe.recarga;
-    this.brilhoAtaque = 1;
+    this.recarga = recarga;
     // Pequeno salto para trás, como um recuo do disparo.
     if (this.noChao) {
       this.velY = 1.1;
@@ -158,8 +184,11 @@ export class Pokemon {
   }
 
   curar(quantidade: number) {
-    this.hp = Math.min(this.especie.hpMax, this.hp + quantidade);
-    if (this.hp > 0 && this.estado === 'desmaiado') this.estado = 'ocioso';
+    this.hp = Math.min(this.hpMax, this.hp + quantidade);
+    if (this.hp > 0 && this.estado === 'desmaiado') {
+      this.estado = 'ocioso';
+      this.raiz.rotation.z = 0;
+    }
   }
 
   assustar(quanto: number) {
@@ -171,6 +200,15 @@ export class Pokemon {
       this.noChao = false;
     }
     if (this.alarme >= 1) this.fugir();
+  }
+
+  /** Acalma o selvagem — é o que uma fruta bem jogada faz. */
+  acalmar(quanto: number) {
+    this.alarme = Math.max(0, this.alarme - quanto);
+    if (this.estado === 'fugindo') {
+      this.estado = 'ocioso';
+      this.cronometroEstado = 0;
+    }
   }
 
   fugir() {
@@ -222,13 +260,23 @@ export class Pokemon {
     this.escalaAlvo = 1;
   }
 
+  /** Vem até um ponto — a mão estendida com uma fruta, por exemplo. */
+  chamarPara(ponto: THREE.Vector3) {
+    this.destino.set(ponto.x, this.pisoY, ponto.z);
+    this.olharPara = ponto.clone();
+    if (this.noChao) {
+      this.velY = 1.8;
+      this.noChao = false;
+    }
+  }
+
   atualizar(dt: number, jogador: THREE.Vector3) {
     if (!this.viva) return;
     this.tempo += dt;
     this.cronometroEstado += dt;
     if (this.recarga > 0) this.recarga -= dt;
     if (this.tremor > 0) this.tremor = Math.max(0, this.tremor - dt * 3.5);
-    if (this.brilhoAtaque > 0) this.brilhoAtaque = Math.max(0, this.brilhoAtaque - dt * 1.8);
+    if (this.impacto > 0) this.impacto = Math.max(0, this.impacto - dt * 4.5);
 
     // Distância no plano: a cabeça do jogador fica ~1,6 m acima do chão, então
     // medir em 3D faria o Pokémon achar que ninguém chegou perto.
@@ -253,6 +301,7 @@ export class Pokemon {
         this.olharPara = null;
         // Tomba de lado e fica.
         this.raiz.rotation.z = THREE.MathUtils.lerp(this.raiz.rotation.z, 1.35, Math.min(1, dt * 5));
+        this.corpo.mixer?.update(dt * 0.2);
         return;
 
       case 'ocioso':
@@ -354,15 +403,23 @@ export class Pokemon {
       const dist = plano.length();
       if (dist > 0.001) {
         const vel = this.estado === 'fugindo' ? 2.6 : this.papel === 'companheiro' ? 1.9 : 1.15;
-        plano.normalize().multiplyScalar(Math.min(vel * dt, dist));
+        const passo = Math.min(vel * dt, dist);
+        plano.normalize().multiplyScalar(passo);
         this.raiz.position.add(plano);
+        this.velocidadeAndando = dt > 0 ? passo / dt : 0;
+      } else {
+        this.velocidadeAndando = 0;
       }
 
       if (this.raiz.position.y <= this.pisoY) {
+        // Aterrissou: guarda a força da queda para o corpo achatar um pouco.
+        this.impacto = THREE.MathUtils.clamp(-this.velY / 4, 0, 1);
         this.raiz.position.y = this.pisoY;
         this.velY = 0;
         this.noChao = true;
       }
+    } else {
+      this.velocidadeAndando = Math.max(0, this.velocidadeAndando - dt * 4);
     }
 
     const alvo = this.olharPara ?? (this.noChao ? null : this.destino);
@@ -374,9 +431,15 @@ export class Pokemon {
     }
   }
 
+  /**
+   * A vida do bicho, toda escrita em `corpo` — nunca em `raiz` (que é do jogo)
+   * nem em `ajuste` (que é da normalização do modelo).
+   */
   private animar(dt: number) {
-    const { corpo, cabeca, palpebras, cauda, orelhas, membros, emissivos } = this.partes;
+    const g = this.corpo.corpo;
     const nervoso = this.alarme;
+
+    this.corpo.mixer?.update(dt);
 
     if (this.estado !== 'preso') {
       const escalaAtual = this.raiz.scale.x;
@@ -387,82 +450,52 @@ export class Pokemon {
     const cansaco = 1 - this.hpFracao;
     const ritmo = 2.2 + nervoso * 3.5 + cansaco * 2.5;
     const respira = Math.sin(this.tempo * ritmo) * (0.03 + nervoso * 0.025 + cansaco * 0.02);
-    corpo.scale.set(1 - respira * 0.6, 1 + respira, 1 - respira * 0.6);
+    let ex = 1 - respira * 0.6;
+    let ey = 1 + respira;
+    let ez = 1 - respira * 0.6;
 
-    // Squash & stretch no salto.
+    // Squash & stretch: estica subindo, achata na aterrissagem.
     if (!this.noChao) {
       const estica = THREE.MathUtils.clamp(this.velY * 0.05, -0.16, 0.16);
-      corpo.scale.y *= 1 + estica;
-      corpo.scale.x *= 1 - estica * 0.5;
-      corpo.scale.z *= 1 - estica * 0.5;
+      ey *= 1 + estica;
+      ex *= 1 - estica * 0.5;
+      ez *= 1 - estica * 0.5;
     }
+    if (this.impacto > 0) {
+      const achata = this.impacto * 0.22;
+      ey *= 1 - achata;
+      ex *= 1 + achata * 0.6;
+      ez *= 1 + achata * 0.6;
+    }
+    g.scale.set(ex, ey, ez);
 
-    // A cabeça acompanha a respiração e recua no ataque.
-    cabeca.position.y += (respira * 0.004 - cabeca.position.y * 0) * 0;
+    // Balanço leve no eixo do corpo: é o que tira os modelos parados da cara de
+    // estátua. Quem anda depressa se inclina para a frente.
+    const balanco = Math.sin(this.tempo * (3.4 + nervoso * 2)) * 0.035 * (0.4 + nervoso);
+    const inclinacao = THREE.MathUtils.clamp(this.velocidadeAndando * 0.07, 0, 0.16);
+
     if (this.estado === 'atacando') {
+      // Recua e joga o corpo para a frente, na direção do alvo.
       const t = Math.min(1, this.cronometroEstado / 0.35);
-      // Puxa para trás e joga para a frente.
-      cabeca.rotation.x = Math.sin(t * Math.PI) * -0.42;
+      const arranque = Math.sin(t * Math.PI);
+      g.rotation.x = -0.34 * arranque;
+      g.position.z = arranque * this.altura * 0.18;
     } else {
-      cabeca.rotation.x += (0 - cabeca.rotation.x) * Math.min(1, dt * 8);
+      g.rotation.x += (inclinacao - g.rotation.x) * Math.min(1, dt * 7);
+      g.position.z += (0 - g.position.z) * Math.min(1, dt * 8);
     }
+    g.rotation.z = balanco;
 
     // Tremor ao levar dano.
     if (this.tremor > 0) {
       this.raiz.position.x += Math.sin(this.tempo * 70) * 0.006 * this.tremor;
       this.raiz.position.z += Math.cos(this.tempo * 63) * 0.006 * this.tremor;
     }
-
-    // Piscar.
-    this.proximaPiscada -= dt;
-    if (this.proximaPiscada <= 0 && this.piscando <= 0) {
-      this.piscando = 0.16;
-      this.proximaPiscada = entre(this.rng, 2.2, 6);
-    }
-    if (this.piscando > 0) {
-      this.piscando -= dt;
-      const t = Math.max(0, this.piscando) / 0.16;
-      const fecha = Math.sin(t * Math.PI);
-      for (const p of palpebras) p.scale.y = Math.max(0.01, fecha);
-    } else {
-      for (const p of palpebras) p.scale.y = Math.max(0.01, p.scale.y * (1 - dt * 10));
-    }
-
-    // Cauda.
-    if (cauda) {
-      const balanco = Math.sin(this.tempo * (2.6 + nervoso * 4)) * (0.2 + nervoso * 0.28);
-      cauda.rotation.y = balanco;
-    }
-
-    // Orelhas reagem ao susto.
-    for (let i = 0; i < orelhas.length; i++) {
-      const lado = i === 0 ? -1 : 1;
-      const tremeliqueOrelha = Math.sin(this.tempo * 5 + i) * 0.05;
-      orelhas[i].rotation.x = -nervoso * 0.3 + tremeliqueOrelha;
-      orelhas[i].rotation.z += (lado * -0.28 - orelhas[i].rotation.z) * Math.min(1, dt * 4);
-    }
-
-    // Membros balançam ao andar.
-    const andando = !this.noChao ? 1 : 0;
-    for (let i = 0; i < membros.length; i++) {
-      const fase = i % 2 === 0 ? 0 : Math.PI;
-      membros[i].rotation.x = Math.sin(this.tempo * 7 + fase) * 0.35 * andando;
-    }
-
-    // O que brilha (chama, bochechas) pulsa e acende no ataque.
-    for (let i = 0; i < emissivos.length; i++) {
-      const mat = emissivos[i] as THREE.MeshStandardMaterial;
-      const base = this.intensidadeBase[i] ?? 1;
-      const pulso = 1 + Math.sin(this.tempo * 7) * 0.12;
-      // A chama do Charmander diminui junto com o HP, como manda a lenda.
-      const saude = 0.35 + this.hpFracao * 0.65;
-      mat.emissiveIntensity = base * pulso * saude * (1 + this.brilhoAtaque * 2.2);
-    }
   }
 
   descartar(cena: THREE.Object3D) {
     cena.remove(this.raiz);
-    for (const d of this.partes.descartaveis) d.dispose();
+    this.corpo.descartar();
     this.viva = false;
   }
 }
