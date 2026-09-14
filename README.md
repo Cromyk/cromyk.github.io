@@ -68,8 +68,8 @@ sem pôr o headset a cada mudança:
 | Pegar a pokébola | segurar o **GRIP** |
 | Arremessar | **soltar o GRIP** no meio do movimento do braço |
 | Mandar seu Pokémon atacar | **GATILHO** |
-| Time, bolas e itens | virar a **palma esquerda** para cima |
-| Pokédex das 151 | virar a **palma direita** para cima |
+| Modos, time, bolas, itens e golpes | girar o **pulso esquerdo**, como para ver as horas |
+| Pokédex das 151 | girar o **pulso direito** do mesmo jeito |
 | Escolher / recolher / usar item | apontar com a outra mão e puxar o **GATILHO** |
 | Trocar de bola | **analógico direito** para os lados |
 | Virar página da Pokédex | **analógico direito**, com a Pokédex aberta |
@@ -165,7 +165,9 @@ src/
   species.ts     a camada de jogo por cima dos dados: golpes, dano, níveis
   creature.ts    um Pokémon vivo — selvagem que foge ou parceiro que luta
   state.ts       a coleção salva: exemplares com nível, e o registro da Pokédex
-  menu.ts        painel do time, bolas e itens, que abre virando a palma
+  menu.ts        painel do pulso: modos, time, bolas, itens e golpes
+  gesto.ts       o giro de pulso que abre os dois painéis
+  modos.ts       Batalha, Relaxante e Safari
   dexpanel.ts    a Pokédex das 151, paginada
   attacks.ts     efeitos dos golpes (partículas e raio)
   orb.ts         a pokébola: arremesso, quique, captura e invocação

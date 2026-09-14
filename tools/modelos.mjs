@@ -21,6 +21,7 @@ import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions';
 import draco3d from 'draco3d';
 import { caixaGirada } from './orientacao.mjs';
+import { primitivasEmRepouso } from './pose.mjs';
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DESTINO = join(RAIZ, 'public', 'pokemon');
@@ -112,92 +113,60 @@ const io = new NodeIO()
   });
 
 /**
- * Caixa envolvente do modelo na pose de repouso, já com as transformações dos
- * nós aplicadas. Ignoramos o skinning: a pose de bind é o bastante para saber
- * que tamanho o bicho tem.
+ * Caixa envolvente do modelo na pose de repouso, com o skinning aplicado.
+ *
+ * Aplicar o skinning não é preciosismo: a pose que o arquivo guarda nos nós e a
+ * pose que o esqueleto impõe são coisas diferentes, e é a segunda que o headset
+ * desenha. Medir pela primeira dava 85 unidades de altura para um Bulbasaur que
+ * tem 0,78 — daí ele nascer no quarto do tamanho de um grão de feijão.
  */
 function medir(documento) {
-  const raiz = documento.getRoot();
-  const cena = raiz.getDefaultScene() ?? raiz.listScenes()[0];
+  const primitivas = primitivasEmRepouso(documento);
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
 
-  // Os olhos são a bússola do modelo. O centroide deles diz onde está a cabeça
-  // (logo, para que lado é "cima"); a normal média deles diz para onde o bicho
-  // olha (logo, onde é "frente"). Com os dois dá para endireitar um rip que
-  // veio deitado sem precisar pôr o headset para descobrir.
+  // Os olhos são a bússola do modelo: num arquivo que segue a convenção do
+  // three.js (de pé em Y, olhando para +Z) o centroide deles cai à frente do
+  // centro do corpo. É assim que se descobre um rip que veio de costas sem pôr
+  // o headset 151 vezes.
   let rostoSoma = [0, 0, 0];
   let rostoN = 0;
   let massaSoma = [0, 0, 0];
   let totalVertices = 0;
 
-  const multiplicar = (m, p) => [
-    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
-  ];
-
-  const multiplicarMat = (a, b) => {
-    const r = new Array(16).fill(0);
-    for (let i = 0; i < 4; i++)
-      for (let j = 0; j < 4; j++)
-        for (let k = 0; k < 4; k++) r[i * 4 + j] += a[k * 4 + j] * b[i * 4 + k];
-    return r;
-  };
-
-  const andar = (no, pai) => {
-    const local = no.getMatrix();
-    const mundo = multiplicarMat(pai, local);
-    const malha = no.getMesh();
-    if (malha) {
-      for (const prim of malha.listPrimitives()) {
-        const pos = prim.getAttribute('POSITION');
-        if (!pos) continue;
-        const material = prim.getMaterial();
-        const nome = (material?.getName() ?? '').toLowerCase();
-        const ehRosto = /eye|iris|olho|face|pupil|rosto/.test(nome);
-        const n = pos.getCount();
-        totalVertices += n;
-        const v = [0, 0, 0];
-        const mundoDe = (i) => {
-          pos.getElement(i, v);
-          return multiplicar(mundo, v);
-        };
-
-        for (let i = 0; i < n; i++) {
-          const p = mundoDe(i);
-          for (let e = 0; e < 3; e++) {
-            if (p[e] < min[e]) min[e] = p[e];
-            if (p[e] > max[e]) max[e] = p[e];
-          }
-          massaSoma[0] += p[0];
-          massaSoma[1] += p[1];
-          massaSoma[2] += p[2];
-          if (ehRosto) {
-            rostoSoma[0] += p[0];
-            rostoSoma[1] += p[1];
-            rostoSoma[2] += p[2];
-            rostoN++;
-          }
-        }
-
+  for (const { material, pontos, contagem } of primitivas) {
+    const nome = (material?.getName() ?? '').toLowerCase();
+    const ehRosto = /eye|iris|olho|pupil/.test(nome);
+    totalVertices += contagem;
+    for (let i = 0; i < contagem; i++) {
+      const x = pontos[i * 3];
+      const y = pontos[i * 3 + 1];
+      const z = pontos[i * 3 + 2];
+      if (x < min[0]) min[0] = x;
+      if (y < min[1]) min[1] = y;
+      if (z < min[2]) min[2] = z;
+      if (x > max[0]) max[0] = x;
+      if (y > max[1]) max[1] = y;
+      if (z > max[2]) max[2] = z;
+      massaSoma[0] += x;
+      massaSoma[1] += y;
+      massaSoma[2] += z;
+      if (ehRosto) {
+        rostoSoma[0] += x;
+        rostoSoma[1] += y;
+        rostoSoma[2] += z;
+        rostoN++;
       }
     }
-    for (const filho of no.listChildren()) andar(filho, mundo);
-  };
-
-  const identidade = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-  for (const no of cena.listChildren()) andar(no, identidade);
+  }
 
   if (!isFinite(min[0])) return null;
 
   const tamanho = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
   const centro = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
 
-  // Onde ficam os olhos em relação ao centro do corpo, em fração do tamanho de
-  // cada eixo. Num modelo em pé (Y para cima) isso dá Y bem positivo; num que
-  // veio deitado, dá Z dominante — e é assim que descobrimos qual é o "cima"
-  // de cada arquivo sem abrir nenhum deles à mão.
+  // Posições relativas, em fração do tamanho de cada eixo, para a heurística de
+  // orientação comparar modelos de escalas completamente diferentes.
   let rosto = null;
   if (rostoN > 0) {
     rosto = [0, 1, 2].map((e) =>
@@ -209,6 +178,7 @@ function medir(documento) {
     +((massaSoma[e] / Math.max(totalVertices, 1) - centro[e]) / Math.max(tamanho[e], 1e-6)).toFixed(4),
   );
 
+  const raizDoc = documento.getRoot();
   return {
     min,
     max,
@@ -217,8 +187,8 @@ function medir(documento) {
     rosto,
     massa,
     vertices: totalVertices,
-    animacoes: raiz.listAnimations().map((a) => a.getName()),
-    temEsqueleto: raiz.listSkins().length > 0,
+    animacoes: raizDoc.listAnimations().map((a) => a.getName()),
+    temEsqueleto: raizDoc.listSkins().length > 0,
   };
 }
 
@@ -226,49 +196,41 @@ function medir(documento) {
 
 /**
  * Endireita o arquivo. A convenção do jogo é a do three.js: de pé no eixo Y,
- * olhando para +Z. A maioria dos rips já vem assim, mas uma parte foi exportada
- * com Z para cima (o padrão do Blender e do 3ds Max) e chega deitada.
+ * olhando para +Z. A maioria dos rips já vem assim.
  *
- * A pista automática é onde estão os olhos em relação ao centro do corpo: se
- * eles estão bem acima, o modelo está em pé; se estão lá na frente no eixo Z e
- * na mesma altura do centro, o bicho está deitado de bruços.
- *
- * O que o palpite erra fica em AJUSTES, conferido de olho em folha-vistas.png.
+ * A pista é o centroide dos olhos em relação ao centro do corpo, medido DEPOIS
+ * do skinning — antes dele a conta mentia, e foi mentindo que Charmander,
+ * Charmeleon e Pikachu ganharam giros na mão que os deixavam deitados e de
+ * cabeça para baixo dentro do jogo. Hoje a tabela AJUSTES está vazia, e é um
+ * bom sinal: o que sobrar aqui é exceção de verdade, conferida em
+ * folha-vistas.png.
  */
-const QUARTO = Math.PI / 2;
-
 /**
- * Correções na mão, descobertas olhando folha-vistas.png dos 151.
- *
- * Só estes três destoam: vieram exportados com Z para cima (o padrão do Blender
- * e do 3ds Max), de bruços e com a cabeça apontando para -Z. Girar um quarto de
- * volta em X põe o de-pé no lugar e joga o rosto para +Z de uma vez.
- *
- * Curiosidade útil: Charizard, que é da mesma linha, veio certo — não dá para
- * inferir pela família, tem de olhar.
+ * Correções na mão, para o que a heurística não resolve. Cada entrada precisa
+ * ter sido conferida de olho em `npm run render --vistas` (ou `--candidatos`),
+ * e a folha desenha com o mesmo skinning que o headset — se ela e o jogo
+ * discordarem, é bug de pipeline, não caso para ajuste manual.
  */
-const AJUSTES = {
-  charmander: { giroX: Math.PI / 2 },
-  charmeleon: { giroX: Math.PI / 2 },
-  // Pikachu é o mais teimoso: veio de cabeça para baixo E de costas, o que
-  // meia volta em X resolve de uma vez só. Achado com `--candidatos`.
-  pikachu: { giroX: Math.PI },
-};
+const AJUSTES = {};
 
 function orientar(id, rosto) {
   if (AJUSTES[id]) return { giroX: 0, giroY: 0, ...AJUSTES[id], fonte: 'mão' };
   if (!rosto) return { giroX: 0, giroY: 0, fonte: 'padrão' };
 
-  // O olho fica na frente da cabeça, e a cabeça na frente do corpo: num modelo
-  // que segue a convenção, o centroide dos olhos cai em Z positivo. Só isso.
+  // O olho fica na frente da cabeça e a cabeça na frente do corpo: num modelo
+  // que segue a convenção, o centroide dos olhos cai em Z positivo.
   //
   // (A altura dos olhos não serve de pista: num bicho baixo e comprido, tipo
   // Bulbasaur, eles ficam na altura do meio do corpo mesmo estando de pé.)
   if (rosto[2] > 0.05) return { giroX: 0, giroY: 0, fonte: 'olhos' };
 
-  // Olhos atrás do centro. Ou o bicho veio de costas, ou veio deitado com a
-  // cabeça para trás — a conta não distingue os dois, então marcamos para
-  // olhar em folha-vistas.png e resolver na mão, em AJUSTES.
+  // Olhos claramente atrás do centro: o bicho veio de costas. Meia volta em Y
+  // resolve, e não mexe no eixo vertical — que é o que separa este caso de um
+  // modelo deitado.
+  if (rosto[2] < -0.05) return { giroX: 0, giroY: Math.PI, fonte: 'costas' };
+
+  // Olhos em cima da linha do centro: não dá para decidir pela conta. Fica sem
+  // giro e marcado, para aparecer no resumo e ser conferido na folha.
   return { giroX: 0, giroY: 0, fonte: 'suspeito' };
 }
 
@@ -278,7 +240,7 @@ const entradas = {};
 const antigo = existsSync(MANIFESTO) ? JSON.parse(readFileSync(MANIFESTO, 'utf8')) : { especies: {} };
 // Sobe quando o formato do manifesto ou a regra de orientação muda: aí tudo é
 // medido de novo, sem precisar rebaixar os 54 MB de modelo.
-const VERSAO = 6;
+const VERSAO = 7;
 const reaproveitar = antigo.versao === VERSAO;
 
 let baixados = 0;

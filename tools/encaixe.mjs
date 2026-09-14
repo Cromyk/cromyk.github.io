@@ -21,6 +21,7 @@ import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions';
 import draco3d from 'draco3d';
 import { girarPonto } from './orientacao.mjs';
+import { primitivasEmRepouso } from './pose.mjs';
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MODELOS = join(RAIZ, 'public', 'pokemon');
@@ -39,50 +40,23 @@ const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS.filter((e) => e !== EXTMeshoptCompression))
   .registerDependencies({ 'draco3d.decoder': await draco3d.createDecoderModule() });
 
-const mult = (m, p) => [
-  m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-  m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-  m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
-];
-
-const multMat = (a, b) => {
-  const r = new Array(16).fill(0);
-  for (let k4 = 0; k4 < 4; k4++)
-    for (let j = 0; j < 4; j++)
-      for (let k = 0; k < 4; k++) r[k4 * 4 + j] += a[k * 4 + j] * b[k4 * 4 + k];
-  return r;
-};
-
-/** Caixa da malha bruta, com as transformações dos nós do próprio arquivo. */
+/**
+ * Caixa da malha na pose de repouso — a mesma que o headset desenha, skinning
+ * incluído. Sem isso a conferência mediria uma pose que o jogo não mostra, e
+ * passaria de olhos fechados por um Bulbasaur 110× fora de escala.
+ */
 function caixaBruta(doc) {
-  const raiz = doc.getRoot();
-  const cena = raiz.getDefaultScene() ?? raiz.listScenes()[0];
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
-  const identidade = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-
-  const andar = (no, pai) => {
-    const mundo = multMat(pai, no.getMatrix());
-    const malha = no.getMesh();
-    if (malha) {
-      for (const prim of malha.listPrimitives()) {
-        const pos = prim.getAttribute('POSITION');
-        if (!pos) continue;
-        const v = [0, 0, 0];
-        for (let k = 0; k < pos.getCount(); k++) {
-          pos.getElement(k, v);
-          const p = mult(mundo, v);
-          for (let e = 0; e < 3; e++) {
-            if (p[e] < min[e]) min[e] = p[e];
-            if (p[e] > max[e]) max[e] = p[e];
-          }
-        }
+  for (const { pontos, contagem } of primitivasEmRepouso(doc)) {
+    for (let i = 0; i < contagem; i++) {
+      for (let e = 0; e < 3; e++) {
+        const c = pontos[i * 3 + e];
+        if (c < min[e]) min[e] = c;
+        if (c > max[e]) max[e] = c;
       }
     }
-    for (const filho of no.listChildren()) andar(filho, mundo);
-  };
-
-  for (const no of cena.listChildren()) andar(no, identidade);
+  }
   return { min, max };
 }
 

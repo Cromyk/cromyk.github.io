@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
 import { ESPECIES, TIPOS, type Especie } from './species';
+import { olhandoORelogio } from './gesto';
 
 export interface EstadoDex {
   visto: boolean;
@@ -15,7 +16,7 @@ const POR_PAGINA = COLUNAS * LINHAS;
 /**
  * A Pokédex: as 151 espécies numa grade paginada, presa à mão direita.
  *
- * Abre com o mesmo gesto do painel do time, mas na outra mão — vire a palma
+ * Abre com o mesmo gesto do painel do time, mas na outra mão — gire o pulso
  * direita para cima. Com o painel aberto, o analógico vira o de virar página em
  * vez de trocar de bola.
  *
@@ -260,14 +261,7 @@ export class PainelDex {
     mira: { origem: THREE.Vector3; direcao: THREE.Vector3 } | null,
     camera: THREE.Camera,
   ) {
-    let querAbrir = false;
-    if (punhoDireito) {
-      punhoDireito.updateMatrixWorld();
-      const cimaDaMao = new THREE.Vector3(0, 1, 0).applyQuaternion(
-        punhoDireito.getWorldQuaternion(new THREE.Quaternion()),
-      );
-      querAbrir = cimaDaMao.dot(new THREE.Vector3(0, 1, 0)) > 0.3;
-    }
+    const querAbrir = olhandoORelogio(punhoDireito, 'right', camera, this.aberto);
     this.aberto = querAbrir;
 
     this.abertura += ((querAbrir ? 1 : 0) - this.abertura) * Math.min(1, dt * 10);

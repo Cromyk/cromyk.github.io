@@ -3,6 +3,9 @@ import { Placa } from './hud';
 import { TIPOS, type Especie } from './species';
 import { BOLAS, type TipoBola } from './balls';
 import { ITENS, type TipoItem } from './itens';
+import { MODOS, type Modo, type ModoId } from './modos';
+import { olhandoORelogio } from './gesto';
+import type { Golpe } from './species';
 import { TAMANHO_TIME, type Exemplar } from './state';
 
 export interface EntradaTime {
@@ -27,10 +30,18 @@ export interface EntradaItem {
   quantidade: number;
 }
 
+export interface EntradaGolpe {
+  golpe: Golpe;
+  /** É o golpe que vai sair no próximo gatilho. */
+  armado: boolean;
+}
+
 export type Selecao =
   | { tipo: 'criatura'; entrada: EntradaTime }
   | { tipo: 'bola'; entrada: EntradaBola }
-  | { tipo: 'item'; entrada: EntradaItem };
+  | { tipo: 'item'; entrada: EntradaItem }
+  | { tipo: 'modo'; entrada: Modo }
+  | { tipo: 'golpe'; entrada: EntradaGolpe };
 
 const LARGURA_CARD = 0.1;
 const ALTURA_CARD = 0.13;
@@ -38,12 +49,20 @@ const LARGURA_BOLA = 0.076;
 const ALTURA_BOLA = 0.066;
 const LARGURA_ITEM = 0.076;
 const ALTURA_ITEM = 0.058;
+const LARGURA_MODO = 0.092;
+const ALTURA_MODO = 0.05;
+const LARGURA_GOLPE = 0.13;
+const ALTURA_GOLPE = 0.05;
 const ESPACO = 0.012;
 
 /**
- * Painel preso à mão esquerda. Abre sozinho quando você vira a palma para cima
- * — o mesmo gesto de olhar um relógio — e tem três fileiras: o time em cima, as
- * bolas no meio, os itens embaixo. Aponte com a outra mão e puxe o gatilho.
+ * Painel preso à mão esquerda. Abre quando você gira o pulso para ler as horas
+ * (ver src/gesto.ts) e tem cinco fileiras: o modo de jogo no topo, o time, as
+ * bolas, os itens e — no modo Batalha — os golpes de quem está em campo.
+ *
+ * Para escolher, ou se aponta com a outra mão e se puxa o gatilho, ou se estica
+ * a mão e se fecha o GRIP em cima da carta. O segundo jeito é o que faz a bola
+ * do seu Pokémon vir para a mão pronta para o arremesso.
  *
  * As cartas são criadas uma vez e reaproveitadas. O número delas é fixo e
  * pequeno por um motivo concreto: cada carta é um canvas com textura própria, e
@@ -60,12 +79,16 @@ export class PainelTime {
   private cards: Placa[] = [];
   private cardsBola: Placa[] = [];
   private cardsItem: Placa[] = [];
+  private cardsModo: Placa[] = [];
+  private cardsGolpe: Placa[] = [];
   private alvos: THREE.Mesh[] = [];
   private titulo = new Placa(0.3, 0.038, 512);
   private entradas: EntradaTime[] = [];
   private bolas: EntradaBola[] = [];
   private itens: EntradaItem[] = [];
-  private destacado: { tipo: 'criatura' | 'bola' | 'item'; indice: number } | null = null;
+  private golpes: EntradaGolpe[] = [];
+  private modoAtivo: ModoId = MODOS[0].id;
+  private destacado: { tipo: Selecao['tipo']; indice: number } | null = null;
   private assinatura = '';
   private abertura = 0;
   private raycaster = new THREE.Raycaster();
@@ -108,16 +131,42 @@ export class PainelTime {
       this.grupo.add(card.malha);
       novoAlvo('item', i, LARGURA_ITEM, ALTURA_ITEM);
     }
+
+    for (let i = 0; i < MODOS.length; i++) {
+      const card = new Placa(LARGURA_MODO, ALTURA_MODO, 240);
+      this.cardsModo.push(card);
+      this.grupo.add(card.malha);
+      novoAlvo('modo', i, LARGURA_MODO, ALTURA_MODO);
+    }
+
+    // Dois porque nenhuma espécie tem mais do que dois tipos, e o arsenal é um
+    // golpe por tipo. Se isso mudar em species.ts, muda aqui junto.
+    for (let i = 0; i < 2; i++) {
+      const card = new Placa(LARGURA_GOLPE, ALTURA_GOLPE, 320);
+      this.cardsGolpe.push(card);
+      this.grupo.add(card.malha);
+      novoAlvo('golpe', i, LARGURA_GOLPE, ALTURA_GOLPE);
+    }
   }
 
   get time(): EntradaTime[] {
     return this.entradas;
   }
 
-  definirConteudo(entradas: EntradaTime[], bolas: EntradaBola[], itens: EntradaItem[]) {
+  definirConteudo(
+    entradas: EntradaTime[],
+    bolas: EntradaBola[],
+    itens: EntradaItem[],
+    golpes: EntradaGolpe[],
+    modoAtivo: ModoId,
+  ) {
     this.entradas = entradas.slice(0, TAMANHO_TIME);
     this.bolas = bolas;
     this.itens = itens;
+    // A fileira de golpes só existe quando há alguém em campo para usá-los —
+    // um menu de comando sem ninguém para comandar é ruído no pulso.
+    this.golpes = golpes.slice(0, this.cardsGolpe.length);
+    this.modoAtivo = modoAtivo;
     this.reposicionar();
   }
 
@@ -144,16 +193,24 @@ export class PainelTime {
   private reposicionar() {
     const yBola = -ALTURA_CARD / 2 - ALTURA_BOLA / 2 - 0.016;
     const yItem = yBola - ALTURA_BOLA / 2 - ALTURA_ITEM / 2 - 0.012;
+    const yGolpe = yItem - ALTURA_ITEM / 2 - ALTURA_GOLPE / 2 - 0.014;
+    // O modo fica acima do time, entre ele e o título: é a chave que muda o
+    // sentido de tudo o que está embaixo, então vem antes na leitura.
+    const yModo = ALTURA_CARD / 2 + ALTURA_MODO / 2 + 0.012;
+
+    const baseBola = this.cards.length;
+    const baseItem = baseBola + this.cardsBola.length;
+    const baseModo = baseItem + this.cardsItem.length;
+    const baseGolpe = baseModo + this.cardsModo.length;
 
     this.fileira(this.cards, 0, this.entradas.length, LARGURA_CARD, 0);
-    this.fileira(this.cardsBola, this.cards.length, this.bolas.length, LARGURA_BOLA, yBola);
-    this.fileira(
-      this.cardsItem,
-      this.cards.length + this.cardsBola.length,
-      this.itens.length,
-      LARGURA_ITEM,
-      yItem,
-    );
+    this.fileira(this.cardsBola, baseBola, this.bolas.length, LARGURA_BOLA, yBola);
+    this.fileira(this.cardsItem, baseItem, this.itens.length, LARGURA_ITEM, yItem);
+    this.fileira(this.cardsModo, baseModo, MODOS.length, LARGURA_MODO, yModo);
+    this.fileira(this.cardsGolpe, baseGolpe, this.golpes.length, LARGURA_GOLPE, yGolpe);
+
+    // O título sobe para não encostar na fileira de modos.
+    this.titulo.malha.position.y = yModo + ALTURA_MODO / 2 + 0.026;
   }
 
   private redesenharTitulo(vistas: number, capturadas: number, total: number) {
@@ -365,6 +422,79 @@ export class PainelTime {
 
       card.marcarSujo();
     }
+
+    // --- fileira dos modos ---
+    for (let i = 0; i < MODOS.length; i++) {
+      const modo = MODOS[i];
+      const card = this.cardsModo[i];
+      const ativo = modo.id === this.modoAtivo;
+      const { ctx, canvas } = card;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.beginPath();
+      ctx.roundRect(2, 2, canvas.width - 4, canvas.height - 4, 12);
+      ctx.fillStyle = ativo ? 'rgba(18,26,40,0.94)' : 'rgba(10,14,22,0.72)';
+      ctx.fill();
+      ctx.lineWidth = ativo ? 4 : 2;
+      ctx.strokeStyle = ativo ? modo.cor : 'rgba(255,255,255,0.1)';
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = '700 27px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = ativo ? modo.cor : '#93a0b4';
+      ctx.fillText(modo.nome, canvas.width / 2, 40, canvas.width - 16);
+
+      ctx.font = '500 19px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = ativo ? '#b9c6d8' : '#6c7788';
+      ctx.fillText(modo.resumo, canvas.width / 2, 66, canvas.width - 12);
+
+      card.marcarSujo();
+    }
+
+    // --- fileira dos golpes ---
+    // Existe para o modo Batalha: em vez de o jogo escolher o golpe mais eficaz
+    // sozinho, os nomes ficam à mão e você arma o que quiser usar.
+    for (let i = 0; i < this.golpes.length; i++) {
+      const { golpe, armado } = this.golpes[i];
+      const card = this.cardsGolpe[i];
+      const cor = `#${new THREE.Color(TIPOS[golpe.tipo].cor).getHexString()}`;
+      const { ctx, canvas } = card;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.beginPath();
+      ctx.roundRect(2, 2, canvas.width - 4, canvas.height - 4, 12);
+      ctx.fillStyle = armado ? 'rgba(20,28,42,0.95)' : 'rgba(10,14,22,0.74)';
+      ctx.fill();
+      ctx.lineWidth = armado ? 4 : 2;
+      ctx.strokeStyle = armado ? cor : 'rgba(255,255,255,0.1)';
+      ctx.stroke();
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = '700 26px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = armado ? '#f2f5fa' : '#9aa5b8';
+      ctx.fillText(golpe.nome, 20, 40, canvas.width - 110);
+
+      ctx.textAlign = 'right';
+      ctx.font = '700 20px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = cor;
+      ctx.fillText(TIPOS[golpe.tipo].nome.toUpperCase(), canvas.width - 20, 40);
+
+      ctx.textAlign = 'left';
+      ctx.font = '500 19px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#6c7788';
+      ctx.fillText(`potência ${golpe.potencia}`, 20, 66);
+
+      if (armado) {
+        ctx.textAlign = 'right';
+        ctx.font = '700 18px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#7fe7c4';
+        ctx.fillText('ARMADO', canvas.width - 20, 66);
+      }
+
+      card.marcarSujo();
+    }
   }
 
   atualizar(
@@ -375,16 +505,7 @@ export class PainelTime {
     camera: THREE.Camera,
     resumo: { vistas: number; capturadas: number; total: number },
   ) {
-    // A palma virada para cima abre o painel: comparamos o "para cima" local da
-    // mão com o do mundo.
-    let querAbrir = false;
-    if (punhoEsquerdo) {
-      punhoEsquerdo.updateMatrixWorld();
-      const cimaDaMao = new THREE.Vector3(0, 1, 0).applyQuaternion(
-        punhoEsquerdo.getWorldQuaternion(new THREE.Quaternion()),
-      );
-      querAbrir = cimaDaMao.dot(new THREE.Vector3(0, 1, 0)) > 0.3;
-    }
+    const querAbrir = olhandoORelogio(punhoEsquerdo, 'left', camera, this.aberto);
     this.aberto = querAbrir;
 
     this.abertura += ((querAbrir ? 1 : 0) - this.abertura) * Math.min(1, dt * 10);
@@ -411,10 +532,7 @@ export class PainelTime {
         false,
       );
       if (acertos.length > 0) {
-        const d = acertos[0].object.userData as {
-          tipo: 'criatura' | 'bola' | 'item';
-          indice: number;
-        };
+        const d = acertos[0].object.userData as { tipo: Selecao['tipo']; indice: number };
         this.destacado = { tipo: d.tipo, indice: d.indice };
       }
     }
@@ -434,6 +552,8 @@ export class PainelTime {
         .join(','),
       this.bolas.map((b) => `${b.tipo.id}:${b.quantidade}`).join(','),
       this.itens.map((b) => `${b.tipo.id}:${b.quantidade}`).join(','),
+      this.modoAtivo,
+      this.golpes.map((g) => `${g.golpe.nome}:${g.armado ? 1 : 0}`).join(','),
     ].join('|');
     if (assinatura !== this.assinatura) {
       this.assinatura = assinatura;
@@ -452,24 +572,77 @@ export class PainelTime {
     saltar(this.cards, 'criatura', this.entradas.length, 0.016);
     saltar(this.cardsBola, 'bola', this.bolas.length, 0.014);
     saltar(this.cardsItem, 'item', this.itens.length, 0.012);
+    saltar(this.cardsModo, 'modo', MODOS.length, 0.012);
+    saltar(this.cardsGolpe, 'golpe', this.golpes.length, 0.014);
+  }
+
+  /** Traduz um alvo (tipo + índice) no que ele representa. */
+  private conteudoDe(tipo: Selecao['tipo'], indice: number): Selecao | null {
+    switch (tipo) {
+      case 'criatura': {
+        const entrada = this.entradas[indice];
+        return entrada ? { tipo: 'criatura', entrada } : null;
+      }
+      case 'item': {
+        const entrada = this.itens[indice];
+        return entrada ? { tipo: 'item', entrada } : null;
+      }
+      case 'modo': {
+        const entrada = MODOS[indice];
+        return entrada ? { tipo: 'modo', entrada } : null;
+      }
+      case 'golpe': {
+        const entrada = this.golpes[indice];
+        return entrada ? { tipo: 'golpe', entrada } : null;
+      }
+      default: {
+        const entrada = this.bolas[indice];
+        return entrada ? { tipo: 'bola', entrada } : null;
+      }
+    }
   }
 
   get selecao(): Selecao | null {
     if (!this.destacado) return null;
-    if (this.destacado.tipo === 'criatura') {
-      const entrada = this.entradas[this.destacado.indice];
-      return entrada ? { tipo: 'criatura', entrada } : null;
+    return this.conteudoDe(this.destacado.tipo, this.destacado.indice);
+  }
+
+  /**
+   * O que a mão está tocando no painel, por proximidade — sem mira, sem raio.
+   *
+   * É o que permite estender a mão direita e FECHAR O GRIP em cima da bola do
+   * Pokémon que você quer soltar, em vez de mirar de longe: o painel está preso
+   * ao seu próprio pulso, a 30 cm do outro braço, e apontar para uma coisa que
+   * está encostada em você é mais difícil do que simplesmente pegá-la.
+   */
+  alcancado(ponto: THREE.Vector3, alcance = 0.07): Selecao | null {
+    if (this.abertura < 0.6) return null;
+
+    let melhor: { tipo: Selecao['tipo']; indice: number } | null = null;
+    let menorDistancia = alcance;
+    const centro = new THREE.Vector3();
+
+    for (const alvo of this.alvos) {
+      if (!alvo.visible) continue;
+      alvo.getWorldPosition(centro);
+      const d = centro.distanceTo(ponto);
+      if (d < menorDistancia) {
+        menorDistancia = d;
+        melhor = alvo.userData as { tipo: Selecao['tipo']; indice: number };
+      }
     }
-    if (this.destacado.tipo === 'item') {
-      const entrada = this.itens[this.destacado.indice];
-      return entrada ? { tipo: 'item', entrada } : null;
-    }
-    const entrada = this.bolas[this.destacado.indice];
-    return entrada ? { tipo: 'bola', entrada } : null;
+    return melhor ? this.conteudoDe(melhor.tipo, melhor.indice) : null;
   }
 
   descartar() {
-    for (const card of [...this.cards, ...this.cardsBola, ...this.cardsItem]) card.descartar();
+    for (const card of [
+      ...this.cards,
+      ...this.cardsBola,
+      ...this.cardsItem,
+      ...this.cardsModo,
+      ...this.cardsGolpe,
+    ])
+      card.descartar();
     for (const d of this.descartaveis) d.dispose();
     this.titulo.descartar();
   }

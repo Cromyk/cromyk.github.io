@@ -22,6 +22,7 @@ import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions';
 import draco3d from 'draco3d';
 import { girarPonto } from './orientacao.mjs';
+import { primitivasEmRepouso } from './pose.mjs';
 
 const require = createRequire(import.meta.url);
 const { codificarPng } = require('./png.mjs');
@@ -59,19 +60,6 @@ const io = new NodeIO()
 
 // ------------------------------------------------------------- geometria
 
-const mult = (m, p) => [
-  m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-  m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-  m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
-];
-
-const multMat = (a, b) => {
-  const r = new Array(16).fill(0);
-  for (let i = 0; i < 4; i++)
-    for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) r[i * 4 + j] += a[k * 4 + j] * b[i * 4 + k];
-  return r;
-};
-
 /** Cor estável a partir do nome do material, para as partes se separarem. */
 function corDoNome(nome) {
   let h = 2166136261;
@@ -85,42 +73,33 @@ function corDoNome(nome) {
   return [f(0), f(8), f(4)];
 }
 
+/**
+ * Os triângulos da cena, na mesma pose de repouso que o headset desenha.
+ *
+ * O skinning vem de tools/pose.mjs de propósito: esta folha existe para dizer
+ * se um modelo está de pé e de frente, e uma folha que desenhasse a pose crua
+ * dos nós responderia sobre um bicho que o jogo não mostra. Foi assim que três
+ * ajustes de giro entraram errados.
+ */
 function triangulosDe(doc) {
-  const raiz = doc.getRoot();
-  const cena = raiz.getDefaultScene() ?? raiz.listScenes()[0];
   const tris = [];
-  const identidade = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  for (const { prim, material, pontos, contagem } of primitivasEmRepouso(doc)) {
+    const idx = prim.getIndices();
+    const nome = material?.getName() ?? 'sem-nome';
+    const fator = material?.getBaseColorFactor() ?? [1, 1, 1, 1];
+    // Quando o material é branco puro é porque a cor mora na textura (que não
+    // decodificamos): aí inventamos um tom só para separar as peças.
+    const branco = fator[0] > 0.95 && fator[1] > 0.95 && fator[2] > 0.95;
+    const cor = branco ? corDoNome(nome) : [fator[0], fator[1], fator[2]];
+    if ((fator[3] ?? 1) < 0.3) continue;
 
-  const andar = (no, pai) => {
-    const mundo = multMat(pai, no.getMatrix());
-    const malha = no.getMesh();
-    if (malha) {
-      for (const prim of malha.listPrimitives()) {
-        const pos = prim.getAttribute('POSITION');
-        if (!pos) continue;
-        const idx = prim.getIndices();
-        const material = prim.getMaterial();
-        const nome = material?.getName() ?? 'sem-nome';
-        const fator = material?.getBaseColorFactor() ?? [1, 1, 1, 1];
-        // Quando o material é branco puro é porque a cor mora na textura (que
-        // não decodificamos): aí inventamos um tom só para separar as peças.
-        const branco = fator[0] > 0.95 && fator[1] > 0.95 && fator[2] > 0.95;
-        const cor = branco ? corDoNome(nome) : [fator[0], fator[1], fator[2]];
-        if ((fator[3] ?? 1) < 0.3) continue;
-
-        const n = idx ? idx.getCount() : pos.getCount();
-        const v = [0, 0, 0];
-        const ler = (i) => {
-          pos.getElement(idx ? idx.getScalar(i) : i, v);
-          return mult(mundo, v);
-        };
-        for (let i = 0; i + 2 < n; i += 3) tris.push({ a: ler(i), b: ler(i + 1), c: ler(i + 2), cor });
-      }
-    }
-    for (const filho of no.listChildren()) andar(filho, mundo);
-  };
-
-  for (const no of cena.listChildren()) andar(no, identidade);
+    const n = idx ? idx.getCount() : contagem;
+    const ler = (i) => {
+      const k = (idx ? idx.getScalar(i) : i) * 3;
+      return [pontos[k], pontos[k + 1], pontos[k + 2]];
+    };
+    for (let i = 0; i + 2 < n; i += 3) tris.push({ a: ler(i), b: ler(i + 1), c: ler(i + 2), cor });
+  }
   return tris;
 }
 

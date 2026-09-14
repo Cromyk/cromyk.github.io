@@ -49,6 +49,12 @@ export class Pokemon {
   /** Para quem ele está virado enquanto luta. */
   alvo: Pokemon | null = null;
   /**
+   * Ponto no ar para onde o golpe foi mandado quando não há alvo vivo — é o
+   * que deixa o modo Relaxante ter ataque sem ter briga: você aponta para um
+   * canto da sala e ele acerta o canto da sala.
+   */
+  mirando: THREE.Vector3 | null = null;
+  /**
    * Se este encontro já rendeu experiência. Um selvagem derrubado e depois
    * capturado é UM encontro, e pagaria duas vezes sem esta marca.
    */
@@ -158,10 +164,26 @@ export class Pokemon {
   atacar(alvo: Pokemon, recarga: number) {
     if (!this.podeAtacar) return false;
     this.alvo = alvo;
+    this.mirando = null;
     this.estado = 'atacando';
     this.cronometroEstado = 0;
     this.recarga = recarga;
     // Pequeno salto para trás, como um recuo do disparo.
+    if (this.noChao) {
+      this.velY = 1.1;
+      this.noChao = false;
+    }
+    return true;
+  }
+
+  /** Mesmo gesto de ataque, mas contra um ponto da sala em vez de alguém. */
+  atacarPonto(ponto: THREE.Vector3, recarga: number) {
+    if (!this.podeAtacar) return false;
+    this.alvo = null;
+    this.mirando = ponto.clone();
+    this.estado = 'atacando';
+    this.cronometroEstado = 0;
+    this.recarga = recarga;
     if (this.noChao) {
       this.velY = 1.1;
       this.noChao = false;
@@ -289,7 +311,7 @@ export class Pokemon {
         break;
 
       case 'atacando':
-        this.olharPara = this.alvo ? this.alvo.centro : null;
+        this.olharPara = this.alvo ? this.alvo.centro : this.mirando;
         if (this.cronometroEstado > 0.7) this.estado = 'ocioso';
         break;
 

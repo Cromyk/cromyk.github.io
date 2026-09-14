@@ -24,7 +24,8 @@ import { Pokebola } from './orb';
 import { Sala } from './room';
 import { Mao, Mira, RaioMira, construirLuva } from './hands';
 import { Aviso, BarraVida, PainelPulso } from './hud';
-import { PainelTime } from './menu';
+import { PainelTime, type EntradaGolpe } from './menu';
+import { MODO_PADRAO, type Modo } from './modos';
 import { PainelDex, type EstadoDex } from './dexpanel';
 import { EscolhaInicial } from './starter';
 import { BOLAS, BOLA_PADRAO, bolaPorId } from './balls';
@@ -94,6 +95,11 @@ export class Jogo {
   private analogicoNeutro = true;
 
   private recarga = 0;
+  private modo: Modo = MODO_PADRAO;
+  /** Golpe escolhido à mão no painel. Só o modo Batalha usa. */
+  private golpeArmado: string | null = null;
+  /** Selvagens que você aceitou encarar, no Safari. */
+  private encarados = new Set<Pokemon>();
   private proximoSpawn = 2;
   private tempoLeituraSala = 0;
   private recargaSelvagem = RECARGA_SELVAGEM;
@@ -198,6 +204,50 @@ export class Jogo {
   private pegarBola(mao: Mao) {
     if (this.bolaNaMao.has(mao.indice)) return;
 
+    // Painel aberto e a mão em cima de uma carta: o GRIP pega o que está ali.
+    // É o gesto que o painel pedia desde sempre — ele fica preso ao seu pulso,
+    // a um palmo do outro braço, e alcançar com a mão é mais natural do que
+    // mirar de longe numa coisa encostada em você.
+    if (this.painelTime.aberto) {
+      const alcancado = this.painelTime.alcancado(mao.posicaoMundo());
+      if (alcancado) {
+        mao.vibrar(0.45, 45);
+        if (alcancado.tipo === 'item') {
+          this.usarItem(alcancado.entrada.tipo.id);
+          return;
+        }
+        if (alcancado.tipo === 'modo') {
+          this.escolherModo(alcancado.entrada);
+          return;
+        }
+        if (alcancado.tipo === 'golpe') {
+          this.armarGolpe(alcancado.entrada);
+          return;
+        }
+        if (alcancado.tipo === 'bola') {
+          this.escolherBola(alcancado.entrada.tipo.id);
+          // Escolheu a bola com a mão: ela já sai na mão, sem um segundo grip.
+          if (this.dex.bolas(alcancado.entrada.tipo.id) > 0) this.tirarBolaDaCinta(mao);
+          return;
+        }
+        // Pegou a bola de um Pokémon do time: ele vira o ativo e a bola DELE
+        // já nasce na mão, pronta para o arremesso.
+        if (!this.escolherDoTime(alcancado.entrada.exemplar)) return;
+        this.tirarBolaDaCinta(mao);
+        return;
+      }
+    }
+
+    this.tirarBolaDaCinta(mao);
+  }
+
+  /**
+   * Materializa uma pokébola na mão: a do Pokémon ativo, se houver um esperando
+   * para entrar, ou uma bola de captura do tipo escolhido.
+   */
+  private tirarBolaDaCinta(mao: Mao) {
+    if (this.bolaNaMao.has(mao.indice)) return;
+
     // Com um Pokémon escolhido e ainda na bola, o grip pega a bola DELE.
     const ativo = this.dex.exemplarAtivo;
     const vaiInvocar = !this.temCompanheiroEmCampo && ativo !== null && ativo.hp > 0;
@@ -208,7 +258,7 @@ export class Jogo {
       this.aviso.mostrar(
         [
           { texto: `sem ${tipoBola.nome}`, tamanho: 40, cor: '#ff9f9f' },
-          { texto: 'vire a palma e escolha outra', tamanho: 25, cor: '#9aa5b8', peso: 500 },
+          { texto: 'gire o pulso esquerdo e escolha outra', tamanho: 25, cor: '#9aa5b8', peso: 500 },
         ],
         1.8,
       );
@@ -282,6 +332,8 @@ export class Jogo {
       mao.vibrar(0.4, 40);
       if (selecao.tipo === 'criatura') this.escolherDoTime(selecao.entrada.exemplar);
       else if (selecao.tipo === 'bola') this.escolherBola(selecao.entrada.tipo.id);
+      else if (selecao.tipo === 'modo') this.escolherModo(selecao.entrada);
+      else if (selecao.tipo === 'golpe') this.armarGolpe(selecao.entrada);
       else this.usarItem(selecao.entrada.tipo.id);
       return;
     }
@@ -317,6 +369,71 @@ export class Jogo {
       ],
       2.2,
     );
+  }
+
+  // ------------------------------------------------------------ modos
+
+  /**
+   * Os golpes que o bicho em campo tem, para a fileira do painel.
+   *
+   * Fora do modo Batalha a lista sai vazia de propósito: no Relaxante e no
+   * Safari quem escolhe o golpe é o jogo, e mostrar um menu de comando que não
+   * comanda nada só ocuparia espaço no pulso.
+   */
+  private golpesDoCampo(): EntradaGolpe[] {
+    if (!this.modo.escolheGolpe || !this.temCompanheiroEmCampo) return [];
+    const golpes = this.companheiro!.especie.golpes;
+    // Sem nada armado, o primeiro golpe é o que vai sair — então ele aparece
+    // armado, e o painel nunca mostra uma escolha que não corresponde ao que o
+    // gatilho faria.
+    const armado = this.golpeArmado ?? golpes[0]?.nome ?? null;
+    return golpes.map((golpe) => ({ golpe, armado: golpe.nome === armado }));
+  }
+
+  private escolherModo(modo: Modo) {
+    if (modo.id === this.modo.id) return;
+    this.modo = modo;
+    this.golpeArmado = null;
+    this.encarados.clear();
+    audio.clique();
+
+    // Trocar para o Relaxante limpa a sala: o sentido do modo é não ter
+    // ninguém aparecendo para brigar, e esperar os que já estão irem embora
+    // sozinhos desmentiria isso no primeiro minuto.
+    if (!modo.spawnAutomatico) this.dispensarSelvagens();
+    else this.proximoSpawn = modo.intervaloSpawn[0] * 0.5;
+
+    this.aviso.mostrar(
+      [
+        { texto: `modo ${modo.nome}`, tamanho: 44, cor: modo.cor },
+        { texto: this.explicacaoDoModo(modo), tamanho: 23, cor: '#9aa5b8', peso: 500 },
+      ],
+      2.8,
+    );
+  }
+
+  private explicacaoDoModo(modo: Modo): string {
+    if (modo.id === 'relaxante') return 'ninguém vem brigar — só você e o seu Pokémon';
+    if (modo.id === 'safari') return 'quem aparecer só briga se você mandar atacar';
+    return 'escolha o golpe na fileira de baixo do painel';
+  }
+
+  private armarGolpe(entrada: EntradaGolpe) {
+    this.golpeArmado = entrada.golpe.nome;
+    audio.clique();
+    this.aviso.mostrar(
+      [
+        { texto: entrada.golpe.nome, tamanho: 42, cor: `#${new THREE.Color(TIPOS[entrada.golpe.tipo].cor).getHexString()}` },
+        { texto: 'é este que sai no próximo gatilho', tamanho: 23, cor: '#9aa5b8', peso: 500 },
+      ],
+      2,
+    );
+  }
+
+  /** Manda embora quem está em campo, sem dar XP nem pena. */
+  private dispensarSelvagens() {
+    for (const selvagem of [...this.selvagens]) this.removerSelvagem(selvagem.pokemon);
+    this.encarados.clear();
   }
 
   // ------------------------------------------------------------ itens
@@ -455,14 +572,15 @@ export class Jogo {
     );
   }
 
-  private escolherDoTime(exemplar: Exemplar) {
+  /** Devolve true quando o bicho ficou ativo e pronto para ir a campo. */
+  private escolherDoTime(exemplar: Exemplar): boolean {
     const especie = porId(exemplar.id);
-    if (!especie) return;
+    if (!especie) return false;
 
     // Escolher quem já está em campo recolhe ele de volta.
     if (this.exemplarEmCampo === exemplar && this.companheiro?.viva) {
       this.recolherCompanheiro();
-      return;
+      return false;
     }
 
     if (exemplar.hp <= 0) {
@@ -473,7 +591,7 @@ export class Jogo {
         ],
         2.2,
       );
-      return;
+      return false;
     }
 
     this.dex.definirAtivo(this.dex.indiceDe(exemplar));
@@ -486,6 +604,7 @@ export class Jogo {
       ],
       2.6,
     );
+    return true;
   }
 
   private recolherCompanheiro() {
@@ -522,7 +641,7 @@ export class Jogo {
       this.aviso.mostrar(
         [
           { texto: 'nenhum Pokémon em campo', tamanho: 34, cor: '#ffd78a' },
-          { texto: 'vire a palma esquerda para cima e escolha um', tamanho: 22, cor: '#9aa5b8', peso: 500 },
+          { texto: 'gire o pulso esquerdo e pegue a bola de um deles', tamanho: 22, cor: '#9aa5b8', peso: 500 },
         ],
         2.4,
       );
@@ -531,20 +650,69 @@ export class Jogo {
 
     const alvo = this.alvoDoCompanheiro();
     if (!alvo) {
-      this.aviso.mostrar([{ texto: 'nenhum alvo por perto', tamanho: 32, cor: '#9aa5b8' }], 1.4);
+      // Sem ninguém para brigar, o gatilho ainda serve: ele acerta o ponto da
+      // sala para onde você está apontando. É o que dá o que fazer no modo
+      // Relaxante, onde não nasce selvagem nenhum — e continua valendo nos
+      // outros, porque mandar o bicho estourar um canto da parede é divertido
+      // independente do modo.
+      this.atacarOAmbiente(mao);
       return;
     }
 
     const companheiro = this.companheiro!;
     if (!companheiro.podeAtacar) return;
 
-    // O golpe não é fixo: entre os que ele tem, sai o mais eficaz contra ESTE
-    // alvo. É o que faz a tabela de tipos aparecer sem menu de comando.
-    const golpe = escolherGolpe(companheiro, alvo);
+    // Fora do modo Batalha o golpe não é fixo: entre os que ele tem, sai o mais
+    // eficaz contra ESTE alvo, e é o que faz a tabela de tipos aparecer sem
+    // menu de comando. No Batalha a escolha é sua, e ela vale mesmo quando é a
+    // pior — é o preço de poder decidir.
+    const golpe =
+      (this.modo.escolheGolpe
+        ? companheiro.especie.golpes.find((g) => g.nome === this.golpeArmado)
+        : null) ?? escolherGolpe(companheiro, alvo);
+
     if (companheiro.atacar(alvo, golpe.recarga)) {
       mao.vibrar(0.7, 70);
+      // No Safari, mandar atacar é o que transforma um encontro em briga: daí
+      // em diante aquele selvagem revida.
+      this.encarados.add(alvo);
       this.dispararGolpe(companheiro, alvo, golpe);
     }
+  }
+
+  /**
+   * Golpe no vazio: o companheiro acerta onde a sua mão está apontando.
+   *
+   * Sem dano e sem alvo — o que ele produz é o efeito, o som e o estalo de
+   * partículas no ponto. O destino sai da mira mesmo, limitado a três metros,
+   * que é mais do que qualquer quarto e menos do que o infinito.
+   */
+  private atacarOAmbiente(mao: Mao) {
+    const companheiro = this.companheiro!;
+    if (!companheiro.podeAtacar) return;
+
+    const { origem, direcao } = mao.mira();
+    const ponto = origem.clone().addScaledVector(direcao, 3);
+    // Não deixa o golpe ir parar embaixo do carpete.
+    ponto.y = Math.max(ponto.y, this.sala.pisoY + 0.05);
+
+    const golpe =
+      companheiro.especie.golpes.find((g) => g.nome === this.golpeArmado) ??
+      companheiro.especie.golpes[0];
+
+    if (!companheiro.atacarPonto(ponto, golpe.recarga)) return;
+    mao.vibrar(0.55, 60);
+
+    const efeito = new Efeito(golpe, companheiro.boca, ponto);
+    efeito.adicionarA(this.cena);
+    this.efeitos.push(efeito);
+    audio.golpe(golpe.tipo);
+
+    window.setTimeout(() => {
+      const impacto = new Impacto(ponto, TIPOS[golpe.tipo].cor);
+      this.cena.add(impacto.pontos);
+      this.impactos.push(impacto);
+    }, efeito.momentoImpacto * 1000);
   }
 
   /** Cria o efeito visual e agenda o dano para o momento do impacto. */
@@ -623,6 +791,10 @@ export class Jogo {
         pokemon.estado !== 'preso' &&
         pokemon.estado !== 'saindo' &&
         pokemon.estado !== 'surgindo' &&
+        // Quem revida: no Batalha, todo mundo; no Safari, só quem você já
+        // mandou atacar. É o que torna encarar uma escolha em vez de uma
+        // emboscada.
+        (this.modo.selvagemRevida || this.encarados.has(pokemon)) &&
         pokemon.raiz.position.distanceTo(companheiro.raiz.position) < ALCANCE_BATALHA,
     );
     if (candidatos.length === 0) return;
@@ -762,6 +934,18 @@ export class Jogo {
           ...(novidade
             ? [{ texto: 'espécie nova', tamanho: 24, cor: '#ffd78a', peso: 600 }]
             : []),
+          // No Safari o encontro não vira briga sozinho, e o aviso precisa
+          // dizer isso: quem chega fica em paz até você puxar o gatilho.
+          ...(this.modo.perguntaAntesDaBatalha
+            ? [
+                {
+                  texto: 'ele está em paz — o gatilho é que começa a briga',
+                  tamanho: 21,
+                  cor: '#8ab6ff',
+                  peso: 500,
+                },
+              ]
+            : []),
         ],
         shiny ? 4.5 : 2.8,
       );
@@ -777,6 +961,9 @@ export class Jogo {
     this.cena.remove(this.selvagens[i].barra.placa.malha);
     this.selvagens[i].barra.descartar();
     this.selvagens.splice(i, 1);
+    // Quem saiu de cena não precisa mais constar na lista de encarados do
+    // Safari — o Set guarda referências e cresceria a sessão inteira.
+    this.encarados.delete(alvo);
   }
 
   // ------------------------------------------------------------ loop
@@ -811,10 +998,15 @@ export class Jogo {
       }
     }
 
-    this.proximoSpawn -= dt;
-    if (this.proximoSpawn <= 0 && this.selvagens.length < MAX_SELVAGENS) {
-      this.proximoSpawn = 6 + Math.random() * 6;
-      void this.nascerSelvagem();
+    // No Relaxante ninguém nasce: o modo existe justamente para a sala ficar
+    // sua e do seu Pokémon.
+    if (this.modo.spawnAutomatico) {
+      this.proximoSpawn -= dt;
+      if (this.proximoSpawn <= 0 && this.selvagens.length < MAX_SELVAGENS) {
+        const [minimo, maximo] = this.modo.intervaloSpawn;
+        this.proximoSpawn = minimo + Math.random() * (maximo - minimo);
+        void this.nascerSelvagem();
+      }
     }
 
     this.regenerarTime(dt);
@@ -1025,7 +1217,7 @@ export class Jogo {
     });
     const bolas = BOLAS.map((tipo) => ({ tipo, quantidade: this.dex.bolas(tipo.id) }));
     const itens = ITENS.map((tipo) => ({ tipo, quantidade: this.dex.item(tipo.id) }));
-    this.painelTime.definirConteudo(entradas, bolas, itens);
+    this.painelTime.definirConteudo(entradas, bolas, itens, this.golpesDoCampo(), this.modo.id);
 
     const estavaAberto = this.painelTime.aberto;
     this.painelTime.atualizar(
@@ -1276,7 +1468,7 @@ export class Jogo {
     this.aviso.mostrar(
       [
         { texto: `${especie.nome}, eu escolho você!`, tamanho: 40, cor: corHexDe(especie) },
-        { texto: 'gatilho para atacar · encoste a mão nele para fazer carinho', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        { texto: 'gatilho ataca (ou acerta onde você aponta) · encoste a mão para fazer carinho', tamanho: 21, cor: '#9aa5b8', peso: 500 },
       ],
       3.2,
     );
@@ -1423,7 +1615,7 @@ export class Jogo {
       [
         { texto: 'olhe em volta', tamanho: 42, cor: '#cfe6ff' },
         { texto: 'GRIP segura a pokébola · solte no movimento para arremessar', tamanho: 21, cor: '#9aa5b8', peso: 500 },
-        { texto: 'palma esquerda para cima: seu time · palma direita: a Pokédex', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        { texto: 'gire o pulso esquerdo: time e modos · o direito: a Pokédex', tamanho: 21, cor: '#9aa5b8', peso: 500 },
       ],
       6,
     );
