@@ -1,4 +1,16 @@
 import * as THREE from 'three';
+import {
+  COR,
+  RAIO,
+  TEXTO,
+  barra,
+  cartao,
+  corDaVida,
+  fonte,
+  hex,
+  pilula,
+  textoAjustado,
+} from './estilo';
 
 export interface LinhaTexto {
   texto: string;
@@ -132,15 +144,35 @@ export class Aviso {
   }
 }
 
+/** O que o inimigo está preparando, para a barra de carga. */
+export interface Carga {
+  /** 0..1 — quanto já carregou. */
+  fracao: number;
+  /** Nome do golpe que vai sair. */
+  golpe: string;
+  cor: number;
+  /** Verdadeiro na reta final: a barra vira vermelha e pulsa. */
+  iminente: boolean;
+}
+
 /**
- * Nome + barra de vida flutuando sobre o Pokémon. Redesenha só quando o HP
- * muda de fato — canvas por quadro custa caro no headset.
+ * A plaquinha que flutua sobre a cabeça: nome, tipo, vida — e, no inimigo, a
+ * CONTAGEM ATÉ O PRÓXIMO GOLPE.
+ *
+ * A barra de carga é a peça nova e é a razão de esta classe ter sido
+ * redesenhada. A queixa era concreta: o golpe do selvagem chegava sem aviso
+ * nenhum e às vezes tirava metade da vida, o que não deixa espaço para decisão.
+ * Uma barra que enche diz duas coisas de uma vez — QUANDO vem e O QUE vem —, e
+ * as duas juntas transformam apanhar em uma coisa que dá para prever.
+ *
+ * Ela só aparece quando há carga; sem briga, a plaquinha é a de sempre e não
+ * ocupa espaço nenhum a mais.
  */
 export class BarraVida {
-  readonly placa = new Placa(0.26, 0.085, 420);
+  readonly placa = new Placa(0.28, 0.105, 480);
   private visivel = 0;
-  private ultimoHp = -1;
-  private ultimoRotulo = '';
+  private assinatura = '';
+  private tempo = 0;
 
   constructor(
     private nome: string,
@@ -148,54 +180,72 @@ export class BarraVida {
     private corTipo: number,
   ) {}
 
-  private redesenhar(hp: number, hpMax: number, rotulo: string) {
+  private redesenhar(hp: number, hpMax: number, rotulo: string, carga: Carga | null) {
     const { ctx, canvas } = this.placa;
-    this.placa.limpar('rgba(10, 14, 22, 0.9)', 'rgba(255,255,255,0.16)', 18);
-
     const fracao = Math.max(0, hp / hpMax);
-    const margem = 22;
-    const larguraBarra = canvas.width - margem * 2;
 
-    // Nome à esquerda, tipo à direita.
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, { acento: this.corTipo }, RAIO.cartao);
+
+    const margem = 22;
+    const util = canvas.width - margem * 2;
+
+    // --- nome e tipo ---
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = '700 40px system-ui, -apple-system, "Segoe UI", sans-serif';
-    ctx.fillStyle = '#f2f5fa';
-    ctx.fillText(this.nome, margem, 16, larguraBarra * 0.66);
+    ctx.font = fonte(TEXTO.titulo, 700);
+    ctx.fillStyle = COR.texto;
+    const larguraNome = util * 0.62;
+    ctx.fillText(textoAjustado(ctx, this.nome, larguraNome), margem, 18);
+
+    pilula(ctx, this.tipoNome.toUpperCase(), canvas.width - margem, 20, 26, hex(this.corTipo), {
+      alinhar: 'right',
+      maxLargura: util * 0.44,
+    });
+
+    // --- vida ---
+    const yVida = 66;
+    const alturaVida = 18;
+    barra(ctx, margem, yVida, util, alturaVida, fracao, corDaVida(fracao));
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = fonte(TEXTO.legenda, 700);
+    ctx.fillStyle = COR.textoFraco;
+    if (rotulo) ctx.fillText(rotulo, margem, yVida + alturaVida + 7);
 
     ctx.textAlign = 'right';
-    ctx.font = '700 26px system-ui, -apple-system, "Segoe UI", sans-serif';
-    ctx.fillStyle = `#${new THREE.Color(this.corTipo).getHexString()}`;
-    ctx.fillText(this.tipoNome.toUpperCase(), canvas.width - margem, 26);
+    ctx.font = fonte(TEXTO.legenda, 600);
+    ctx.fillStyle = fracao <= 0.22 ? COR.ruim : COR.textoFraco;
+    ctx.fillText(`${Math.ceil(hp)}/${hpMax}`, canvas.width - margem, yVida + alturaVida + 7);
 
-    // Trilho da barra.
-    const y = 74;
-    const altura = 20;
-    ctx.beginPath();
-    ctx.roundRect(margem, y, larguraBarra, altura, altura / 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fill();
-
-    // Preenchimento: verde → amarelo → vermelho conforme cai.
-    if (fracao > 0) {
-      const cor = fracao > 0.5 ? '#5fd47a' : fracao > 0.22 ? '#ffc94a' : '#ff5f5f';
-      ctx.beginPath();
-      ctx.roundRect(margem, y, Math.max(altura, larguraBarra * fracao), altura, altura / 2);
-      ctx.fillStyle = cor;
-      ctx.fill();
+    // --- carga do próximo golpe ---
+    if (!carga) {
+      this.placa.marcarSujo();
+      return;
     }
+
+    const yCarga = canvas.height - 30;
+    const corCarga = carga.iminente ? COR.cargaIminente : COR.carga;
+    barra(ctx, margem, yCarga, util, 12, carga.fracao, corCarga, {
+      trilho: 'rgba(255,255,255,0.09)',
+    });
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.font = fonte(TEXTO.micro, 700);
+    ctx.fillStyle = corCarga;
+    ctx.fillText(
+      textoAjustado(ctx, carga.golpe.toUpperCase(), util * 0.75),
+      margem,
+      yCarga - 4,
+    );
 
     ctx.textAlign = 'right';
-    ctx.font = '600 24px system-ui, -apple-system, "Segoe UI", sans-serif';
-    ctx.fillStyle = '#aab4c6';
-    ctx.fillText(`${Math.ceil(hp)}/${hpMax}`, canvas.width - margem, y + altura + 8);
-
-    if (rotulo) {
-      ctx.textAlign = 'left';
-      ctx.font = '700 24px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = '#9fe0ff';
-      ctx.fillText(rotulo, margem, y + altura + 8);
-    }
+    ctx.font = fonte(TEXTO.micro, 700);
+    ctx.fillStyle = corCarga;
+    ctx.fillText(carga.iminente ? 'AGORA!' : 'carregando', canvas.width - margem, yCarga - 4);
+    ctx.textBaseline = 'top';
 
     this.placa.marcarSujo();
   }
@@ -209,11 +259,18 @@ export class BarraVida {
     alturaPokemon: number,
     camera: THREE.Camera,
     rotulo = '',
+    carga: Carga | null = null,
   ) {
-    if (hp !== this.ultimoHp || rotulo !== this.ultimoRotulo) {
-      this.ultimoHp = hp;
-      this.ultimoRotulo = rotulo;
-      this.redesenhar(hp, hpMax, rotulo);
+    this.tempo += dt;
+
+    // A barra de carga anda todo quadro, então ela entra na assinatura já
+    // quantizada: redesenhar o canvas 72 vezes por segundo por causa de dois
+    // pixels de barra é exatamente o tipo de custo que o headset não perdoa.
+    const passoCarga = carga ? Math.round(carga.fracao * 24) : -1;
+    const assinatura = `${Math.ceil(hp)}|${rotulo}|${carga?.golpe ?? ''}|${passoCarga}|${carga?.iminente ? 1 : 0}`;
+    if (assinatura !== this.assinatura) {
+      this.assinatura = assinatura;
+      this.redesenhar(hp, hpMax, rotulo, carga);
     }
 
     const alvo = mostrar ? 1 : 0;
@@ -224,7 +281,10 @@ export class BarraVida {
     this.placa.opacidade = this.visivel;
     this.placa.malha.position.copy(posicao);
     this.placa.malha.position.y += alturaPokemon + 0.1 + this.visivel * 0.03;
-    this.placa.malha.scale.setScalar(0.75 + this.visivel * 0.25);
+    // Na reta final a plaquinha inteira pulsa: é o aviso que se vê pelo canto do
+    // olho, sem precisar estar lendo a barra.
+    const pulso = carga?.iminente ? 1 + Math.sin(this.tempo * 18) * 0.045 : 1;
+    this.placa.malha.scale.setScalar((0.75 + this.visivel * 0.25) * pulso);
     this.placa.malha.lookAt(camera.getWorldPosition(new THREE.Vector3()));
   }
 
@@ -245,21 +305,46 @@ export class PainelPulso {
     this.grupo.add(this.placa.malha);
   }
 
-  atualizar(bolas: number, capturas: number, especies: number, total: number) {
-    const assinatura = `${bolas}|${capturas}|${especies}`;
+  atualizar(
+    bolas: number,
+    capturas: number,
+    especies: number,
+    total: number,
+    /**
+     * Quantas superfícies a sala já conhece. Está aqui por um motivo prático:
+     * o mapeamento cresce enquanto você caminha, e sem um número subindo não
+     * há como saber, de dentro do headset, se ele está funcionando.
+     */
+    mapeadas: number,
+    /**
+     * A caçada em cadeia, quando ela ja vale alguma coisa. Ela TOMA a linha do
+     * mapeamento em vez de somar uma quinta: o painel tem catorze centimetros,
+     * e a corrente so aparece enquanto esta acontecendo.
+     */
+    brilhante: string | null,
+  ) {
+    const assinatura = `${bolas}|${capturas}|${especies}|${mapeadas}|${brilhante ?? ''}`;
     if (assinatura === this.ultimo) return;
     this.ultimo = assinatura;
 
     this.placa.escrever(
       [
-        { texto: `${bolas}`, tamanho: 86, cor: bolas > 0 ? '#ff7a6e' : '#7f8ba0', peso: 700 },
-        { texto: 'pokébolas', tamanho: 26, cor: '#8b97ab', peso: 500, espaco: 10 },
+        { texto: `${bolas}`, tamanho: 82, cor: bolas > 0 ? '#ff7a6e' : '#7f8ba0', peso: 700 },
+        { texto: 'pokébolas', tamanho: 25, cor: '#8b97ab', peso: 500, espaco: 8 },
         {
           texto: `${capturas} capturas · ${especies}/${total} espécies`,
-          tamanho: 24,
+          tamanho: 23,
           cor: '#b9c4d6',
           peso: 500,
         },
+        brilhante
+          ? { texto: brilhante, tamanho: 21, cor: '#ffd76a', peso: 700 }
+          : {
+              texto: `${mapeadas} superfícies mapeadas`,
+              tamanho: 21,
+              cor: '#7fd6a8',
+              peso: 500,
+            },
       ],
       { raio: 22 },
     );

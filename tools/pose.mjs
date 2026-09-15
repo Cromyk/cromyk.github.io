@@ -42,7 +42,13 @@ export const IDENTIDADE = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
  * `pontos` é um Float64Array de 3 em 3, na mesma ordem do POSITION original,
  * então os índices da primitiva continuam valendo.
  */
-export function primitivasEmRepouso(documento) {
+/**
+ * O parâmetro `poseLocal` troca a matriz LOCAL de um nó pelo que o mapa disser,
+ * indexado pelo nome do nó. É assim que tools/poses.ts desenha o bicho andando:
+ * quem calcula a pose é src/rig.ts — o mesmo código que roda no headset — e
+ * aqui só se aplica o resultado. Sem o mapa, nada muda e sai o repouso.
+ */
+export function primitivasEmRepouso(documento, poseLocal = null) {
   const raiz = documento.getRoot();
   const cena = raiz.getDefaultScene() ?? raiz.listScenes()[0];
   if (!cena) return [];
@@ -52,7 +58,8 @@ export function primitivasEmRepouso(documento) {
   // ramo diferente do da malha que ele deforma.
   const mundoDoNo = new Map();
   const anotar = (no, pai) => {
-    const mundo = multiplicarMat(pai, no.getMatrix());
+    const local = poseLocal?.get(no.getName()) ?? no.getMatrix();
+    const mundo = multiplicarMat(pai, local);
     mundoDoNo.set(no, mundo);
     for (const filho of no.listChildren()) anotar(filho, mundo);
   };

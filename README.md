@@ -59,7 +59,12 @@ sem pôr o headset a cada mudança:
 - **mouse** — olhar (clique uma vez para travar o cursor)
 - **WASD** — andar
 - **segurar e soltar o botão esquerdo** — carregar e arremessar
-- **F** — atacar · **Q** — trocar de Pokémon
+- **segurar o botão direito** — marcar no chão até onde ele deve ir
+- **F** — atacar · **E** — gatilho (confirma no PC) · **Q** — trocar de Pokémon
+- **P** — PC · **R** — recolher · **C** — chamar · **V** — carinho · **B** — acenar
+- **1**–**4** — escolher o golpe · **N** — trocar a dificuldade
+- **Y** — deixar evoluir · **U** — adiar a evolução
+- **G** — fruta na mão (isca) · **H** — doce na mão; aponte para um selvagem e segure
 
 ## Controles no headset
 
@@ -67,13 +72,26 @@ sem pôr o headset a cada mudança:
 |---|---|
 | Pegar a pokébola | segurar o **GRIP** |
 | Arremessar | **soltar o GRIP** no meio do movimento do braço |
-| Mandar seu Pokémon atacar | **GATILHO** |
-| Modos, time, bolas, itens e golpes | girar o **pulso esquerdo**, como para ver as horas |
+| Mandar seu Pokémon atacar | **tocar** o GATILHO |
+| Mandar ele andar até um ponto | **segurar** o GATILHO e apontar o chão; ele vai onde você soltar |
+| Recolher para a bola | apontar para ele e apertar **A** |
+| Chamar para perto | **X** |
+| Ligar o PC (equipe e caixa) | **Y** |
+| Time, bolas, itens e os quatro golpes | girar o **pulso esquerdo**, como para ver as horas |
+| Modo de jogo, dificuldade e opções | a **engrenagem**, no canto do painel do pulso |
 | Pokédex das 151 | girar o **pulso direito** do mesmo jeito |
+| Ouvir a ficha da Pokédex | **GATILHO** com a Pokédex aberta |
 | Escolher / recolher / usar item | apontar com a outra mão e puxar o **GATILHO** |
 | Trocar de bola | **analógico direito** para os lados |
 | Virar página da Pokédex | **analógico direito**, com a Pokédex aberta |
-| Fazer carinho | **encostar a mão** no seu Pokémon |
+| Deixar evoluir / adiar | **A** / **B**, com a pergunta na tela |
+| Fazer carinho | **encostar a mão** na cabeça dele |
+| Pegar a fruta ou o doce na mão | **GRIP** na carta do item, no painel do pulso |
+| Atrair um selvagem de longe | com a isca na mão, **apontar e segurar** meio segundo |
+
+As mãos são **luvas brancas** articuladas: os dedos fecham conforme o gatilho e
+o grip, e com *hand tracking* ligado elas passam a seguir as suas juntas de
+verdade — fechar o punho faz o papel do GRIP, já que mão nua não tem botão.
 
 O arco pontilhado aparece enquanto você move o braço e mostra onde a bola vai
 cair. Ele some quando a mão está parada — mirar é movimento, não apontar.
@@ -97,12 +115,14 @@ em nove segundos — essa é a sua janela.
 
 **Ganhar experiência, subir de nível e evoluir.** Quem estiver em campo ganha XP
 por cada selvagem derrubado ou capturado, e capturar rende mais do que derrubar.
-No nível certo a evolução acontece ali mesmo, no seu quarto: o corpo antigo some
-e o novo nasce no mesmo lugar. As 65 linhas evolutivas da primeira geração estão
-todas lá, tiradas da PokeAPI.
+No nível certo o jogo **pergunta** se pode evoluir, e a transformação acontece
+ali mesmo, no seu quarto. As 65 linhas evolutivas da primeira geração estão
+todas lá — ver [Evoluir é uma escolha](#evoluir-é-uma-escolha).
 
-**Brilhantes.** Um em trezentos encontros vem na cor alternativa, para as 61
-espécies que têm o modelo shiny. A Pokédex marca com um ponto dourado.
+**Brilhantes.** Qualquer uma das 151 pode vir na cor alternativa, e caçar em
+cadeia melhora a chance de 1 em 409 para até 1 em 40 — ver
+[a caçada em cadeia](#brilhantes-a-caçada-em-cadeia). A Pokédex marca com um
+ponto dourado.
 
 ## A mochila
 
@@ -125,6 +145,369 @@ E três itens, na fileira de baixo do painel:
 - **Fruta** — acalma o selvagem mais próximo (desfaz o alarme que você acumulou
   chegando perto) e faz a próxima bola valer quase o dobro.
 - **Doce Raro** — um nível inteiro de uma vez. Quase nunca aparece.
+
+## A batalha
+
+![Os painéis do jogo](folha-paineis.png)
+
+### Quatro golpes, os de verdade
+
+Cada espécie tem o **arsenal dela**, da tabela de aprendizado por nível de
+Red/Blue/Yellow (`npm run golpes` gera `src/golpes.gen.ts` da PokeAPI). São 115
+golpes utilizáveis, e o que o seu Pokémon sabe **depende do nível em que ele
+está**: Pikachu briga com Choque Elétrico até o nível 26 e só então ganha Choque
+do Trovão; Charmander só tem Lança-Chamas a partir do 38.
+
+A regra é a do clássico — você fica com os quatro últimos que aprendeu — com
+duas correções que o jogo precisa:
+
+- **nunca ficar sem atacar**: se os quatro últimos forem todos de status, o mais
+  fraco cede lugar ao melhor golpe de dano disponível;
+- **nunca ficar sem o próprio tipo**: a regra crua tirava o Choque Elétrico do
+  Pikachu de nível 20, e um elétrico sem nada de elétrico na mão não parece o
+  que é.
+
+Dois dos 151 não aprendem nada que este jogo saiba representar — Abra só tem
+Teleporte e Ditto só tem Transformar — e para eles há uma rede: um golpe
+genérico do tipo deles no nível 1.
+
+Os golpes vêm em três categorias, e a categoria aparece no card: **FÍS** bate
+Ataque contra Defesa, **ESP** bate Ataque Especial contra Defesa Especial, e
+**STA** não causa dano nenhum. Você escolhe qual sai, em qualquer modo de jogo.
+
+### Buffs e debuffs
+
+Os golpes de status mexem em estágios, na escala clássica de −6 a +6 (`+1` é
+×1,5; `+2` é o dobro). Quatro estágios: ataque, defesa, velocidade e precisão.
+
+A **velocidade** não muda dano nenhum — ela muda a **cadência**: de quanto em
+quanto tempo o golpe sai. Agilidade encurta o seu intervalo e Jato de Teia
+alonga o do inimigo. A **precisão** é o que sobrou de pontaria e esquiva, que
+este jogo não tem como modelar direito: sem sistema de acerto, errar mais virou
+bater mais fraco, e Jato de Areia continua valendo a vez.
+
+Os estágios são da BRIGA, não do bicho: voltar para a bola zera tudo. Os que
+estiverem ativos aparecem no card do time (`ATQ+1 VEL+2`).
+
+### Dá tempo de reagir
+
+O golpe do selvagem saía com 0,26 s de aviso e podia tirar metade da barra. Três
+mudanças, nessa ordem de importância:
+
+1. **A barra de carga.** Cada selvagem tem o próprio relógio, o golpe é
+   escolhido no início do ciclo, e a plaquinha sobre a cabeça dele mostra o
+   **nome do golpe** e a barra enchendo. Na reta final ela fica vermelha, diz
+   *AGORA!*, a plaquinha pulsa e o corpo dele recua. Antes havia um contador só
+   para todos os selvagens, o que impedia qualquer aviso — não dava para dizer
+   de quem viria o golpe antes de sortear.
+2. **Teto no dano recebido.** Nenhum golpe tira mais de 20% da vida do SEU
+   Pokémon. Só do seu lado: um teto para os dois achataria a tabela de tipos, e
+   foi o que aconteceu na primeira tentativa — vantagem e desvantagem caíram
+   para 4,0 e 6,4 golpes, e escolher o Pokémon certo deixou de significar coisa
+   alguma.
+3. **Cadência pela velocidade.** Electrode ataca a cada 2,0 s e Snorlax a cada
+   3,9 s. Antes eram os mesmos 2,6 s para os 151.
+
+O resultado, medido em `npm test`:
+
+| Dificuldade | Aviso | Ciclo mínimo | Pior caso |
+|---|---|---|---|
+| Tranquilo | 2,00 s | 4,0 s | aguenta 8 golpes ≈ 32 s |
+| Normal | 1,40 s | 3,4 s | aguenta 6 golpes ≈ 20 s |
+| Duro | 0,85 s | 2,9 s | aguenta 4 golpes ≈ 11 s |
+
+### A engrenagem
+
+O modo de jogo ocupava uma fileira fixa do painel do pulso, entre o título e o
+time — o lugar mais nobre da tela para uma coisa que se muda uma vez por sessão.
+Agora é uma **engrenagem** no canto do título: um toque abre a página de
+ajustes, outro fecha. Lá dentro: modo de jogo, dificuldade e três interruptores
+(voz da Pokédex, barra de carga, contorno da sala). Tudo fica salvo no headset.
+
+A folha de painéis acima sai de `npm run paineis`: os painéis são canvas 2D, e a
+ferramenta troca o `document` por um de mentira para rasterizar o **mesmo código
+de desenho** que roda no headset, sobre um fundo xadrez — que é onde se vê se o
+painel fica legível por cima do seu quarto. Foi ela que pegou a pílula de tipo
+estourando o card do PC e o `✦` do brilhante saindo como retângulo vazio.
+
+## Evoluir é uma escolha
+
+Antes a evolução acontecia sozinha e em silêncio: subia de nível, a espécie
+trocava no mesmo quadro e um texto avisava que já era. Duas coisas erradas
+nisso — evoluir é a única decisão irreversível do jogo, e o momento mais bonito
+que ele tem passava sem imagem nenhuma.
+
+Agora o jogo **pergunta**. Aparece à sua frente *"O QUÊ? Charmander está
+evoluindo!"* e ele espera: **A** deixa, **B** adia. Quem quer manter o Pikachu
+Pikachu tem o direito de manter — e a recusa fica guardada no nível em que foi
+feita, então a pergunta volta quando ele subir, como no jogo original.
+
+O efeito é o clássico: o corpo **estica e encolhe** cada vez mais rápido
+enquanto vai ficando branco, a luz cresce, e no estouro — quando a silhueta não
+se vê — o corpo é trocado. O novo nasce branco e a cor volta. Antes e depois,
+ele faz a animação de comemoração. Nada disso mexe nos materiais compartilhados:
+eles são **clonados** para o exemplar que está evoluindo e descartados no fim,
+senão o branco pintaria todo Charmander da sala, para sempre — o cache de
+modelos não se recarrega.
+
+E havia um buraco: a evolução só era conferida **no instante do level-up**, e
+quem você captura já acima do nível nunca sobe de nível na sua mão. Um
+Charmander selvagem capturado no nível 20 ficava Charmander para sempre. Agora
+a checagem também roda ao entrar em campo.
+
+## Brilhantes: a caçada em cadeia
+
+A chance base é de **um em 409**, como na geração VI em diante — na prática,
+nunca. Duas coisas melhoram isso, e as duas premiam insistência:
+
+- **A corrente.** Encontrar a mesma espécie várias vezes seguidas aumenta a
+  chance, e a espécie da corrente tem **três vezes mais peso** no próximo
+  sorteio — sem esse empurrão a cadeia nunca passaria de dois ou três por acaso,
+  e a caçada não existiria na prática. Um canto da casa onde o mesmo bicho
+  continua aparecendo vira um lugar em que vale a pena ficar.
+- **O Amuleto Brilhante**, que chega sozinho quando a Pokédex passa de cinquenta
+  espécies e vale para sempre.
+
+A conta é em **bilhetes**, não em porcentagem somada — é assim que o jogo
+original faz, e é o que mantém a curva suave perto do teto:
+
+| Corrente | Chance | Com amuleto |
+|---|---|---|
+| 0 | 1 em 409 | 1 em 102 |
+| 5 | 1 em 205 | 1 em 82 |
+| 10 | 1 em 136 | 1 em 68 |
+| 20 | 1 em 82 | 1 em 51 |
+| 40 | 1 em 45 | 1 em 40 |
+
+O teto é 1 em 40: sem ele, uma corrente longa transformaria brilhante em rotina,
+e a raridade **é** o conteúdo. A corrente vale só para a sessão — salvá-la
+deixaria você abrir o jogo já com quarenta elos, que é o contrário da ideia. Ela
+aparece no painel do pulso a partir do terceiro elo, com a chance do momento.
+
+**As 151 podem ser brilhantes.** Sessenta e uma têm o arquivo `<num>s.glb` com
+as cores alternativas de verdade; as outras noventa ganham uma **pintura em
+tempo de execução** — matiz girado, saturação e brilho puxados para cima, e um
+tom de ouro no emissivo. Não é a paleta oficial e não tenta ser: o que um
+brilhante precisa entregar é *ser visivelmente outro* à primeira vista. Antes,
+noventa espécies simplesmente não podiam ser brilhantes e não havia como o
+jogador descobrir quais — ele só nunca via.
+
+## O quarto, mapeado enquanto você anda
+
+O jogo não acontece em volta do ponto onde você entrou. Ele acontece **onde você
+está**, e o mapa cresce a cada passo — dá para caminhar até o outro cômodo e
+encontrar coisa nova lá.
+
+Três fontes se **somam**, em vez de se substituírem:
+
+1. **Os planos do Space Setup** (`plane-detection`) — chão, mesa, sofá, cama,
+   com rótulo semântico. É o que põe um Pokémon em cima da sua mesa em vez de no
+   chão na frente dela.
+2. **O chão sob os seus pés** (`hit-test`) — um raio apontado para BAIXO a
+   partir da cabeça, lido três vezes por segundo. Cada passo carimba a célula de
+   80 cm onde você está, com a altura medida ali. É isto que faz o mapa crescer,
+   e é o que acerta o degrau e o tapete.
+3. **Um piso que te acompanha**, enquanto o aparelho não der nenhuma das duas.
+
+Somar importa: `detectedPlanes` é o conjunto dos planos que o runtime rastreia
+**agora**, e ele encolhe quando você vira as costas. A versão anterior trocava a
+lista inteira a cada leitura e caía num quadrado de 4,4 m fixo na **origem da
+sessão** — daí o sintoma no headset, de tudo acontecer em volta de onde você
+entrou. Plano é estático no mundo, então o que se viu uma vez se guarda.
+
+O contador de **superfícies mapeadas** aparece no painel do pulso: é como se vê,
+de dentro do headset, que o mapeamento está funcionando.
+
+Duas consequências práticas:
+
+- **Nascer perto de você.** O sorteio do ponto de spawn só considera superfícies
+  dentro do alcance, e a faixa foi aberta para 5,5 m — um bicho a cinco metros é
+  um convite para caminhar até ele. Quem fica mais de 9 m para trás vai embora
+  sozinho e abre vaga para outro nascer à frente.
+- **Apontar para a mesa é apontar para a mesa.** A marca do comando de andar
+  testa o raio contra cada superfície conhecida e fica com a mais próxima; o
+  Pokémon sobe no móvel em rampa, ao longo do percurso.
+
+## A isca: chamar de longe
+
+Distância era um problema de mão única. O selvagem nasce longe, passeia em volta
+da âncora dele, e o único jeito de encurtar a distância — andar até lá — é o
+mesmo que aumenta o alarme e faz ele fugir.
+
+Agora a fruta e o doce podem ir **para a sua mão**: com o painel do pulso
+aberto, o **GRIP** em cima da carta pega o item (o **GATILHO** continua usando na
+hora, como antes). Com a isca na mão, **aponte para um selvagem e segure meio
+segundo** — um rastro de pontinhos corre da fruta até ele e ele vem.
+
+Andando, ou **flutuando**, conforme o bicho. Quem paira não pula: toda a
+locomoção deste jogo é uma sucessão de pulinhos com gravidade, o que faz um
+Charmander parecer um Charmander e um Gastly parecer quebrado. Trinta e poucas
+espécies têm altura de voo declarada em `src/species.ts` — a lista é à mão porque
+o tipo não serve: Pidgey é voador e vive no chão, enquanto Magnemite é
+elétrico/aço e levita.
+
+O item só é **gasto quando alguém vem**: apontar para o vazio não custa nada. A
+fruta ainda vale o bônus de sempre para a próxima bola, o que faz atrair e
+capturar virarem um movimento só; o doce chama de quase o dobro da distância e
+traz o bicho completamente manso.
+
+## O PC
+
+**Y** liga o PC. Ele não é mais um painel de pulso: aparece à sua frente e
+**fica onde apareceu**, porque reorganizar a coleção é tarefa de dois toques por
+bicho com os dois lados à vista, e fazer isso num painel de vinte centímetros
+pendurado no braço que aponta seria brigar com o próprio painel. Dá para andar
+para trás e ver tudo, ou chegar perto e ler.
+
+A equipe é a fileira de cima e a caixa é a grade de baixo. Aponte e puxe o
+gatilho para **pegar**; aponte a vaga de destino e puxe de novo para **trocar**.
+Por baixo não há duas listas: "time" são as seis primeiras posições de uma lista
+só, e é por isso que trocar a posição 2 com a 9 tira um do time e põe outro numa
+escrita só, sem estado para manter em sincronia.
+
+## A voz da Pokédex
+
+Com a Pokédex aberta, o **gatilho lê a ficha em voz alta, em português**. Os
+quatro iniciais têm narração gravada — cerca de meio minuto cada; quem não tem
+responde com o próprio grito.
+
+A voz é **arquivo, não `speechSynthesis`**. A API do navegador seria de graça e
+sem nenhum megabyte no pacote, mas ela não sintetiza nada: pede a voz ao sistema.
+No Android — e portanto no Quest — isso significa um motor de TTS instalado, e o
+headset não traz nenhum. Numa aba do Chrome no PC funciona; no headset, que é
+onde o jogo roda, a chamada volta sem som e sem erro, que é o pior dos dois
+mundos. Então a narração é gravada em build (`npm run narracao`) e vem como MP3
+em `public/voz/` — o que também deixa a Pokédex falar com a PWA offline.
+
+## Som
+
+### Os gritos são os oficiais
+
+Os 151 gritos vêm do repositório de áudio da **PokeAPI** — a mesma fonte dos
+dados da Pokédex e dos golpes. São 2 MB de `.ogg`, baixados no build como os
+modelos (`npm run gritos`) e não versionados. `-- --legacy` troca pelos bipes de
+oito bits de Red/Blue.
+
+Uma coisa que vale dizer sem rodeio: **o grito do jogo não é a voz do desenho**.
+O Charmander dos jogos guincha; quem fala "Charmander" é o dublador do anime, e
+isso não existe em fonte estruturada nenhuma. O que dá para ter de oficial e de
+reprodutível é o grito do jogo.
+
+Os gritos sintetizados continuam no código como reserva: eles tocam no primeiro
+encontro de cada espécie, antes de o arquivo chegar, e são o que sobra se o
+download falhar.
+
+### O resto
+
+Tudo sintetizado na WebAudio, sem arquivo nenhum no pacote (os gritos e a
+narração acima são as exceções). Os dezoito tipos de golpe caem em seis famílias sonoras,
+escolhidas pelo que se REPARA numa briga de três segundos: o fogo ruge, a água
+jorra, o corte assobia, a energia estala, o golpe de corpo dá um baque e o
+sombrio sopra grave.
+
+Os quatro iniciais têm **grito próprio**, e o que os distingue não é o timbre —
+num headset, com passthrough e o barulho do quarto, timbre some — e sim o
+contorno: quantas sílabas, se a entoação sobe ou desce, se é seco ou arrastado.
+O Pikachu tem duas sílabas com a segunda mais aguda e mais curta; o Charmander,
+uma raspada que desce no fim; o Squirtle gorgoleja; o Bulbasaur é grave e longo
+com um repuxo para cima. Eles gritam ao sair da bola, ao atacar, ao apanhar, ao
+ser capturados e quando você faz carinho.
+
+E eles têm **efeito de assinatura** no golpe principal (`src/signature.ts`): o
+lança-chamas é um cone com a cor mudando por partícula — núcleo quase branco
+esfriando para laranja e morrendo vermelho —, o jato d'água é uma coluna sólida
+com espuma escapando no percurso, o chicote de cipó são dois tubos que serpenteiam
+até o alvo e voltam, e o choque do trovão é um tronco com duas ramificações que
+piscam em estalo. O resto do elenco continua com o efeito comum por formato: um
+efeito distinto por espécie seria geometria demais para o headset desenhar duas
+vezes por quadro.
+
+## Animação
+
+![As poses dos quatro iniciais](folha-poses.png)
+
+Dos 151 arquivos, **dezenove trazem clipe assado e só um traz um conjunto
+utilizável**: o Bulbasaur, com `walk`, `run`, `aidle`, `fight` e `ko`.
+Charmander e Squirtle chegam com o esqueleto inteiro e zero clipes; o Pikachu
+tem um só, o "Impactrueno". Esperar por animação que não existe deixaria os
+quatro parados como estátua no meio do quarto.
+
+Então a animação é **procedural, escrita em osso** (`src/anima.ts`), e o rig
+(`src/rig.ts`) é o que a faz valer para todos: os GLB compartilham a convenção
+de nomes da Game Freak — `Hips`, `Spine1`, `Head`, `LArm`, `RThigh`, `Tail1` —
+mudando só o sufixo que o exportador grudou (`Head_50`, `Head_9`, `Head`) e
+quais ossos existem. Casando por nome, escreve-se a passada uma vez.
+
+Os giros são em **espaço da criatura** (+Z é a frente dela), não em eixo local
+de osso: dobrar o joelho é girar em X num arquivo e em Z noutro, e escrever
+contra os eixos locais daria uma animação por espécie. A conversão usa a
+orientação de repouso do pai.
+
+Há uma pose base de cada vez — parado, andando, correndo, desmaiado — e por
+cima um gesto. Quem tem clipe assado usa o clipe e recebe a pose procedural por
+cima com peso, o que deixa o Bulbasaur **acenar** (gesto que arquivo nenhum tem)
+sem perder o andar da Game Freak. Parado, o bicho ainda olha em volta e acena
+sozinho de vez em quando — é o que tira a cara de boneco.
+
+### Um gesto por família de golpe
+
+Todo ataque usava a mesma animação: recolhe e joga o corpo para a frente.
+Funcionava como *"ele atacou"* e não dizia mais nada — uma Lambida, um Arranhão
+e um Lança-Chamas eram o mesmo movimento com uma partícula diferente na frente.
+Agora o **nome do golpe** escolhe o gesto, e a classificação vem junto com os
+golpes em `src/golpes.gen.ts`:
+
+| Gesto | O que o corpo faz | Golpes |
+|---|---|---|
+| **mordida** | pescoço estica, boca escancara e fecha no bote | Lambida, Mordida, Presa Hiper |
+| **garra** | o braço sobe para fora e varre na diagonal | Arranhão, Talho, Golpes Furiosos |
+| **cauda** | o tronco gira e a cauda vem no contrário, nó a nó | Chicote de Cauda, Enrolar, Surra |
+| **soco** | recua com o cotovelo fechado e estica | Megassoco, Soco de Fogo, Caratê |
+| **salto** | agacha, salta, desce com a perna estendida | Chute Voador, Pisão, Joelhada |
+| **investida** | o corpo inteiro se joga | Investida, Cabeçada, Derrubada |
+| **sopro** | **inspira arqueando para trás**, segura, e despeja | fogo, água, elétrico, gelo — todo elemental |
+| **aura** | só se firma; o anel conta o resto | Rosnar, Encarar, Endurecer |
+
+O **sopro** é o que responde por "fogo/água/elétrico": o arco para trás é a
+inspiração, e é ele que separa cuspir fogo de dar uma cabeçada. Quem tem clipe
+de luta no arquivo usa o clipe em qualquer família — um `fight` assado pela Game
+Freak vale mais do que a pose procedural, mesmo num golpe de mordida.
+
+Todo ataque tem a mesma espinha, **recolhe e dispara**, e o que muda é qual
+parte do corpo usa esses dois números. É o que faz oito gestos diferentes terem
+o mesmo peso e o mesmo tempo.
+
+### O sinal do eixo, que custou caro
+
+Girar em +X positivo leva +Y para +Z, e a consequência disso muda de osso para
+osso: **tronco, peito e pescoço** apontam para cima, então positivo os inclina
+para a FRENTE; **a cabeça** aponta para a frente, então positivo baixa o
+focinho; **braços, coxas e cauda** apontam para baixo, então positivo os joga
+para TRÁS. Num mesmo golpe o tronco avança com sinal positivo e o braço avança
+com sinal negativo.
+
+Confundir isso fez **todo ataque recuar no golpe em vez de avançar** — o bicho
+empinava e abria a boca para o teto como quem ruge, e parecia intencional. Só
+apareceu na folha de poses. A caça a esse sinal também achou a cauda do
+Charmander: no andar ela acompanhava o quadril no mesmo sinal em vez de
+contrabalançar, e com um terço de radiano em cada um dos três nós ela girava
+setenta graus e vinha parar na frente do corpo.
+
+Duas armadilhas dos arquivos, resolvidas no código e não à mão:
+
+- **T-pose.** O Charmander vem de braços abertos na pose de bind. Somar animação
+  em cima disso o faz passear pelo quarto como um avião. `medirTPose` olha para
+  onde o braço aponta em repouso e, se for horizontal, abaixa — quem já chega de
+  braço caído não ganha correção nenhuma.
+- **Pose de bind inutilizável.** O Pikachu vem **deitado**: o rip conta com a
+  animação dele para endireitar o bicho. A versão anterior tocava o Impactrueno
+  em laço eterno, o que explicava o Pikachu permanentemente eletrocutado. Agora
+  só o **primeiro quadro** do clipe é tomado emprestado como pose de descanso, e
+  o golpe volta a ser golpe.
+
+A folha de poses acima sai de `npm run poses`, e ela usa o `Rig` e o `Animador`
+de verdade — não uma reimplementação. Se a imagem sair errada, é o jogo que está
+errado. As duas colunas de "andando" têm de mostrar as pernas trocadas.
 
 ## Os modelos
 
@@ -162,28 +545,45 @@ src/
   modelos.ts     carrega, normaliza e instancia os GLB (Draco + WebP)
   modelos.gen.ts GERADO: as medidas dos 151 modelos
   pokedex.gen.ts GERADO: tipos, stats, alturas e evoluções, da PokeAPI
-  species.ts     a camada de jogo por cima dos dados: golpes, dano, níveis
+  species.ts     a camada de jogo por cima dos dados: arsenal, dano, níveis, estágios
+  golpes.gen.ts  GERADO: os golpes da gen 1 e quem aprende cada um, em que nível
+  ajustes.ts     o que a engrenagem controla: modo, dificuldade, interruptores
+  evolucao.ts    a pergunta na tela e o efeito de branco da transformação
+  estilo.ts      a linguagem visual dos painéis: cores, cartões, barras, pílulas
   creature.ts    um Pokémon vivo — selvagem que foge ou parceiro que luta
+  rig.ts         acha os ossos do modelo pelo nome, para a animação ser uma só
+  anima.ts       a animação: andar, atacar, acenar, cafuné, olhar em volta
   state.ts       a coleção salva: exemplares com nível, e o registro da Pokédex
   menu.ts        painel do pulso: modos, time, bolas, itens e golpes
+  pc.ts          o PC: trocar entre a equipe e a caixa
   gesto.ts       o giro de pulso que abre os dois painéis
   modos.ts       Batalha, Relaxante e Safari
   dexpanel.ts    a Pokédex das 151, paginada
+  voz.ts         a narração da Pokédex em português (MP3 de public/voz/)
   attacks.ts     efeitos dos golpes (partículas e raio)
+  signature.ts   os efeitos de assinatura dos quatro iniciais
   orb.ts         a pokébola: arremesso, quique, captura e invocação
   balls.ts       os quatro tipos de bola
   itens.ts       poção, fruta e doce raro
-  room.ts        leitura dos planos reais do Quest (chão, mesa, sofá)
-  hands.ts       controles, velocidade do arremesso, arco de mira
+  room.ts        o mapa da casa: planos do Quest e o chão sondado a cada passo
+  isca.ts        a fruta ou o doce na mão, e o rastro até quem está sendo chamado
+  hands.ts       controles, botões, velocidade do arremesso, arco e marcador
+  glove.ts       a luva branca: dedos articulados e hand tracking
   hud.ts         texto, barras de vida e painéis em canvas 2D
   starter.ts     a vitrine dos quatro iniciais
-  audio.ts       todos os sons, sintetizados
+  audio.ts       todos os sons, sintetizados — inclusive os gritos
   rng.ts         aleatoriedade determinística
 tools/
   pokedex.mjs    baixa a PokeAPI e gera src/pokedex.gen.ts
   modelos.mjs    baixa os GLB, mede e orienta cada um
   orientacao.mjs o giro de endireitamento, compartilhado pelas ferramentas
   folha.mjs      folha de contato dos 151, sem WebGL (npm run render)
+  poses.ts       folha das poses animadas, com o rig de verdade (npm run poses)
+  raster.mjs     o rasterizador que as duas folhas compartilham
+  narracao.mjs   grava a voz da Pokédex em MP3 (npm run narracao)
+  gritos.mjs     baixa os gritos oficiais dos 151 da PokeAPI (npm run gritos)
+  golpes.mjs     baixa os golpes da PokeAPI e gera src/golpes.gen.ts
+  paineis.ts     folha de contato dos painéis, rasterizada (npm run paineis)
   encaixe.mjs    confere que todo mundo encaixa no chão (npm run encaixe)
   smoke.ts       simula o jogo sem navegador (npm test)
   draco.mjs      copia o decodificador Draco do three para public/
@@ -197,6 +597,11 @@ npm run dev        # servidor de desenvolvimento
 npm run quest      # encaminha a porta para o headset
 npm test           # simula o jogo em Node: dados, batalha, captura, IA
 npm run render     # folha de contato dos 151, para conferir silhueta
+npm run poses      # folha das poses animadas dos iniciais
+npm run narracao   # grava a voz da Pokédex (só o que estiver faltando)
+npm run gritos     # baixa os gritos oficiais (--legacy para os de 8 bits)
+npm run paineis    # folha de contato dos painéis, para conferir a interface
+npm run golpes     # regenera os golpes e as tabelas de aprendizado
 npm run encaixe    # confere o encaixe de todos no chão
 npm run build      # typecheck + bundle em dist/
 npm run pokedex    # regenera os dados a partir da PokeAPI

@@ -23,6 +23,7 @@ import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extension
 import draco3d from 'draco3d';
 import { girarPonto } from './orientacao.mjs';
 import { primitivasEmRepouso } from './pose.mjs';
+import { caixaDe, corDoNome, desenharCelula } from './raster.mjs';
 
 const require = createRequire(import.meta.url);
 const { codificarPng } = require('./png.mjs');
@@ -59,19 +60,6 @@ const io = new NodeIO()
   .registerDependencies({ 'draco3d.decoder': await draco3d.createDecoderModule() });
 
 // ------------------------------------------------------------- geometria
-
-/** Cor estável a partir do nome do material, para as partes se separarem. */
-function corDoNome(nome) {
-  let h = 2166136261;
-  for (let i = 0; i < nome.length; i++) h = Math.imul(h ^ nome.charCodeAt(i), 16777619);
-  const matiz = ((h >>> 0) % 360) / 360;
-  // HSL -> RGB com saturação baixa: é para ler forma, não para julgar cor.
-  const f = (n) => {
-    const k = (n + matiz * 12) % 12;
-    return 0.62 - 0.26 * Math.max(-1, Math.min(Math.min(k - 3, 9 - k), 1));
-  };
-  return [f(0), f(8), f(4)];
-}
 
 /**
  * Os triângulos da cena, na mesma pose de repouso que o headset desenha.
@@ -164,12 +152,6 @@ for (let i = 0; i < L * A; i++) {
   rgba[i * 4 + 3] = 255;
 }
 
-const LUZ = (() => {
-  const v = [0.45, 0.8, 0.55];
-  const n = Math.hypot(...v);
-  return v.map((c) => c / n);
-})();
-
 // Decodificar é o caro: um modelo serve para as três vistas.
 const cacheTris = new Map();
 
@@ -208,17 +190,10 @@ for (let k = 0; k < celulas.length; k++) {
   // Mede a caixa a partir dos triângulos já girados, em vez de reaproveitar a
   // do manifesto: no modo candidatos o giro é outro, e mesmo fora dele isto
   // garante que a conferência não depende de a medida estar certa.
-  const mn = [Infinity, Infinity, Infinity];
-  const mx = [-Infinity, -Infinity, -Infinity];
-  for (const t of tris)
-    for (const p of [t.a, t.b, t.c])
-      for (let e = 0; e < 3; e++) {
-        if (p[e] < mn[e]) mn[e] = p[e];
-        if (p[e] > mx[e]) mx[e] = p[e];
-      }
-  if (!isFinite(mn[0])) continue;
-  const centro = { x: (mn[0] + mx[0]) / 2, y: (mn[1] + mx[1]) / 2, z: (mn[2] + mx[2]) / 2 };
-  const tamanho = { largura: mx[0] - mn[0], alturaModelo: mx[1] - mn[1], profundidade: mx[2] - mn[2] };
+  const caixa = caixaDe(tris);
+  if (!caixa) continue;
+  const centro = caixa.centro;
+  const tamanho = caixa;
 
   const col = k % COLUNAS;
   const lin = Math.floor(k / COLUNAS);
@@ -236,56 +211,7 @@ for (let k = 0; k < celulas.length; k++) {
     proj.d(p, centro) * escala,
   ];
 
-  const zbuf = new Float32Array(CELULA * CELULA).fill(Infinity);
-
-  for (const tri of tris) {
-    // Normal geométrica no espaço do modelo.
-    const u = [tri.b[0] - tri.a[0], tri.b[1] - tri.a[1], tri.b[2] - tri.a[2]];
-    const w = [tri.c[0] - tri.a[0], tri.c[1] - tri.a[1], tri.c[2] - tri.a[2]];
-    const nx = u[1] * w[2] - u[2] * w[1];
-    const ny = u[2] * w[0] - u[0] * w[2];
-    const nz = u[0] * w[1] - u[1] * w[0];
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    const normal = [nx / nl, ny / nl, nz / nl];
-
-    const p0 = naTela(tri.a);
-    const p1 = naTela(tri.b);
-    const p2 = naTela(tri.c);
-
-    const area = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]);
-    if (area === 0) continue;
-
-    // Sem culling: alguns rips têm a orientação das faces trocada, e um bicho
-    // com metade do corpo faltando na conferência engana mais do que ajuda.
-    const difusa = Math.abs(normal[0] * LUZ[0] + normal[1] * LUZ[1] + normal[2] * LUZ[2]);
-    const luz = 0.34 + difusa * 0.82;
-
-    const minX = Math.max(ox, Math.floor(Math.min(p0[0], p1[0], p2[0])));
-    const maxX = Math.min(ox + CELULA - 1, Math.ceil(Math.max(p0[0], p1[0], p2[0])));
-    const minY = Math.max(oy, Math.floor(Math.min(p0[1], p1[1], p2[1])));
-    const maxY = Math.min(oy + CELULA - 1, Math.ceil(Math.max(p0[1], p1[1], p2[1])));
-
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const px = x + 0.5;
-        const py = y + 0.5;
-        const w0 = ((p1[0] - p0[0]) * (py - p0[1]) - (px - p0[0]) * (p1[1] - p0[1])) / area;
-        const w1 = ((p2[0] - p1[0]) * (py - p1[1]) - (px - p1[0]) * (p2[1] - p1[1])) / area;
-        const w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-
-        const z = p0[2] * w1 + p1[2] * w2 + p2[2] * w0;
-        const cel = (y - oy) * CELULA + (x - ox);
-        if (z >= zbuf[cel]) continue;
-        zbuf[cel] = z;
-
-        const i = (y * L + x) * 4;
-        rgba[i] = Math.min(255, tri.cor[0] * 255 * luz);
-        rgba[i + 1] = Math.min(255, tri.cor[1] * 255 * luz);
-        rgba[i + 2] = Math.min(255, tri.cor[2] * 255 * luz);
-      }
-    }
-  }
+  desenharCelula({ rgba, largura: L, ox, oy, celula: CELULA, tris, naTela });
 
   process.stdout.write(`\r  ${k + 1}/${celulas.length} ${esp.id.padEnd(14)}`);
 }

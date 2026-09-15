@@ -38,7 +38,16 @@ jobs:
           path: public/pokemon
           key: modelos-${{ hashFiles('public/pokemon/manifesto.json') }}
 
-      # `prebuild` gera os ícones, copia o Draco e baixa o que faltar de modelo.
+      # Os gritos oficiais dos 151, do repositório de áudio da PokeAPI. São só
+      # 2 MB, mas são 151 requisições — guardar evita bater no GitHub a cada
+      # publicação. A chave é fixa porque o elenco não muda.
+      - uses: actions/cache@v4
+        with:
+          path: public/gritos
+          key: gritos-gen1-v1
+
+      # `prebuild` gera os ícones, copia o Draco, baixa o que faltar de modelo
+      # e os gritos que ainda não estiverem em cache.
 
       - run: npm run build
 

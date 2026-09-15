@@ -142,19 +142,41 @@ function iniciarModoPlano() {
     inclinacao = THREE.MathUtils.clamp(inclinacao - e.movementY * 0.0022, -1.3, 1.3);
   });
 
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
   canvas.addEventListener('mousedown', (e) => {
-    if (document.pointerLockElement !== canvas || e.button !== 0) return;
-    jogo.arremessoPlano('inicio');
+    if (document.pointerLockElement !== canvas) return;
+    if (e.button === 0) jogo.arremessoPlano('inicio');
+    // Botão direito segurado faz o papel do gatilho segurado do headset: marca
+    // no chão para onde o Pokémon deve ir.
+    if (e.button === 2) jogo.marcarPlano('inicio');
   });
   canvas.addEventListener('mouseup', (e) => {
-    if (e.button !== 0) return;
-    jogo.arremessoPlano('fim');
+    if (e.button === 0) jogo.arremessoPlano('fim');
+    if (e.button === 2) jogo.marcarPlano('fim');
   });
 
   window.addEventListener('keydown', (e) => {
     tecla.add(e.code);
-    // Sem controles, o teclado faz o papel do gatilho e do painel.
+    // Sem controles, o teclado faz o papel do gatilho, dos botões e do painel.
     if (e.code === 'KeyF') jogo.comandoPlano('atacar');
+    if (e.code === 'KeyE') jogo.comandoPlano('gatilho');
+    if (e.code === 'KeyP') jogo.comandoPlano('pc');
+    if (e.code === 'KeyR') jogo.comandoPlano('recolher');
+    if (e.code === 'KeyC') jogo.comandoPlano('chamar');
+    if (e.code === 'KeyV') jogo.comandoPlano('carinho');
+    if (e.code === 'KeyB') jogo.comandoPlano('acenar');
+    if (e.code === 'KeyG') jogo.comandoPlano('isca');
+    if (e.code === 'KeyH') jogo.comandoPlano('doce');
+    if (e.code === 'KeyN') jogo.comandoPlano('dificuldade');
+    // A pergunta da evolução: Y deixa, U recusa.
+    if (e.code === 'KeyY') jogo.comandoPlano('evoluir');
+    if (e.code === 'KeyU') jogo.comandoPlano('naoEvoluir');
+    // Os quatro golpes, nos números — como num jogo de Pokémon.
+    if (e.code === 'Digit1') jogo.comandoPlano('golpe1');
+    if (e.code === 'Digit2') jogo.comandoPlano('golpe2');
+    if (e.code === 'Digit3') jogo.comandoPlano('golpe3');
+    if (e.code === 'Digit4') jogo.comandoPlano('golpe4');
     if (e.code === 'KeyQ' || e.code === 'Tab') {
       e.preventDefault();
       jogo.comandoPlano('proximo');

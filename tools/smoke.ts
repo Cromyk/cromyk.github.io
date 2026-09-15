@@ -20,6 +20,21 @@ import {
   calcularDano,
   chanceCaptura,
   escolherGolpe,
+  ESTAGIOS_ZERADOS,
+  TETO_DANO_RECEBIDO,
+  CHANCE_SHINY_BASE,
+  CHANCE_SHINY_MAXIMA,
+  aplicarStatus,
+  chanceShiny,
+  sortearShiny,
+  textoChanceShiny,
+  danoRecebido,
+  arsenal,
+  golpesDeDano,
+  golpesNoNivel,
+  intervaloDeAtaque,
+  multEstagio,
+  golpesDeStatus,
   evolucaoEm,
   multiplicador,
   nivelPorXp,
@@ -31,6 +46,11 @@ import {
 import { MEDIDAS } from '../src/modelos.gen';
 import type { Corpo } from '../src/modelos';
 import { BOLAS } from '../src/balls';
+import { Rig, type Chave } from '../src/rig';
+import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
+import { GOLPES_DEX } from '../src/golpes.gen';
+import { Dex, TAMANHO_TIME } from '../src/state';
+import { DIFICULDADES } from '../src/ajustes';
 
 let falhas = 0;
 const checar = (cond: boolean, msg: string) => {
@@ -77,6 +97,135 @@ const nascer = (especie: Especie, papel: 'selvagem' | 'companheiro', nivel = 12,
   );
 
 // ---------------------------------------------------------------------------
+/**
+ * Um esqueleto de verdade, montado a partir de uma lista de nomes de osso.
+ *
+ * Os nomes usados nos testes são os que estão dentro dos GLB de public/pokemon/
+ * — não são aproximações. src/rig.ts casa osso por NOME, então é exatamente
+ * isso que precisa ser testado: um rip com outra convenção passaria por todo o
+ * resto do jogo sem erro nenhum e chegaria ao headset como uma estátua.
+ *
+ * A hierarquia é remontada aqui pela regra óbvia (a mão pende do antebraço, o
+ * antebraço do braço) porque `Rig` mede a orientação de repouso do PAI para
+ * converter os giros, e um esqueleto chapado não exercitaria essa conta.
+ */
+function esqueletoDe(nomes: string[], altura = 0.6) {
+  const porNome = new Map<string, THREE.Bone>();
+  const normal = new Map<string, THREE.Bone>();
+  const repousos = new Map<string, THREE.Quaternion>();
+
+  const limpo = (n: string) =>
+    n.slice(n.lastIndexOf('|') + 1).replace(/_\d+$/, '').toLowerCase();
+
+  for (const nome of nomes) {
+    const osso = new THREE.Bone();
+    osso.name = nome;
+    porNome.set(nome, osso);
+    normal.set(limpo(nome), osso);
+  }
+
+  const achar = (...candidatos: string[]) => {
+    for (const c of candidatos) {
+      const osso = normal.get(c);
+      if (osso) return osso;
+    }
+    return null;
+  };
+
+  const raiz = achar('hips', 'waist', 'origin');
+
+  /** De quem cada osso pende, pelo nome já normalizado. */
+  const paiDe = (n: string): THREE.Bone | null => {
+    const m = /^([lr])(.+)$/.exec(n);
+    const lado = m ? m[1] : '';
+    const parte = m ? m[2] : n;
+
+    if (parte === 'spine1') return achar('waist', 'hips');
+    if (parte === 'spine2') return achar('spine1', 'waist', 'hips');
+    if (parte === 'neck') return achar('spine2', 'spine1', 'waist', 'hips');
+    if (parte === 'head') return achar('neck', 'spine2', 'spine1', 'waist', 'hips');
+    if (parte === 'jaw') return achar('head');
+    if (parte.startsWith('ear')) return achar('head');
+    if (parte === 'shoulder') return achar('spine2', 'spine1', 'waist', 'hips');
+    if (parte === 'arm') return achar(`${lado}shoulder`, 'spine2', 'spine1', 'waist', 'hips');
+    if (parte === 'forearm') return achar(`${lado}arm`);
+    if (parte === 'hand') return achar(`${lado}forearm`, `${lado}arm`);
+    if (parte === 'thigh') return achar('hips', 'waist');
+    if (parte === 'leg') return achar(`${lado}thigh`);
+    if (parte === 'foot') return achar(`${lado}leg`, `${lado}thigh`);
+    if (parte === 'toe') return achar(`${lado}foot`);
+    if (/^tail(\d+)$/.test(parte)) {
+      const n = Number(/^tail(\d+)$/.exec(parte)![1]);
+      return n <= 1 ? achar('hips', 'waist') : achar(`tail${n - 1}`);
+    }
+    return null;
+  };
+
+  const corpoGrupo = new THREE.Group();
+  for (const [nome, osso] of porNome) {
+    const n = limpo(nome);
+    // Pose de repouso torta de propósito: com tudo alinhado, a conversão de
+    // eixo do mundo para eixo do osso vira multiplicação por identidade e o
+    // teste não provaria nada. O quadril fica reto para as pernas continuarem
+    // legíveis no eixo X.
+    if (osso !== raiz) {
+      let semente = 0;
+      for (let i = 0; i < n.length; i++) semente = (semente * 31 + n.charCodeAt(i)) % 211;
+      osso.quaternion.setFromEuler(
+        new THREE.Euler((semente % 7) * 0.09, (semente % 5) * 0.11, (semente % 3) * 0.13),
+      );
+    }
+    osso.position.y = n.includes('thigh') || n.includes('leg') ? -altura * 0.15 : altura * 0.1;
+    repousos.set(nome, osso.quaternion.clone());
+
+    // A raiz pende do grupo, não dela mesma — e nenhum osso pode virar pai de
+    // si próprio quando `paiDe` não souber responder.
+    const pai = osso === raiz ? corpoGrupo : (paiDe(n) ?? raiz ?? corpoGrupo);
+    (pai === osso ? corpoGrupo : pai).add(osso);
+  }
+  for (const osso of porNome.values()) if (!osso.parent) corpoGrupo.add(osso);
+
+  const raizGrupo = new THREE.Group();
+  raizGrupo.add(corpoGrupo);
+  const boca = new THREE.Object3D();
+  boca.position.set(0, altura * 0.74, altura * 0.3);
+  corpoGrupo.add(boca);
+
+  const corpo: Corpo = {
+    raiz: raizGrupo,
+    corpo: corpoGrupo,
+    boca,
+    altura,
+    raio: altura * 0.5,
+    mixer: null,
+    acoes: new Map(),
+    descartar() {
+      raizGrupo.removeFromParent();
+    },
+  };
+
+  return { corpo, rig: new Rig(corpoGrupo), porNome, repousos };
+}
+
+/**
+ * Quanto o osso girou em relação ao repouso, com sinal, em torno do eixo X
+ * local. É o número que separa "a perna foi para a frente" de "a perna foi para
+ * trás" — e sem sinal não dá para provar que as duas alternam.
+ */
+function desvioX(osso: THREE.Bone, repouso: THREE.Quaternion): number {
+  const d = repouso.clone().invert().multiply(osso.quaternion);
+  if (d.w < 0) {
+    d.x = -d.x;
+    d.y = -d.y;
+    d.z = -d.z;
+    d.w = -d.w;
+  }
+  const v = Math.hypot(d.x, d.y, d.z);
+  if (v < 1e-9) return 0;
+  return 2 * Math.atan2(v, d.w) * Math.sign(d.x);
+}
+
+// ---------------------------------------------------------------------------
 console.log('1. a Pokédex fecha consigo mesma');
 {
   checar(ESPECIES.length === 151, `deveria haver 151 espécies, há ${ESPECIES.length}`);
@@ -88,7 +237,28 @@ console.log('1. a Pokédex fecha consigo mesma');
     if (!MEDIDAS[e.id]) semModelo++;
     if (e.evolui && !porId(e.evolui.para)) evolucaoQuebrada++;
     checar(e.tipos.length >= 1 && e.tipos.length <= 2, `${e.nome}: ${e.tipos.length} tipos`);
-    checar(e.golpes.length === e.tipos.length, `${e.nome}: golpes e tipos não batem`);
+    // Quatro golpes, como no jogo: fisico e especial do tipo principal, uma
+    // cobertura (ou um segundo status) e um golpe de status.
+    // O arsenal vem da tabela de aprendizado de Red/Blue/Yellow e depende do
+    // nível, então o que se garante é isto: ele nunca fica sem como atacar,
+    // nem no nível 1, nem no teto.
+    checar(e.aprende.length > 0, `${e.nome}: não aprende golpe nenhum`);
+    checar(
+      golpesDeDano(golpesNoNivel(e, 1)).length >= 1,
+      `${e.nome}: entra em campo no nível 1 sem golpe de dano`,
+    );
+    checar(
+      golpesDeDano(golpesNoNivel(e, NIVEL_MAXIMO)).length >= 1,
+      `${e.nome}: chega ao teto de nível sem golpe de dano`,
+    );
+    checar(
+      e.golpes.length >= 1 && e.golpes.length <= 4,
+      `${e.nome}: carrega ${e.golpes.length} golpes`,
+    );
+    checar(
+      e.aprende.every((a) => (a.golpe.categoria === 'status') === (a.golpe.potencia === 0)),
+      `${e.nome}: categoria e potência discordam`,
+    );
     checar(e.base.hp > 0 && e.base.atq > 0, `${e.nome}: stat-base zerado`);
     checar(e.taxaCaptura > 0 && e.taxaCaptura <= 1, `${e.nome}: taxa de captura fora de 0..1`);
   }
@@ -165,8 +335,12 @@ console.log('3. efetividade dos dezoito tipos');
 // ---------------------------------------------------------------------------
 console.log('4. o golpe escolhido é o melhor que ele tem');
 {
-  let melhorou = 0;
-  for (const atacante of ESPECIES.filter((e) => e.golpes.length === 2)) {
+  // Agora todo mundo tem quatro golpes, e um deles é de status — que não causa
+  // dano e nunca pode ser o "melhor" numa conta de dano. A escolha automática
+  // olha só para os de dano, e é isso que se confere aqui.
+  let coberturaUsada = 0;
+  let statusEscolhido = 0;
+  for (const atacante of ESPECIES.filter((e) => e.tipos.length === 2)) {
     for (const defensor of ESPECIES) {
       const a = { especie: atacante, nivel: 20 };
       const d = { especie: defensor, nivel: 20 };
@@ -175,13 +349,16 @@ console.log('4. o golpe escolhido é o melhor que ele tem');
         g.potencia *
         multiplicador(g.tipo, defensor.tipos) *
         (atacante.tipos.includes(g.tipo) ? 1.5 : 1);
-      const melhor = Math.max(...atacante.golpes.map(nota));
+      const melhor = Math.max(...golpesDeDano(arsenal(a)).map(nota));
       checar(nota(escolhido) >= melhor - 1e-9, `${atacante.nome} vs ${defensor.nome}: golpe pior`);
-      if (escolhido !== atacante.golpes[0]) melhorou++;
+      if (escolhido.categoria === 'status') statusEscolhido++;
+      // Cobertura é o golpe de um tipo que não é o principal dele.
+      if (escolhido.tipo !== atacante.tipos[0]) coberturaUsada++;
     }
   }
-  console.log(`   o segundo golpe foi o escolhido em ${melhorou} confrontos`);
-  checar(melhorou > 0, 'o golpe de cobertura nunca é usado');
+  console.log(`   a cobertura foi escolhida em ${coberturaUsada} confrontos`);
+  checar(coberturaUsada > 0, 'o golpe de cobertura nunca é usado');
+  checar(statusEscolhido === 0, 'a escolha automática pegou um golpe de status');
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +601,878 @@ console.log('11. pontos de nascimento');
   console.log(`   500 sorteios: ${nulos} sem lugar, ${fora} fora da faixa`);
   checar(fora === 0, `${fora} spawns fora da faixa de distância`);
   checar(nulos < 60, `${nulos} sorteios falharam em achar lugar`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('12. o esqueleto dos quatro iniciais');
+{
+  // Estes nomes NÃO são inventados: são os que estão dentro de public/pokemon/
+  // 1, 4, 7 e 25.glb. O teste existe porque src/rig.ts casa osso por nome, e um
+  // rip com convenção diferente sairia daqui como um bicho de pé parado — que é
+  // exatamente o tipo de falha que não dá erro nenhum e só aparece no headset.
+  const OSSOS_REAIS: Record<string, string[]> = {
+    bulbasaur: [
+      'Waist_6', 'Spine1_23', 'Spine2_49', 'Head_50', 'Jaw_52', 'LEar_54', 'REar_56',
+      'LShoulder_59', 'LArm_60', 'LForeArm_61', 'LHand_62',
+      'RShoulder_65', 'RArm_66', 'RForeArm_67', 'RHand_68',
+      'Hips_8', 'LThigh_10', 'LLeg_11', 'LFoot_12', 'RThigh_16', 'RLeg_17', 'RFoot_18',
+    ],
+    charmander: [
+      'Hips', 'LThigh', 'LLeg', 'LFoot', 'LToe', 'RThigh', 'RLeg', 'RFoot', 'RToe',
+      'Tail1', 'Tail2', 'Tail3', 'Spine1', 'Spine2',
+      'LShoulder', 'LArm', 'LForeArm', 'LHand', 'Neck', 'Head', 'Jaw',
+      'RShoulder', 'RArm', 'RForeArm', 'RHand',
+    ],
+    squirtle: [
+      'Waist', 'Head', 'Jaw', 'Tail1', 'Tail2', 'Tail3',
+      'LThigh', 'LLeg', 'LFoot', 'LToe', 'RThigh', 'RLeg', 'RFoot', 'RToe',
+      'LArm', 'LForeArm', 'LHand', 'RArm', 'RForeArm', 'RHand',
+    ],
+    pikachu: [
+      'Waist_33', 'Spine1_19', 'Spine2_18', 'Head_9', 'LEar1_5', 'REar1_8',
+      'LShoulder_13', 'LArm_12', 'LForeArm_11', 'LHand_10',
+      'Hips_32', 'LThigh_23', 'LLeg_22', 'LFoot_21',
+      'RThigh_27', 'RLeg_26', 'RFoot_25', 'Tail1_30', 'Tail2_29', 'Tail3_28',
+    ],
+  };
+
+  for (const [id, nomes] of Object.entries(OSSOS_REAIS)) {
+    const { rig } = esqueletoDe(nomes);
+    const faltando = ['cabeca', 'coxaE', 'coxaD', 'pernaE', 'pernaD'].filter(
+      (c) => !rig.tem(c as Chave),
+    );
+    checar(faltando.length === 0, `${id}: sem ${faltando.join(', ')}`);
+    checar(!rig.vazio, `${id}: nenhum osso reconhecido`);
+    console.log(`   ${id.padEnd(11)} ${String(rig.encontrados).padStart(2)} papéis de ${nomes.length} ossos`);
+  }
+
+  // O Squirtle é o caso difícil e é por isso que ele está aqui: o rig dele não
+  // tem Spine nenhum, só Waist. O quadril fica com o Waist e o tronco fica sem
+  // osso — e nada pode tomar o Waist duas vezes, senão cada giro sairia dobrado.
+  const { rig: squirtle } = esqueletoDe(OSSOS_REAIS.squirtle);
+  checar(squirtle.tem('quadril'), 'Squirtle deveria ter quadril (no Waist)');
+  checar(!squirtle.tem('tronco'), 'Squirtle não tem coluna: tronco não podia repetir o Waist');
+}
+
+// ---------------------------------------------------------------------------
+console.log('13. a animação mexe os ossos, e só mexe os que deve');
+{
+  const especie = porId('charmander')!;
+  const nomes = [
+    'Hips', 'Spine1', 'Spine2', 'Neck', 'Head', 'Jaw',
+    'LShoulder', 'LArm', 'LForeArm', 'LHand', 'RShoulder', 'RArm', 'RForeArm', 'RHand',
+    'LThigh', 'LLeg', 'LFoot', 'RThigh', 'RLeg', 'RFoot', 'Tail1', 'Tail2', 'Tail3',
+  ];
+  const { corpo, porNome, repousos } = esqueletoDe(nomes, especie.altura);
+  const bicho = new Pokemon(especie, corpo, new THREE.Vector3(0, 0, -1.5), 0, 'companheiro', 12);
+
+  checar(bicho.animador.temRig, 'o animador não reconheceu o esqueleto do Charmander');
+
+  const coxaE = porNome.get('LThigh')!;
+  const coxaD = porNome.get('RThigh')!;
+  const cabeca = porNome.get('Head')!;
+  const repousoCoxaE = repousos.get('LThigh')!;
+  const repousoCoxaD = repousos.get('RThigh')!;
+
+  // --- andando: as coxas têm de sair de fase uma da outra ---
+  let opostas = 0;
+  let mexeu = 0;
+  const jogador = new THREE.Vector3(3.5, 1.6, -1.5); // longe, para ele andar
+  for (let i = 0; i < 260; i++) {
+    bicho.atualizar(1 / 72, jogador);
+    const e = desvioX(coxaE, repousoCoxaE);
+    const d = desvioX(coxaD, repousoCoxaD);
+    if (Math.abs(e) > 0.02) mexeu++;
+    if (e * d < -0.0004) opostas++;
+    checar(Number.isFinite(e) && Number.isFinite(d), 'ângulo de coxa virou NaN');
+  }
+  checar(mexeu > 60, `a coxa quase não se mexeu andando (${mexeu} de 260 quadros)`);
+  checar(opostas > 60, `as pernas não alternaram (${opostas} de 260 quadros em oposição)`);
+  console.log(`   andando: ${mexeu} quadros com perna em movimento, ${opostas} em oposição`);
+
+  // --- gesto: sobe, enche e volta ao repouso ---
+  // Medido no BRAÇO, que é o que acena; a cabeça só acompanha. E medido contra
+  // a pose de repouso guardada, e não contra o quadro anterior, porque o que
+  // interessa é que ele volte ao lugar depois — um gesto que não volta deixa o
+  // bicho com o braço no alto para sempre.
+  const braco = porNome.get('RArm')!;
+  const repousoBraco = repousos.get('RArm')!;
+  bicho.animador.disparar('acenar', 1.0);
+  let pico = 0;
+  let terminouEm = -1;
+  for (let i = 0; i < 100; i++) {
+    bicho.atualizar(1 / 72, jogador);
+    pico = Math.max(pico, Math.abs(desvioX(braco, repousoBraco)));
+    if (terminouEm < 0 && bicho.animador.gestoAtivo === null) terminouEm = i;
+  }
+  const sobrou = Math.abs(desvioX(braco, repousoBraco));
+  checar(pico > 0.3, `o aceno mal levantou o braço (pico ${(pico * 57.3).toFixed(1)}°)`);
+  checar(terminouEm >= 60 && terminouEm <= 85, `o gesto acabou no quadro ${terminouEm}, não perto de 72`);
+  checar(sobrou < 0.08, `o braço não voltou ao lugar (sobraram ${(sobrou * 57.3).toFixed(1)}°)`);
+  console.log(
+    `   aceno: pico de ${(pico * 57.3).toFixed(0)}° no braço, acabou no quadro ${terminouEm}, voltou ao repouso`,
+  );
+
+  // --- desmaiado não pode gerar NaN nem sumir do quarto ---
+  bicho.receberDano(bicho.hpMax);
+  for (let i = 0; i < 200; i++) bicho.atualizar(1 / 72, jogador);
+  checar(finito(bicho.raiz.position), 'desmaiado, a posição virou NaN');
+  checar(
+    Number.isFinite(cabeca.quaternion.x) && Number.isFinite(cabeca.quaternion.w),
+    'desmaiado, a rotação da cabeça virou NaN',
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('14. ir até o ponto marcado');
+{
+  const especie = porId('squirtle')!;
+  const { corpo } = esqueletoDe(['Waist', 'Head', 'LThigh', 'LLeg', 'RThigh', 'RLeg'], especie.altura);
+  const bicho = new Pokemon(especie, corpo, new THREE.Vector3(0, 0, -1), 0, 'companheiro', 10);
+  const jogador = new THREE.Vector3(0, 1.6, 0);
+  for (let i = 0; i < 40; i++) bicho.atualizar(1 / 72, jogador);
+
+  const destino = new THREE.Vector3(2.2, 0, -2.6);
+  bicho.irPara(destino);
+  checar(bicho.indoParaAlgumLugar, 'o comando não pegou');
+
+  let quadros = 0;
+  while (bicho.indoParaAlgumLugar && quadros < 72 * 20) {
+    bicho.atualizar(1 / 72, jogador);
+    quadros++;
+  }
+  const falta = Math.hypot(bicho.raiz.position.x - destino.x, bicho.raiz.position.z - destino.z);
+  checar(!bicho.indoParaAlgumLugar, 'ele nunca chegou nem desistiu');
+  checar(falta < 0.3, `parou a ${falta.toFixed(2)} m da marca`);
+  checar(finito(bicho.raiz.position), 'a posição virou NaN indo para a marca');
+  console.log(`   chegou em ${(quadros / 72).toFixed(1)}s, a ${(falta * 100).toFixed(0)} cm da marca`);
+
+  // Fazer carinho tem de CANCELAR a ordem: a mão na cabeça vale mais do que um
+  // destino marcado há dez segundos.
+  bicho.irPara(new THREE.Vector3(-3, 0, 0));
+  bicho.receberCarinho();
+  checar(!bicho.indoParaAlgumLugar, 'o carinho não cancelou a ordem de andar');
+  checar(bicho.recebendoCarinho, 'o carinho não registrou');
+}
+
+// ---------------------------------------------------------------------------
+console.log('15. o PC mexendo na equipe');
+{
+  const dex = new Dex();
+  dex.limpar();
+  dex.receberInicial('charmander');
+  for (const id of ['pidgey', 'rattata', 'caterpie', 'zubat', 'geodude', 'magikarp', 'eevee']) {
+    dex.registrarCaptura(id, 10, 8, false);
+  }
+
+  checar(dex.time.length === TAMANHO_TIME, `o time deveria ter ${TAMANHO_TIME}, tem ${dex.time.length}`);
+  checar(dex.guardados.length === 2, `a caixa deveria ter 2, tem ${dex.guardados.length}`);
+
+  // Trocar um do time por um da caixa: os dois mudam de metade de uma vez só.
+  const doTime = dex.time[1];
+  const daCaixa = dex.guardados[0];
+  dex.trocar(1, TAMANHO_TIME);
+  checar(dex.time[1] === daCaixa, 'quem estava na caixa não entrou no time');
+  checar(dex.guardados[0] === doTime, 'quem estava no time não foi para a caixa');
+  checar(dex.todos.length === 8, 'a troca perdeu ou criou exemplar');
+
+  // O ativo é guardado por índice: mover a lista embaixo dele não pode trocar
+  // qual bicho está escolhido.
+  dex.definirAtivo(0);
+  const ativo = dex.exemplarAtivo;
+  dex.mover(0, 5);
+  checar(dex.exemplarAtivo === ativo, 'mover a lista trocou qual Pokémon está ativo');
+  dex.trocar(5, 2);
+  checar(dex.exemplarAtivo === ativo, 'trocar de lugar trocou qual Pokémon está ativo');
+
+  // Fora dos limites não pode corromper nada.
+  const antes = dex.todos.map((e) => e.id).join(',');
+  dex.trocar(-1, 99);
+  dex.mover(50, 0);
+  checar(dex.todos.map((e) => e.id).join(',') === antes, 'índice inválido mexeu na coleção');
+
+  dex.limpar();
+  console.log('   troca, movimentação e ativo mantidos em 8 exemplares');
+}
+
+// ---------------------------------------------------------------------------
+console.log('16. a sala acompanha quem anda');
+{
+  // Este é o teste do bug que o jogador viu no headset: tudo acontecia em volta
+  // do ponto onde ele entrou. A causa era o piso de reserva ser um quadrado fixo
+  // na ORIGEM da sessão — andar dez metros deixava o jogo sem chão onde nascer.
+  const sala = new Sala(new THREE.Group());
+  const jogador = new THREE.Vector3(0, 1.6, 0);
+  sala.atualizar(null, null, jogador);
+
+  let semLugar = 0;
+  let longeDemais = 0;
+  for (let passo = 0; passo < 14; passo++) {
+    // Anda um metro e meio por leitura, em diagonal — sai bem longe da origem.
+    jogador.x += 1.5;
+    jogador.z -= 0.9;
+    sala.atualizar(null, null, jogador);
+
+    const local = sala.pontoDeSpawn(jogador);
+    if (!local) {
+      semLugar++;
+      continue;
+    }
+    const d = Math.hypot(local.ponto.x - jogador.x, local.ponto.z - jogador.z);
+    if (d < 1.0 - 1e-6 || d > 3.2 + 1e-6) longeDemais++;
+  }
+
+  const distanciaDaOrigem = Math.hypot(jogador.x, jogador.z);
+  checar(semLugar === 0, `${semLugar} leituras ficaram sem lugar para nascer`);
+  checar(longeDemais === 0, `${longeDemais} pontos nasceram fora do alcance do jogador`);
+  console.log(
+    `   andou ${distanciaDaOrigem.toFixed(1)} m da origem e continuou tendo onde nascer`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('17. o mapa cresce a cada passo');
+{
+  // O `hit-test` não existe no Node, então a sondagem é encenada: um raio que
+  // sempre acerta o chão a y = 0. O que se testa é a CONTABILIDADE do mapa —
+  // uma célula por quadrado de 80 cm, crescendo conforme se anda, e sem crescer
+  // parado no mesmo lugar.
+  (globalThis as Record<string, unknown>).XRRay = class {};
+  const sessao = {
+    requestReferenceSpace: async () => ({}),
+    requestHitTestSource: async () => ({ cancel() {} }),
+  };
+
+  let alturaDoChao = 0;
+  const frame = {
+    getHitTestResults: () => [
+      { getPose: () => ({ transform: { position: { y: alturaDoChao } } }) },
+    ],
+  };
+
+  const sala = new Sala(new THREE.Group());
+  await sala.prepararSondagem(sessao as unknown as XRSession);
+
+  const jogador = new THREE.Vector3(0, 1.6, 0);
+  const espaco = {} as XRReferenceSpace;
+
+  // Parado: uma célula, por mais que se leia.
+  for (let i = 0; i < 20; i++) sala.atualizar(frame as unknown as XRFrame, espaco, jogador);
+  checar(sala.mapeadas === 1, `parado no lugar, o mapa foi a ${sala.mapeadas} superfícies`);
+
+  // Andando dez metros em linha reta: uma célula a cada 80 cm.
+  for (let i = 0; i < 40; i++) {
+    jogador.x += 0.25;
+    sala.atualizar(frame as unknown as XRFrame, espaco, jogador);
+  }
+  checar(sala.mapeadas >= 11, `dez metros deram só ${sala.mapeadas} células`);
+  checar(sala.mapeadas <= 16, `dez metros deram ${sala.mapeadas} células — granularidade solta`);
+  console.log(`   dez metros de caminhada mapearam ${sala.mapeadas} superfícies`);
+
+  // Subir um degrau: o chão por perto é o de cima, não o mais baixo já visto.
+  alturaDoChao = 0.42;
+  for (let i = 0; i < 12; i++) {
+    jogador.x += 0.25;
+    sala.atualizar(frame as unknown as XRFrame, espaco, jogador);
+  }
+  checar(
+    Math.abs(sala.pisoY - 0.42) < 0.05,
+    `no degrau, o piso por perto ficou em ${sala.pisoY.toFixed(2)} m em vez de 0,42`,
+  );
+  console.log(`   degrau de 42 cm: o piso por perto acompanhou (${sala.pisoY.toFixed(2)} m)`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('18. quem flutua não pula');
+{
+  const flutuador = porId('gastly')!;
+  const andarilho = porId('charmander')!;
+  checar(flutuador.voo > 0, 'Gastly deveria flutuar');
+  checar(andarilho.voo === 0, 'Charmander deveria andar no chão');
+
+  const medir = (especie: Especie) => {
+    const bicho = nascer(especie, 'selvagem', 10, 7);
+    let menorY = Infinity;
+    let maiorY = -Infinity;
+    let andou = 0;
+    const antes = bicho.raiz.position.clone();
+    for (let i = 0; i < 600; i++) {
+      bicho.atualizar(1 / 72, JOGADOR);
+      if (bicho.raiz.scale.x < 0.5) continue; // ainda surgindo
+      menorY = Math.min(menorY, bicho.raiz.position.y);
+      maiorY = Math.max(maiorY, bicho.raiz.position.y);
+    }
+    andou = Math.hypot(
+      bicho.raiz.position.x - antes.x,
+      bicho.raiz.position.z - antes.z,
+    );
+    return { bicho, menorY, maiorY, andou };
+  };
+
+  const gastly = medir(flutuador);
+  const alturaDeVooEmMetros = flutuador.voo * flutuador.altura;
+  checar(
+    gastly.menorY > alturaDeVooEmMetros * 0.7,
+    `Gastly encostou no chão (mínimo ${gastly.menorY.toFixed(2)} m)`,
+  );
+  checar(gastly.andou > 0.2, 'Gastly não saiu do lugar — quem paira também passeia');
+  checar(
+    gastly.maiorY - gastly.menorY < alturaDeVooEmMetros * 0.5,
+    'Gastly quicou em vez de pairar',
+  );
+
+  const charmander = medir(andarilho);
+  checar(charmander.menorY < 0.02, 'Charmander nunca encostou no chão');
+  checar(charmander.maiorY > 0.1, 'Charmander não pulou — é assim que ele anda');
+
+  console.log(
+    `   Gastly pairou entre ${gastly.menorY.toFixed(2)} e ${gastly.maiorY.toFixed(2)} m; ` +
+      `Charmander pulou de ${charmander.menorY.toFixed(2)} a ${charmander.maiorY.toFixed(2)} m`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('19. a isca traz o selvagem');
+{
+  const especie = porId('rattata')!;
+  const bicho = nascer(especie, 'selvagem', 8, 3);
+  bicho.raiz.position.set(0, 0, -5);
+  bicho.ancora.set(0, 0, -5);
+  // Assustado como ele estaria depois de você ter chegado perto uma vez.
+  bicho.alarme = 0.8;
+  for (let i = 0; i < 60; i++) bicho.atualizar(1 / 72, JOGADOR);
+
+  const antes = Math.hypot(bicho.raiz.position.x - JOGADOR.x, bicho.raiz.position.z - JOGADOR.z);
+  bicho.atrairPara(JOGADOR);
+  checar(bicho.atraido, 'a isca não pegou');
+
+  let fugiu = false;
+  for (let i = 0; i < 72 * 12; i++) {
+    bicho.atualizar(1 / 72, JOGADOR);
+    if (bicho.estado === 'fugindo' || !bicho.viva) fugiu = true;
+  }
+
+  const depois = Math.hypot(bicho.raiz.position.x - JOGADOR.x, bicho.raiz.position.z - JOGADOR.z);
+  checar(!fugiu, 'o selvagem fugiu mesmo atraído pela isca');
+  checar(depois < antes - 2, `ele mal se aproximou: de ${antes.toFixed(1)} m para ${depois.toFixed(1)} m`);
+  checar(depois < 1.6, `parou a ${depois.toFixed(1)} m — a isca é para trazer até perto`);
+  checar(bicho.alarme < 0.4, `continuou alarmado (${bicho.alarme.toFixed(2)}) depois de vir`);
+  checar(finito(bicho.raiz.position), 'a posição virou NaN vindo pela isca');
+
+  // Chegando, o passeio dele passa a ser aqui: ele não pode dar meia-volta.
+  const aoChegar = bicho.raiz.position.clone();
+  for (let i = 0; i < 72 * 6; i++) bicho.atualizar(1 / 72, JOGADOR);
+  const vagou = Math.hypot(
+    bicho.raiz.position.x - aoChegar.x,
+    bicho.raiz.position.z - aoChegar.z,
+  );
+  checar(vagou < 1.5, `depois de chegar ele andou ${vagou.toFixed(1)} m de volta`);
+
+  console.log(
+    `   veio de ${antes.toFixed(1)} m para ${depois.toFixed(1)} m e ficou por perto`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('20. apontar para a mesa é apontar para a mesa');
+{
+  const sala = new Sala(new THREE.Group());
+  const jogador = new THREE.Vector3(0, 1.6, 0);
+  sala.usarFallback(jogador);
+  // Uma mesa de 80 cm de altura, um metro e meio à frente.
+  sala.superficies.push({
+    centro: new THREE.Vector3(0, 0.78, -1.5),
+    meiaLargura: 0.6,
+    meiaProfundidade: 0.4,
+    rotacaoY: 0,
+    rotulo: 'table',
+    altura: 0.78,
+    area: 1.92,
+  });
+
+  // Um raio saindo da altura do peito, inclinado, que passa por cima da mesa e
+  // só cortaria o nível do chão bem atrás dela. A conta ingênua — cruzar com um
+  // plano infinito na altura do piso — daria o chão; a certa dá a mesa.
+  // Cai 62 cm ao longo de 1,5 m: pousa no meio do tampo.
+  const origem = new THREE.Vector3(0, 1.4, 0);
+  const direcao = new THREE.Vector3(0, -0.62 / 1.5, -1).normalize();
+
+  const alvo = sala.apontar(origem, direcao);
+  checar(alvo !== null, 'o raio não encontrou superfície nenhuma');
+  checar(alvo?.rotulo === 'table', `o raio acertou '${alvo?.rotulo}' em vez da mesa`);
+  checar(
+    alvo !== null && Math.abs(alvo.ponto.y - 0.78) < 1e-6,
+    `a marca ficou em y=${alvo?.ponto.y.toFixed(2)} em vez de 0,78`,
+  );
+
+  // Apontando bem para baixo, ele passa ao lado da mesa e pega o chão.
+  const chao = sala.apontar(origem, new THREE.Vector3(0, -1, -0.15).normalize());
+  checar(chao?.rotulo === 'floor', `sem mesa no caminho deveria dar o chão, deu '${chao?.rotulo}'`);
+
+  // E o Pokémon comandado para a mesa SOBE nela, em rampa. Ele começa longe da
+  // mesa de propósito: o caso interessante é a subida acontecer ao longo do
+  // percurso, e não um pulo vertical na chegada.
+  const bicho = nascer(porId('squirtle')!, 'companheiro', 10, 5);
+  bicho.raiz.position.set(0, 0, 1.2);
+  bicho.ancora.set(0, 0, 1.2);
+  for (let i = 0; i < 40; i++) bicho.atualizar(1 / 72, jogador);
+  bicho.irPara(alvo!.ponto);
+  let quadros = 0;
+  while (bicho.indoParaAlgumLugar && quadros < 72 * 20) {
+    bicho.atualizar(1 / 72, jogador);
+    quadros++;
+  }
+  checar(
+    Math.abs(bicho.pisoY - 0.78) < 0.05,
+    `ele parou com o apoio em ${bicho.pisoY.toFixed(2)} m em vez de subir na mesa`,
+  );
+  checar(finito(bicho.raiz.position), 'a posição virou NaN subindo na mesa');
+  console.log(
+    `   a mira pegou a mesa a 0,78 m e o Squirtle subiu nela em ${(quadros / 72).toFixed(1)}s`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('21. estágios: buff, debuff e o limite');
+{
+  checar(Math.abs(multEstagio(0) - 1) < 1e-9, 'estágio zero deveria não mudar nada');
+  checar(Math.abs(multEstagio(1) - 1.5) < 1e-9, '+1 deveria ser 1,5×');
+  checar(Math.abs(multEstagio(2) - 2) < 1e-9, '+2 deveria ser o dobro');
+  checar(Math.abs(multEstagio(-1) - 2 / 3) < 1e-9, '−1 deveria ser 0,67×');
+  checar(Math.abs(multEstagio(6) - 4) < 1e-9, '+6 deveria ser 4×');
+  checar(Math.abs(multEstagio(-6) - 0.25) < 1e-9, '−6 deveria ser 0,25×');
+  // Fora da escala não existe: passar de 6 não pode virar 5× por acidente.
+  checar(multEstagio(9) === multEstagio(6), 'acima de +6 deveria saturar');
+
+  const estagios = ESTAGIOS_ZERADOS();
+  const subir = { alvo: 'proprio' as const, stat: 'defesa' as const, estagios: 1 };
+  let ultimo: number | null = 0;
+  for (let i = 0; i < 6; i++) ultimo = aplicarStatus(estagios, subir);
+  checar(ultimo === 6, `seis usos deveriam dar +6, deram ${ultimo}`);
+  checar(aplicarStatus(estagios, subir) === null, 'no teto, o golpe deveria avisar que não muda');
+  checar(estagios.defesa === 6, 'o estágio passou do limite');
+
+  // O efeito na briga: subir a defesa reduz o dano que chega.
+  const atacante = { especie: porId('charmander')!, nivel: 20 };
+  const alvoCru = { especie: porId('squirtle')!, nivel: 20 };
+  const alvoDuro = {
+    especie: porId('squirtle')!,
+    nivel: 20,
+    estagios: { ataque: 0, defesa: 2, velocidade: 0 },
+  };
+  const golpe = escolherGolpe(atacante, alvoCru);
+
+  const media = (d: typeof alvoCru) => {
+    let soma = 0;
+    for (let i = 0; i < 600; i++) soma += calcularDano(atacante, d, golpe).dano;
+    return soma / 600;
+  };
+  const cru = media(alvoCru);
+  const duro = media(alvoDuro);
+  checar(duro < cru * 0.75, `+2 de defesa mal ajudou: ${cru.toFixed(1)} → ${duro.toFixed(1)}`);
+  console.log(`   +2 de defesa: dano de ${cru.toFixed(1)} caiu para ${duro.toFixed(1)}`);
+
+  // E a velocidade muda a CADÊNCIA, não o dano.
+  const lento = { especie: porId('snorlax')!, nivel: 20 };
+  const rapido = { especie: porId('electrode')!, nivel: 20 };
+  checar(
+    intervaloDeAtaque(rapido) < intervaloDeAtaque(lento) - 0.5,
+    'o rápido deveria atacar bem mais vezes que o lento',
+  );
+  const comArranque = { ...lento, estagios: { ataque: 0, defesa: 0, velocidade: 2 } };
+  checar(
+    intervaloDeAtaque(comArranque) < intervaloDeAtaque(lento),
+    'Arranque não encurtou o intervalo',
+  );
+  console.log(
+    `   Snorlax ataca a cada ${intervaloDeAtaque(lento).toFixed(1)}s, ` +
+      `Electrode a cada ${intervaloDeAtaque(rapido).toFixed(1)}s`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('22. quanto tempo você tem para reagir');
+{
+  // Este teste existe por causa de uma queixa literal: "o dano que o meu poke
+  // recebe é muito alto em alguns casos, não dando nem tempo para reação".
+  // Ele mede as duas metades dessa frase — quanto dói e de quanto em quanto.
+
+  const meu = porId('charmander')!;
+  const nivelMeu = 12;
+  const hpMax = statsNoNivel(meu, nivelMeu).hpMax;
+  const defensor = { especie: meu, nivel: nivelMeu };
+
+  /** O pior confronto possível, medido numa dificuldade. */
+  const pior = (escala: number) => {
+    let piorGolpe = 0;
+    let acertosMin = Infinity;
+    let nome = '';
+    for (const especie of ESPECIES) {
+      // Um selvagem bem acima do seu nível é o caso que doía.
+      const atacante = { especie, nivel: nivelMeu + 8 };
+      const golpe = escolherGolpe(atacante, defensor);
+
+      let hp = hpMax;
+      let acertos = 0;
+      while (hp > 0 && acertos < 200) {
+        const levado = danoRecebido(calcularDano(atacante, defensor, golpe).dano, hpMax, escala);
+        piorGolpe = Math.max(piorGolpe, levado / hpMax);
+        hp -= levado;
+        acertos++;
+      }
+      if (acertos < acertosMin) {
+        acertosMin = acertos;
+        nome = especie.nome;
+      }
+    }
+    return { piorGolpe, acertos: acertosMin, nome };
+  };
+
+  const normal = pior(1);
+  checar(
+    normal.piorGolpe <= TETO_DANO_RECEBIDO + 1e-9,
+    `um golpe tirou ${(normal.piorGolpe * 100).toFixed(0)}% da vida — o teto é ${TETO_DANO_RECEBIDO * 100}%`,
+  );
+  checar(normal.acertos >= 5, `no pior caso o seu Pokémon cai em ${normal.acertos} acertos`);
+
+  // Agora o tempo: cada acerto custa um ciclo inteiro do inimigo, e o ciclo
+  // mais curto possível é o do bicho mais rápido da Pokédex.
+  const maisRapido = Math.min(...ESPECIES.map((e) => intervaloDeAtaque({ especie: e, nivel: 20 })));
+  for (const perfil of DIFICULDADES) {
+    const caso = pior(perfil.danoRecebido);
+    const ciclo = maisRapido + perfil.avisoSegundos;
+    const segundos = caso.acertos * ciclo;
+    checar(
+      perfil.avisoSegundos >= 0.8,
+      `no ${perfil.nome} o aviso é de ${perfil.avisoSegundos}s — curto demais para reagir`,
+    );
+    checar(
+      segundos > 10,
+      `no ${perfil.nome} o pior caso mata em ${segundos.toFixed(0)}s, sem espaço para decidir`,
+    );
+    console.log(
+      `   ${perfil.nome.padEnd(10)} aviso ${perfil.avisoSegundos.toFixed(2)}s · ` +
+        `ciclo mín. ${ciclo.toFixed(1)}s · aguenta ${caso.acertos} golpes ≈ ${segundos.toFixed(0)}s`,
+    );
+  }
+  console.log(`   pior confronto: ${normal.nome}`);
+
+  // A dificuldade tem de mexer de verdade no que chega, INCLUSIVE no golpe que
+  // encosta no teto — que é exatamente o golpe que incomodava.
+  const noTeto = 999;
+  const facil = danoRecebido(noTeto, hpMax, DIFICULDADES[0].danoRecebido);
+  const duro = danoRecebido(noTeto, hpMax, DIFICULDADES[2].danoRecebido);
+  checar(facil < duro, 'a dificuldade não muda o dano recebido no golpe forte');
+}
+
+// ---------------------------------------------------------------------------
+console.log('23. o arsenal dá o que escolher');
+{
+  // O arsenal agora vem da tabela de Red/Blue/Yellow, e o que se mede aqui é
+  // se ele cumpre o que essa escolha prometeu: ser DE CADA UM e MUDAR com o
+  // nível. A regra sintética anterior falhava nas duas coisas — todo bicho de
+  // fogo tinha o mesmo par de golpes, do nível 1 ao 60.
+  const usados = new Map<string, number>();
+  let repetidos = 0;
+  let iguaisAoutro = 0;
+  let mudaComNivel = 0;
+  const assinaturas = new Map<string, string>();
+
+  for (const e of ESPECIES) {
+    const noTeto = golpesNoNivel(e, NIVEL_MAXIMO);
+    const nomes = new Set(noTeto.map((g) => g.nome));
+    if (nomes.size !== noTeto.length) repetidos++;
+
+    const cedo = golpesNoNivel(e, 5).map((g) => g.nome).join(',');
+    const tarde = noTeto.map((g) => g.nome).join(',');
+    if (cedo !== tarde) mudaComNivel++;
+
+    // Duas espécies com o mesmo arsenal exato são um sinal de que a tabela não
+    // está sendo usada. Dezenas colidem de verdade — meio bestiário termina em
+    // Batida, Fúria e Investida —, então o teste olha o total, não o caso.
+    const anterior = assinaturas.get(tarde);
+    if (anterior) iguaisAoutro++;
+    else assinaturas.set(tarde, e.id);
+
+    for (const g of golpesDeStatus(noTeto)) usados.set(g.nome, (usados.get(g.nome) ?? 0) + 1);
+  }
+
+  checar(repetidos === 0, `${repetidos} espécies com o mesmo golpe duas vezes no arsenal`);
+  checar(
+    mudaComNivel > ESPECIES.length * 0.7,
+    `só ${mudaComNivel} de ${ESPECIES.length} mudam de golpe entre o nível 5 e o teto`,
+  );
+  checar(
+    iguaisAoutro < 32,
+    `${iguaisAoutro} espécies têm o arsenal idêntico ao de outra`,
+  );
+  checar(usados.size >= 10, `só ${usados.size} golpes de status diferentes em uso`);
+
+  console.log(
+    `   ${assinaturas.size} arsenais distintos em ${ESPECIES.length} espécies; ` +
+      `${mudaComNivel} mudam entre o nível 5 e o 60`,
+  );
+  console.log(
+    `   ${usados.size} golpes de status em uso, os mais comuns: ${[...usados.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([n, q]) => `${n} (${q})`)
+      .join(', ')}`,
+  );
+
+  // E o dado real, conferido na ponta: o que todo mundo sabe de cor.
+  const golpesDe = (id: string, nivel: number) =>
+    golpesNoNivel(porId(id)!, nivel).map((g) => g.nome);
+  checar(
+    !golpesDe('pikachu', 20).includes('Choque do Trovão'),
+    'Pikachu de nível 20 não deveria ter Choque do Trovão ainda',
+  );
+  checar(
+    golpesDe('pikachu', 30).includes('Choque do Trovão'),
+    'Pikachu de nível 30 deveria ter Choque do Trovão',
+  );
+  checar(
+    golpesDe('charmander', 40).includes('Lança-Chamas'),
+    'Charmander de nível 40 deveria ter Lança-Chamas',
+  );
+  console.log(`   Pikachu N20: ${golpesDe('pikachu', 20).join(', ')}`);
+  console.log(`   Pikachu N30: ${golpesDe('pikachu', 30).join(', ')}`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('24. evoluir é uma escolha');
+{
+  const dex = new Dex();
+  dex.limpar();
+  dex.receberInicial('charmander', 5);
+  const meu = dex.todos[0];
+
+  checar(evolucaoEm(porId('charmander')!, 5) === null, 'Charmander de nível 5 não evolui');
+  checar(
+    evolucaoEm(porId('charmander')!, 16)?.id === 'charmeleon',
+    'Charmander de nível 16 deveria poder virar Charmeleon',
+  );
+
+  // Chegar no nível não evolui sozinho: o jogo pergunta. Aqui se testa a parte
+  // que o Dex guarda — a recusa, e até quando ela vale.
+  dex.ganharXp(meu, xpParaNivel(16) - meu.xp);
+  checar(dex.nivelDe(meu) === 16, `deveria estar no 16, está no ${dex.nivelDe(meu)}`);
+
+  dex.adiarEvolucao(meu);
+  checar(meu.recusouEvoluirEm === 16, 'a recusa deveria ficar marcada no nível 16');
+
+  // Subir de nível volta a perguntar: a recusa era daquele nível.
+  dex.ganharXp(meu, xpParaNivel(17) - meu.xp);
+  checar(
+    (meu.recusouEvoluirEm ?? -1) < dex.nivelDe(meu),
+    'depois de subir de nível a pergunta deveria voltar',
+  );
+
+  // Evoluindo de verdade: a vida atravessa em proporção e a recusa some.
+  const antes = dex.hpMaxDe(meu);
+  dex.definirHp(meu, Math.round(antes * 0.5));
+  dex.evoluir(meu, 'charmeleon');
+  checar(meu.id === 'charmeleon', 'a espécie não trocou');
+  checar(meu.recusouEvoluirEm === undefined, 'a recusa da espécie antiga sobrou');
+  const fracao = meu.hp / dex.hpMaxDe(meu);
+  checar(Math.abs(fracao - 0.5) < 0.06, `a vida virou ${(fracao * 100).toFixed(0)}% em vez de 50%`);
+  checar(dex.nivelDe(meu) === 17, 'evoluir não pode mexer no nível');
+
+  // A linha inteira, nos níveis certos.
+  const linha: string[] = ['charmander'];
+  let especie = porId('charmander')!;
+  for (let nivel = 1; nivel <= NIVEL_MAXIMO; nivel++) {
+    const proxima = evolucaoEm(especie, nivel);
+    if (proxima) {
+      especie = proxima;
+      linha.push(`${proxima.id}@${nivel}`);
+    }
+  }
+  checar(linha.length === 3, `a linha do Charmander tem ${linha.length} estágios`);
+  console.log(`   ${linha.join(' → ')}; vida atravessa em proporção`);
+
+  dex.limpar();
+}
+
+// ---------------------------------------------------------------------------
+console.log('25. a chance de brilhante');
+{
+  const sozinho = { corrente: 0, amuleto: false };
+  checar(
+    Math.abs(chanceShiny(sozinho) - CHANCE_SHINY_BASE) < 1e-12,
+    'sem corrente e sem amuleto, a chance deveria ser a base',
+  );
+
+  // A corrente só melhora, e nunca passa do teto.
+  let anterior = chanceShiny(sozinho);
+  for (let c = 1; c <= 60; c++) {
+    const agora = chanceShiny({ corrente: c, amuleto: false });
+    checar(agora >= anterior - 1e-12, `a corrente de ${c} piorou a chance`);
+    checar(agora <= CHANCE_SHINY_MAXIMA + 1e-12, `a corrente de ${c} passou do teto`);
+    anterior = agora;
+  }
+
+  const comAmuleto = chanceShiny({ corrente: 0, amuleto: true });
+  checar(comAmuleto > CHANCE_SHINY_BASE * 3, 'o Amuleto Brilhante quase não ajudou');
+
+  for (const c of [0, 5, 10, 20, 40]) {
+    const sem = chanceShiny({ corrente: c, amuleto: false });
+    const com = chanceShiny({ corrente: c, amuleto: true });
+    console.log(
+      `   corrente ${String(c).padStart(2)}: ${textoChanceShiny(sem).padEnd(9)}` +
+        ` · com amuleto ${textoChanceShiny(com)}`,
+    );
+  }
+
+  // A corrente conta encontros SEGUIDOS da mesma espécie, e espécie diferente
+  // recomeça do um.
+  const dex = new Dex();
+  dex.limpar();
+  for (let i = 0; i < 5; i++) dex.encadear('rattata');
+  checar(dex.corrente === 5, `cinco encontros deveriam dar corrente 5, deram ${dex.corrente}`);
+  checar(dex.especieDaCorrente === 'rattata', 'a espécie da corrente está errada');
+  checar(dex.encadear('pidgey') === 1, 'espécie diferente deveria recomeçar do um');
+  checar(dex.corrente === 1, 'a corrente não recomeçou');
+
+  // O que isso vale na prática: quantos encontros até o primeiro brilhante.
+  const esperados = (chance: number) => Math.round(1 / chance);
+  const semCadeia = esperados(chanceShiny({ corrente: 0, amuleto: false }));
+  const comCadeia = esperados(chanceShiny({ corrente: 40, amuleto: true }));
+  checar(comCadeia * 4 < semCadeia, 'caçar em cadeia mal encurta a espera');
+  console.log(`   esperar sozinho: ~${semCadeia} encontros; caçando em cadeia: ~${comCadeia}`);
+
+  // E TODAS as 151 podem ser brilhantes — as 90 sem modelo alternativo ganham
+  // a pintura de src/modelos.ts.
+  let impossiveis = 0;
+  for (const e of ESPECIES) {
+    let saiu = false;
+    for (let i = 0; i < 4000 && !saiu; i++) {
+      if (sortearShiny(e, { corrente: 30, amuleto: true })) saiu = true;
+    }
+    if (!saiu) impossiveis++;
+  }
+  checar(impossiveis === 0, `${impossiveis} espécies nunca conseguem ser brilhantes`);
+  const comModelo = ESPECIES.filter((e) => e.temShiny).length;
+  console.log(
+    `   as ${ESPECIES.length} podem ser brilhantes: ${comModelo} com modelo próprio, ` +
+      `${ESPECIES.length - comModelo} pintadas em tempo de execução`,
+  );
+
+  dex.limpar();
+}
+
+// ---------------------------------------------------------------------------
+console.log('26. cada golpe tem o seu gesto');
+{
+  // O que se confere aqui é o CASAMENTO entre o nome do golpe e o movimento do
+  // corpo. Uma Lambida que dá cabeçada e um Lança-Chamas que dá arranhão passam
+  // por tsc e pelo smoke sem um pio, e só aparecem com o headset na cabeça.
+  const gestoDe = (chave: string) => GOLPES_DEX[chave]?.animacao;
+
+  const esperado: Array<[string, string]> = [
+    ['lick', 'mordida'],
+    ['bite', 'mordida'],
+    ['hyper-fang', 'mordida'],
+    ['scratch', 'garra'],
+    ['slash', 'garra'],
+    ['fury-swipes', 'garra'],
+    ['tail-whip', 'cauda'],
+    ['wrap', 'cauda'],
+    ['mega-punch', 'soco'],
+    ['thunder-punch', 'soco'],
+    ['jump-kick', 'salto'],
+    ['stomp', 'salto'],
+    ['tackle', 'investida'],
+    ['headbutt', 'investida'],
+    ['flamethrower', 'sopro'],
+    ['water-gun', 'sopro'],
+    ['thunderbolt', 'sopro'],
+    ['ice-beam', 'sopro'],
+    ['growl', 'aura'],
+    ['harden', 'aura'],
+  ];
+
+  for (const [chave, gesto] of esperado) {
+    checar(gestoDe(chave) === gesto, `${chave} deveria ser '${gesto}', é '${gestoDe(chave)}'`);
+  }
+
+  // Todo golpe tem gesto, e todo gesto é um dos que src/anima.ts sabe desenhar.
+  let semGesto = 0;
+  let desconhecido = 0;
+  const usados = new Map<string, number>();
+  for (const chave of Object.keys(GOLPES_DEX)) {
+    const g = GOLPES_DEX[chave].animacao;
+    if (!g) semGesto++;
+    else if (!ATAQUES.has(g)) desconhecido++;
+    else usados.set(g, (usados.get(g) ?? 0) + 1);
+  }
+  checar(semGesto === 0, `${semGesto} golpes sem gesto`);
+  checar(desconhecido === 0, `${desconhecido} golpes com gesto que o animador não conhece`);
+  // Se quase tudo caísse no padrão, a classificação não estaria valendo nada.
+  checar(usados.size >= 6, `só ${usados.size} gestos diferentes em uso`);
+  console.log(
+    `   ${[...usados.entries()].sort((a, b) => b[1] - a[1]).map(([g, q]) => `${g} ${q}`).join(' · ')}`,
+  );
+
+  // E o gesto de fato move osso diferente: mordida mexe a mandíbula, cauda mexe
+  // a cauda, soco mexe o antebraço. Poses que não se distinguem não servem.
+  const nomes = [
+    'Hips', 'Spine1', 'Spine2', 'Neck', 'Head', 'Jaw',
+    'LShoulder', 'LArm', 'LForeArm', 'LHand', 'RShoulder', 'RArm', 'RForeArm', 'RHand',
+    'LThigh', 'LLeg', 'LFoot', 'RThigh', 'RLeg', 'RFoot', 'Tail1', 'Tail2', 'Tail3',
+  ];
+
+  /** Quanto cada osso girou, no pico do gesto. */
+  const poseDe = (gesto: GestoDeAtaque) => {
+    const { corpo, porNome, repousos } = esqueletoDe(nomes, 0.6);
+    const animador = new Animador(corpo);
+    const ctx = { velocidade: 0, alarme: 0, vida: 1, encarar: 0, desmaiado: false };
+    for (let i = 0; i < 60; i++) animador.atualizar(1 / 72, ctx);
+    animador.disparar(gesto, 1);
+    // 0,6 do gesto: logo depois do disparo, que é onde a pose diz o que é.
+    for (let i = 0; i < 43; i++) animador.atualizar(1 / 72, ctx);
+
+    const desvios = new Map<string, number>();
+    for (const nome of nomes) {
+      const osso = porNome.get(nome)!;
+      const repouso = repousos.get(nome)!;
+      desvios.set(nome, Math.abs(osso.quaternion.angleTo(repouso)));
+    }
+    return desvios;
+  };
+
+  const mordida = poseDe('mordida');
+  const cauda = poseDe('cauda');
+  const soco = poseDe('soco');
+  const sopro = poseDe('sopro');
+
+  checar(mordida.get('Jaw')! > 0.3, `a mordida mal abriu a boca (${mordida.get('Jaw')!.toFixed(2)})`);
+  checar(
+    cauda.get('Tail3')! > mordida.get('Tail3')! * 1.5,
+    'a chicotada de cauda não move a cauda mais do que uma mordida',
+  );
+  checar(
+    soco.get('RForeArm')! > cauda.get('RForeArm')! * 1.5,
+    'o soco não move o antebraço mais do que uma chicotada',
+  );
+  checar(sopro.get('Jaw')! > 0.3, 'o sopro deveria abrir a boca para despejar');
+
+  // Duas poses distintas não podem ser a mesma pose.
+  const distancia = (a: Map<string, number>, b: Map<string, number>) =>
+    nomes.reduce((s, n) => s + Math.abs((a.get(n) ?? 0) - (b.get(n) ?? 0)), 0);
+  for (const [nomeA, a, nomeB, b] of [
+    ['mordida', mordida, 'cauda', cauda],
+    ['mordida', mordida, 'soco', soco],
+    ['cauda', cauda, 'sopro', sopro],
+  ] as Array<[string, Map<string, number>, string, Map<string, number>]>) {
+    checar(distancia(a, b) > 0.8, `${nomeA} e ${nomeB} são quase a mesma pose`);
+  }
+
+  console.log(
+    `   mordida abre a mandíbula ${(mordida.get('Jaw')! * 57.3).toFixed(0)}°, ` +
+      `a chicotada leva a ponta da cauda a ${(cauda.get('Tail3')! * 57.3).toFixed(0)}°, ` +
+      `o soco estica o antebraço ${(soco.get('RForeArm')! * 57.3).toFixed(0)}°`,
+  );
 }
 
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);

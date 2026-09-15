@@ -1,12 +1,14 @@
 import { BOLAS, ESTOQUE_INICIAL, bolaPorId } from './balls';
 import { ESTOQUE_ITENS_INICIAL, ITENS, itemPorId } from './itens';
 import {
+  ESPECIES_PARA_AMULETO,
   NIVEL_MAXIMO,
   TOTAL_ESPECIES,
   nivelPorXp,
   porId,
   statsNoNivel,
   xpParaNivel,
+  type SorteBrilhante,
 } from './species';
 
 /** Um exemplar que é seu: o bicho, não a espécie. */
@@ -16,6 +18,14 @@ export interface Exemplar {
   hp: number;
   shiny: boolean;
   capturadoEm: number;
+  /**
+   * O nível em que você disse "agora não" para a evolução.
+   *
+   * Evoluir é uma escolha, e uma escolha recusada não pode virar uma pergunta a
+   * cada trinta segundos. Guardando o NÍVEL da recusa, o jogo volta a perguntar
+   * quando ele sobe — que é exatamente o comportamento do jogo original.
+   */
+  recusouEvoluirEm?: number;
 }
 
 /** O que a Pokédex sabe de uma espécie, tenha você capturado ou não. */
@@ -96,6 +106,7 @@ export class Dex {
           hp: e.hp ?? 1,
           shiny: e.shiny ?? false,
           capturadoEm: e.capturadoEm ?? Date.now(),
+          recusouEvoluirEm: e.recusouEvoluirEm,
         }));
 
       this.estoque = new Map(
@@ -204,7 +215,98 @@ export class Dex {
     return this.exemplares.indexOf(exemplar);
   }
 
+  /**
+   * Troca dois exemplares de lugar. É a operação do PC, e ela basta para tudo
+   * o que o PC faz: "time" e "caixa" não são duas listas, são as seis primeiras
+   * posições desta e o resto. Trocar a posição 2 com a 9 é, ao mesmo tempo,
+   * tirar um do time e pôr outro — uma escrita só, e nenhum estado para manter
+   * em sincronia.
+   */
+  trocar(a: number, b: number) {
+    if (a === b) return;
+    if (a < 0 || b < 0 || a >= this.exemplares.length || b >= this.exemplares.length) return;
+    const guardado = this.exemplares[a];
+    this.exemplares[a] = this.exemplares[b];
+    this.exemplares[b] = guardado;
+    this.corrigirAtivo(a, b);
+    this.salvar();
+  }
+
+  /** Tira de uma posição e insere noutra, empurrando o resto. */
+  mover(de: number, para: number) {
+    if (de === para) return;
+    if (de < 0 || de >= this.exemplares.length) return;
+    const destino = Math.max(0, Math.min(this.exemplares.length - 1, para));
+    const ativo = this.exemplarAtivo;
+    const [exemplar] = this.exemplares.splice(de, 1);
+    this.exemplares.splice(destino, 0, exemplar);
+    // O ativo é guardado por ÍNDICE, e mover a lista embaixo dele o faria
+    // apontar para outro bicho. Reencontrar pela referência conserta isso.
+    this.ativo = ativo ? this.exemplares.indexOf(ativo) : -1;
+    this.salvar();
+  }
+
+  private corrigirAtivo(a: number, b: number) {
+    if (this.ativo === a) this.ativo = b;
+    else if (this.ativo === b) this.ativo = a;
+  }
+
+  /** Solta um exemplar de volta à natureza. O inicial não sai. */
+  soltar(indice: number): Exemplar | null {
+    if (indice < 0 || indice >= this.exemplares.length) return null;
+    if (this.exemplares.length <= 1) return null;
+    const ativo = this.exemplarAtivo;
+    const [saiu] = this.exemplares.splice(indice, 1);
+    this.ativo = ativo && ativo !== saiu ? this.exemplares.indexOf(ativo) : 0;
+    this.salvar();
+    return saiu;
+  }
+
   // ---- coleção ----
+
+  // ---- corrente de brilhantes ----
+
+  /**
+   * A caçada em cadeia: quantos encontros seguidos você teve com a MESMA
+   * espécie, e com qual.
+   *
+   * É o que dá ao jogador alguma influência sobre a sorte. A chance base de um
+   * brilhante é de um em quatrocentos e nove — na prática, nunca. Com a
+   * corrente, insistir num lugar onde o mesmo bicho continua aparecendo vale
+   * alguma coisa concreta, e a raridade deixa de ser só espera.
+   *
+   * Não é salva: a corrente é da SESSÃO. Guardá-la deixaria o jogador abrir o
+   * jogo já com trinta de corrente, o que é o contrário da ideia.
+   */
+  private correnteEspecie: string | null = null;
+  private correnteTamanho = 0;
+
+  get corrente(): number {
+    return this.correnteTamanho;
+  }
+
+  get especieDaCorrente(): string | null {
+    return this.correnteEspecie;
+  }
+
+  /** O Amuleto Brilhante chega sozinho, com o tamanho da Pokédex. */
+  get amuletoBrilhante(): boolean {
+    return this.especiesCapturadas >= ESPECIES_PARA_AMULETO;
+  }
+
+  get sorteBrilhante(): SorteBrilhante {
+    return { corrente: this.correnteTamanho, amuleto: this.amuletoBrilhante };
+  }
+
+  /** Conta o encontro na corrente. Espécie diferente zera e recomeça. */
+  encadear(id: string): number {
+    if (this.correnteEspecie === id) this.correnteTamanho++;
+    else {
+      this.correnteEspecie = id;
+      this.correnteTamanho = 1;
+    }
+    return this.correnteTamanho;
+  }
 
   registrarEncontro(id: string, shiny: boolean) {
     const reg = this.garantirRegistro(id);
@@ -287,11 +389,19 @@ export class Dex {
     return depois > antes ? depois : null;
   }
 
+  /** "Agora não": não se pergunta de novo até ele subir de nível. */
+  adiarEvolucao(exemplar: Exemplar) {
+    exemplar.recusouEvoluirEm = this.nivelDe(exemplar);
+    this.salvar();
+  }
+
   /** Troca a espécie do exemplar mantendo nível, XP e a marca de brilhante. */
   evoluir(exemplar: Exemplar, paraId: string) {
     if (!porId(paraId)) return;
     const fracao = exemplar.hp / Math.max(1, this.hpMaxDe(exemplar));
     exemplar.id = paraId;
+    // A recusa era da espécie antiga; a próxima evolução é outra pergunta.
+    exemplar.recusouEvoluirEm = undefined;
     const reg = this.garantirRegistro(paraId);
     reg.capturados = Math.max(1, reg.capturados);
     reg.vistos = Math.max(1, reg.vistos);

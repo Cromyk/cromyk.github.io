@@ -281,3 +281,83 @@ export class Impacto {
     this.material.dispose();
   }
 }
+
+/**
+ * O anel dos golpes de status.
+ *
+ * Buff e debuff não têm projétil nem impacto: o que muda é um número. Sem uma
+ * imagem, usar "Escudo" é indistinguível de não fazer nada — o bicho pisca a
+ * animação de ataque e a briga segue igual. O anel resolve isso com a
+ * informação mínima: SOBE quando é a favor, DESCE quando é contra, e a cor diz
+ * de quem é o efeito.
+ */
+export class Aura {
+  readonly grupo = new THREE.Group();
+
+  private aneis: THREE.Mesh[] = [];
+  private tempo = 0;
+  private readonly duracao = 0.8;
+  private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
+
+  constructor(
+    centro: THREE.Vector3,
+    raio: number,
+    /** Positivo sobe (a favor), negativo desce (contra). */
+    readonly sentido: number,
+  ) {
+    const cor = sentido >= 0 ? 0x7fe7c4 : 0xc88aff;
+    const geo = new THREE.RingGeometry(raio * 0.9, raio * 1.05, 28);
+    const mat = new THREE.MeshBasicMaterial({
+      color: cor,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.descartaveis.push(geo, mat);
+
+    // Três anéis desencontrados: um só lê como um disco piscando, três leem
+    // como movimento contínuo numa direção.
+    for (let i = 0; i < 3; i++) {
+      const anel = new THREE.Mesh(geo, mat.clone());
+      this.descartaveis.push(anel.material as THREE.Material);
+      anel.rotation.x = -Math.PI * 0.5;
+      anel.userData.atraso = i * 0.18;
+      this.aneis.push(anel);
+      this.grupo.add(anel);
+    }
+
+    this.grupo.position.copy(centro);
+  }
+
+  get terminou(): boolean {
+    return this.tempo > this.duracao + 0.4;
+  }
+
+  atualizar(dt: number, alturaTotal: number) {
+    this.tempo += dt;
+    for (const anel of this.aneis) {
+      const t = (this.tempo - (anel.userData.atraso as number)) / this.duracao;
+      const mat = anel.material as THREE.MeshBasicMaterial;
+      if (t < 0 || t > 1) {
+        anel.visible = false;
+        continue;
+      }
+      anel.visible = true;
+      // Sobe do pé à cabeça, ou desce da cabeça ao pé.
+      anel.position.y = this.sentido >= 0 ? t * alturaTotal : (1 - t) * alturaTotal;
+      anel.scale.setScalar(0.7 + t * 0.5);
+      mat.opacity = 0.85 * Math.sin(t * Math.PI);
+    }
+  }
+
+  adicionarA(cena: THREE.Object3D) {
+    cena.add(this.grupo);
+  }
+
+  descartar(cena: THREE.Object3D) {
+    cena.remove(this.grupo);
+    for (const d of this.descartaveis) d.dispose();
+  }
+}

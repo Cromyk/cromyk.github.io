@@ -29,3 +29,6 @@ pokemon.png
 *.keystore
 *.jks
 android.keystore
+
+# Os gritos vêm da PokeAPI no build, como os modelos.
+public/gritos/

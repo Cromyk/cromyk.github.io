@@ -62,6 +62,51 @@ export interface Corpo {
   descartar(): void;
 }
 
+/**
+ * Pinta um exemplar de brilhante, quando o repositório não tem o modelo shiny.
+ *
+ * Sessenta e uma das 151 espécies têm um arquivo `<num>s.glb` com as cores
+ * alternativas de verdade. As outras noventa não tinham como ser brilhantes —
+ * e o jogador não tinha como descobrir quais: ele só nunca via um.
+ *
+ * Aqui a cor é girada no matiz e clareada. Não é a paleta oficial, e não tenta
+ * ser; o que um brilhante precisa entregar é **ser visivelmente outro** à
+ * primeira vista, e um giro de matiz fixo faz isso mantendo a leitura da forma.
+ *
+ * Os materiais são CLONADOS antes de qualquer coisa: os originais vêm do molde
+ * em cache e são compartilhados por todos os exemplares da espécie. Pintar os
+ * originais tingiria todo Rattata da sala, e para sempre — o cache não se
+ * recarrega. Os clones voltam junto com o corpo, em `descartar`.
+ */
+function tingirDeBrilhante(raiz: THREE.Object3D): THREE.Material[] {
+  const clones: THREE.Material[] = [];
+  const hsl = { h: 0, s: 0, l: 0 };
+
+  raiz.traverse((obj) => {
+    const malha = obj as THREE.Mesh;
+    if (!malha.isMesh) return;
+    const lista = Array.isArray(malha.material) ? malha.material : [malha.material];
+    const pintados = lista.map((m) => {
+      const clone = (m as THREE.MeshStandardMaterial).clone();
+      clone.color.getHSL(hsl);
+      // 0,38 de giro: longe o bastante para não parecer a mesma cor num tom
+      // diferente, perto o bastante para o bicho continuar reconhecível.
+      clone.color.setHSL((hsl.h + 0.38) % 1, Math.min(1, hsl.s * 1.25 + 0.12), Math.min(0.82, hsl.l * 1.12 + 0.06));
+      // Um brilho de ouro por cima: é o que o olho lê como "raro" antes mesmo
+      // de reparar que a cor mudou.
+      if (clone.emissive) {
+        clone.emissive.setRGB(0.16, 0.13, 0.03);
+        clone.emissiveIntensity = 1;
+      }
+      clones.push(clone);
+      return clone;
+    });
+    malha.material = Array.isArray(malha.material) ? pintados : pintados[0];
+  });
+
+  return clones;
+}
+
 // ---------------------------------------------------------------- carregador
 
 const draco = new DRACOLoader().setDecoderPath('./draco/');
@@ -217,6 +262,10 @@ export function instanciar(id: string, alturaAlvo: number, shiny = false): Corpo
     malha.frustumCulled = false;
   });
 
+  // Brilhante sem arquivo próprio: a cor é girada aqui, no exemplar. As 61 que
+  // têm o  já vieram com as cores certas e não são tocadas.
+  const proprios = shiny && !medida.temShiny ? tingirDeBrilhante(cena) : [];
+
   const corpo = new THREE.Group();
   corpo.add(ajuste);
 
@@ -246,7 +295,10 @@ export function instanciar(id: string, alturaAlvo: number, shiny = false): Corpo
       mixer?.stopAllAction();
       raiz.removeFromParent();
       // Geometria e material são do molde em cache, compartilhados entre os
-      // exemplares: quem descarta isso é o despejo, não o indivíduo.
+      // exemplares: quem descarta isso é o despejo, não o indivíduo. A exceção
+      // são os materiais clonados para pintar um brilhante — esses são deste
+      // exemplar e morrem com ele.
+      for (const m of proprios) m.dispose();
     },
   };
 }

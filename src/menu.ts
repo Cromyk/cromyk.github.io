@@ -1,10 +1,24 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
-import { TIPOS, type Especie } from './species';
+import { TIPOS, textoEstagio, type Especie, type Estagios } from './species';
 import { BOLAS, type TipoBola } from './balls';
 import { ITENS, type TipoItem } from './itens';
 import { MODOS, type Modo, type ModoId } from './modos';
+import { DIFICULDADES, INTERRUPTORES, type Dificuldade, type PerfilDificuldade } from './ajustes';
 import { olhandoORelogio } from './gesto';
+import {
+  COR,
+  RAIO,
+  barra,
+  cartao,
+  corDaVida,
+  engrenagem,
+  fonte,
+  hex,
+  nomeComBrilho,
+  pilula,
+  textoAjustado,
+} from './estilo';
 import type { Golpe } from './species';
 import { TAMANHO_TIME, type Exemplar } from './state';
 
@@ -18,6 +32,8 @@ export interface EntradaTime {
   progresso: number;
   shiny: boolean;
   emCampo: boolean;
+  /** Os estágios de quem está em campo, para o painel mostrar os buffs. */
+  estagios?: Estagios;
 }
 
 export interface EntradaBola {
@@ -36,12 +52,23 @@ export interface EntradaGolpe {
   armado: boolean;
 }
 
+/** O que os interruptores da engrenagem mostram neste quadro. */
+export interface EntradaInterruptor {
+  id: (typeof INTERRUPTORES)[number]['id'];
+  nome: string;
+  ligado: boolean;
+  diz: string;
+}
+
 export type Selecao =
   | { tipo: 'criatura'; entrada: EntradaTime }
   | { tipo: 'bola'; entrada: EntradaBola }
   | { tipo: 'item'; entrada: EntradaItem }
   | { tipo: 'modo'; entrada: Modo }
-  | { tipo: 'golpe'; entrada: EntradaGolpe };
+  | { tipo: 'golpe'; entrada: EntradaGolpe }
+  | { tipo: 'engrenagem' }
+  | { tipo: 'dificuldade'; entrada: PerfilDificuldade }
+  | { tipo: 'interruptor'; entrada: EntradaInterruptor };
 
 const LARGURA_CARD = 0.1;
 const ALTURA_CARD = 0.13;
@@ -49,45 +76,70 @@ const LARGURA_BOLA = 0.076;
 const ALTURA_BOLA = 0.066;
 const LARGURA_ITEM = 0.076;
 const ALTURA_ITEM = 0.058;
-const LARGURA_MODO = 0.092;
-const ALTURA_MODO = 0.05;
-const LARGURA_GOLPE = 0.13;
-const ALTURA_GOLPE = 0.05;
+const LARGURA_GOLPE = 0.104;
+const ALTURA_GOLPE = 0.056;
+const LARGURA_MODO = 0.122;
+const ALTURA_MODO = 0.056;
+const LARGURA_DIF = 0.122;
+const ALTURA_DIF = 0.05;
+const LARGURA_CHAVE = 0.19;
+const ALTURA_CHAVE = 0.042;
+const LADO_ENGRENAGEM = 0.042;
 const ESPACO = 0.012;
+
+/** Como cada categoria de golpe se identifica no card. */
+const CATEGORIA = {
+  fisico: { rotulo: 'FÍS', cor: '#ff9f7a' },
+  especial: { rotulo: 'ESP', cor: '#9fb8ff' },
+  status: { rotulo: 'STA', cor: '#c8b5ff' },
+} as const;
 
 /**
  * Painel preso à mão esquerda. Abre quando você gira o pulso para ler as horas
- * (ver src/gesto.ts) e tem cinco fileiras: o modo de jogo no topo, o time, as
- * bolas, os itens e — no modo Batalha — os golpes de quem está em campo.
+ * (ver src/gesto.ts).
+ *
+ * ## Duas páginas, e por quê
+ *
+ * A fileira de MODOS ficava sempre visível, entre o título e o time, ocupando o
+ * lugar mais nobre do painel para uma coisa que se muda uma vez por sessão.
+ * Agora ela virou uma **engrenagem** no canto do título: um toque abre a página
+ * de ajustes — modo de jogo, dificuldade e os interruptores — e outro fecha.
+ *
+ * O painel continua sendo um só objeto e um só conjunto de alvos; o que muda é
+ * quais deles estão visíveis. Dois painéis separados significariam dois gestos
+ * para aprender, e o pulso já tem os seus dois.
  *
  * Para escolher, ou se aponta com a outra mão e se puxa o gatilho, ou se estica
  * a mão e se fecha o GRIP em cima da carta. O segundo jeito é o que faz a bola
  * do seu Pokémon vir para a mão pronta para o arremesso.
- *
- * As cartas são criadas uma vez e reaproveitadas. O número delas é fixo e
- * pequeno por um motivo concreto: cada carta é um canvas com textura própria, e
- * uma por espécie da Pokédex seriam 151 texturas na memória do headset só para
- * desenhar um menu. Por isso o time vai a campo com seis; o resto da coleção
- * mora na Pokédex, que desenha uma página inteira num canvas só.
  */
 export class PainelTime {
   readonly grupo = new THREE.Group();
   aberto = false;
   /** Trocou o item sob a mira neste quadro. */
   mudouDestaque = false;
+  /** Falso na página principal, verdadeiro na dos ajustes. */
+  nosAjustes = false;
 
   private cards: Placa[] = [];
   private cardsBola: Placa[] = [];
   private cardsItem: Placa[] = [];
   private cardsModo: Placa[] = [];
   private cardsGolpe: Placa[] = [];
+  private cardsDificuldade: Placa[] = [];
+  private cardsChave: Placa[] = [];
+  private cardEngrenagem = new Placa(LADO_ENGRENAGEM, LADO_ENGRENAGEM, 128);
   private alvos: THREE.Mesh[] = [];
   private titulo = new Placa(0.3, 0.038, 512);
+
   private entradas: EntradaTime[] = [];
   private bolas: EntradaBola[] = [];
   private itens: EntradaItem[] = [];
   private golpes: EntradaGolpe[] = [];
+  private interruptores: EntradaInterruptor[] = [];
   private modoAtivo: ModoId = MODOS[0].id;
+  private dificuldadeAtiva: Dificuldade = 'normal';
+
   private destacado: { tipo: Selecao['tipo']; indice: number } | null = null;
   private assinatura = '';
   private abertura = 0;
@@ -95,8 +147,8 @@ export class PainelTime {
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
 
   constructor() {
-    this.titulo.malha.position.set(0, ALTURA_CARD * 0.5 + 0.032, 0);
-    this.grupo.add(this.titulo.malha);
+    this.titulo.malha.position.set(0, ALTURA_CARD * 0.5 + 0.034, 0);
+    this.grupo.add(this.titulo.malha, this.cardEngrenagem.malha);
     this.grupo.visible = false;
 
     const geoAlvo = new THREE.PlaneGeometry(1, 1);
@@ -105,7 +157,7 @@ export class PainelTime {
 
     const novoAlvo = (tipo: string, indice: number, l: number, a: number) => {
       const alvo = new THREE.Mesh(geoAlvo, matAlvo);
-      alvo.scale.set(l * 1.12, a * 1.15, 1);
+      alvo.scale.set(l * 1.12, a * 1.18, 1);
       alvo.userData = { tipo, indice };
       this.grupo.add(alvo);
       this.alvos.push(alvo);
@@ -132,21 +184,37 @@ export class PainelTime {
       novoAlvo('item', i, LARGURA_ITEM, ALTURA_ITEM);
     }
 
+    // Quatro, que é o arsenal de uma espécie. Ver `montarGolpes` em species.ts.
+    for (let i = 0; i < 4; i++) {
+      const card = new Placa(LARGURA_GOLPE, ALTURA_GOLPE, 300);
+      this.cardsGolpe.push(card);
+      this.grupo.add(card.malha);
+      novoAlvo('golpe', i, LARGURA_GOLPE, ALTURA_GOLPE);
+    }
+
+    // --- página de ajustes ---
     for (let i = 0; i < MODOS.length; i++) {
-      const card = new Placa(LARGURA_MODO, ALTURA_MODO, 240);
+      const card = new Placa(LARGURA_MODO, ALTURA_MODO, 330);
       this.cardsModo.push(card);
       this.grupo.add(card.malha);
       novoAlvo('modo', i, LARGURA_MODO, ALTURA_MODO);
     }
 
-    // Dois porque nenhuma espécie tem mais do que dois tipos, e o arsenal é um
-    // golpe por tipo. Se isso mudar em species.ts, muda aqui junto.
-    for (let i = 0; i < 2; i++) {
-      const card = new Placa(LARGURA_GOLPE, ALTURA_GOLPE, 320);
-      this.cardsGolpe.push(card);
+    for (let i = 0; i < DIFICULDADES.length; i++) {
+      const card = new Placa(LARGURA_DIF, ALTURA_DIF, 330);
+      this.cardsDificuldade.push(card);
       this.grupo.add(card.malha);
-      novoAlvo('golpe', i, LARGURA_GOLPE, ALTURA_GOLPE);
+      novoAlvo('dificuldade', i, LARGURA_DIF, ALTURA_DIF);
     }
+
+    for (let i = 0; i < INTERRUPTORES.length; i++) {
+      const card = new Placa(LARGURA_CHAVE, ALTURA_CHAVE, 460);
+      this.cardsChave.push(card);
+      this.grupo.add(card.malha);
+      novoAlvo('interruptor', i, LARGURA_CHAVE, ALTURA_CHAVE);
+    }
+
+    novoAlvo('engrenagem', 0, LADO_ENGRENAGEM, LADO_ENGRENAGEM);
   }
 
   get time(): EntradaTime[] {
@@ -159,15 +227,25 @@ export class PainelTime {
     itens: EntradaItem[],
     golpes: EntradaGolpe[],
     modoAtivo: ModoId,
+    dificuldadeAtiva: Dificuldade,
+    interruptores: EntradaInterruptor[],
   ) {
     this.entradas = entradas.slice(0, TAMANHO_TIME);
     this.bolas = bolas;
     this.itens = itens;
-    // A fileira de golpes só existe quando há alguém em campo para usá-los —
-    // um menu de comando sem ninguém para comandar é ruído no pulso.
     this.golpes = golpes.slice(0, this.cardsGolpe.length);
     this.modoAtivo = modoAtivo;
+    this.dificuldadeAtiva = dificuldadeAtiva;
+    this.interruptores = interruptores;
     this.reposicionar();
+  }
+
+  /** Alterna entre a página principal e a dos ajustes. */
+  alternarAjustes(): boolean {
+    this.nosAjustes = !this.nosAjustes;
+    this.assinatura = '';
+    this.reposicionar();
+    return this.nosAjustes;
   }
 
   private fileira(
@@ -176,10 +254,11 @@ export class PainelTime {
     quantos: number,
     largura: number,
     y: number,
+    visivelNaPagina: boolean,
   ) {
     const total = quantos * largura + Math.max(0, quantos - 1) * ESPACO;
     for (let i = 0; i < cards.length; i++) {
-      const visivel = i < quantos;
+      const visivel = visivelNaPagina && i < quantos;
       cards[i].malha.visible = visivel;
       const alvo = this.alvos[indiceAlvoBase + i];
       alvo.visible = visivel;
@@ -191,143 +270,189 @@ export class PainelTime {
   }
 
   private reposicionar() {
+    const baseBola = this.cards.length;
+    const baseItem = baseBola + this.cardsBola.length;
+    const baseGolpe = baseItem + this.cardsItem.length;
+    const baseModo = baseGolpe + this.cardsGolpe.length;
+    const baseDif = baseModo + this.cardsModo.length;
+    const baseChave = baseDif + this.cardsDificuldade.length;
+    const indiceEngrenagem = baseChave + this.cardsChave.length;
+
+    const principal = !this.nosAjustes;
+
+    // --- página principal ---
     const yBola = -ALTURA_CARD / 2 - ALTURA_BOLA / 2 - 0.016;
     const yItem = yBola - ALTURA_BOLA / 2 - ALTURA_ITEM / 2 - 0.012;
     const yGolpe = yItem - ALTURA_ITEM / 2 - ALTURA_GOLPE / 2 - 0.014;
-    // O modo fica acima do time, entre ele e o título: é a chave que muda o
-    // sentido de tudo o que está embaixo, então vem antes na leitura.
-    const yModo = ALTURA_CARD / 2 + ALTURA_MODO / 2 + 0.012;
 
-    const baseBola = this.cards.length;
-    const baseItem = baseBola + this.cardsBola.length;
-    const baseModo = baseItem + this.cardsItem.length;
-    const baseGolpe = baseModo + this.cardsModo.length;
+    this.fileira(this.cards, 0, this.entradas.length, LARGURA_CARD, 0, principal);
+    this.fileira(this.cardsBola, baseBola, this.bolas.length, LARGURA_BOLA, yBola, principal);
+    this.fileira(this.cardsItem, baseItem, this.itens.length, LARGURA_ITEM, yItem, principal);
+    this.fileira(this.cardsGolpe, baseGolpe, this.golpes.length, LARGURA_GOLPE, yGolpe, principal);
 
-    this.fileira(this.cards, 0, this.entradas.length, LARGURA_CARD, 0);
-    this.fileira(this.cardsBola, baseBola, this.bolas.length, LARGURA_BOLA, yBola);
-    this.fileira(this.cardsItem, baseItem, this.itens.length, LARGURA_ITEM, yItem);
-    this.fileira(this.cardsModo, baseModo, MODOS.length, LARGURA_MODO, yModo);
-    this.fileira(this.cardsGolpe, baseGolpe, this.golpes.length, LARGURA_GOLPE, yGolpe);
+    // --- página de ajustes, ocupando o mesmo espaço ---
+    const yModo = ALTURA_CARD * 0.2;
+    const yDif = yModo - ALTURA_MODO / 2 - ALTURA_DIF / 2 - 0.02;
+    const yChaveBase = yDif - ALTURA_DIF / 2 - ALTURA_CHAVE / 2 - 0.022;
 
-    // O título sobe para não encostar na fileira de modos.
-    this.titulo.malha.position.y = yModo + ALTURA_MODO / 2 + 0.026;
+    this.fileira(this.cardsModo, baseModo, MODOS.length, LARGURA_MODO, yModo, !principal);
+    this.fileira(
+      this.cardsDificuldade,
+      baseDif,
+      DIFICULDADES.length,
+      LARGURA_DIF,
+      yDif,
+      !principal,
+    );
+
+    // Os interruptores ficam empilhados, um por linha: eles têm texto longo e
+    // lado a lado ficariam ilegíveis num painel de vinte centímetros.
+    for (let i = 0; i < this.cardsChave.length; i++) {
+      const visivel = !principal && i < this.interruptores.length;
+      this.cardsChave[i].malha.visible = visivel;
+      const alvo = this.alvos[baseChave + i];
+      alvo.visible = visivel;
+      if (!visivel) continue;
+      const y = yChaveBase - i * (ALTURA_CHAVE + 0.008);
+      this.cardsChave[i].malha.position.set(0, y, this.cardsChave[i].malha.position.z);
+      alvo.position.set(0, y, -0.001);
+    }
+
+    // A engrenagem fica na linha do título, encostada na direita — o canto onde
+    // ninguém procura um Pokémon e todo mundo procura opções.
+    const yTitulo = ALTURA_CARD * 0.5 + 0.034;
+    const xEngrenagem = 0.3 / 2 + LADO_ENGRENAGEM / 2 + 0.006;
+    this.titulo.malha.position.y = yTitulo;
+    this.cardEngrenagem.malha.position.set(xEngrenagem, yTitulo, 0);
+    const alvoEngrenagem = this.alvos[indiceEngrenagem];
+    alvoEngrenagem.visible = true;
+    alvoEngrenagem.position.set(xEngrenagem, yTitulo, -0.001);
   }
+
+  // ------------------------------------------------------------ desenho
 
   private redesenharTitulo(vistas: number, capturadas: number, total: number) {
-    this.titulo.escrever(
-      [
-        { texto: 'seu time', tamanho: 34, cor: '#cfe0f5', peso: 700 },
-        {
-          texto: `${capturadas} capturadas · ${vistas} vistas de ${total}`,
-          tamanho: 21,
-          cor: '#8d9bb0',
-          peso: 500,
-          espaco: 3,
-        },
-      ],
-      { raio: 12, fundo: 'rgba(10,14,22,0.82)' },
+    const { ctx, canvas } = this.titulo;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, {}, RAIO.pequeno);
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = fonte(30, 700);
+    ctx.fillStyle = COR.texto;
+    ctx.fillText(this.nosAjustes ? 'ajustes' : 'seu time', 20, canvas.height * 0.5);
+
+    ctx.textAlign = 'right';
+    ctx.font = fonte(21, 600);
+    ctx.fillStyle = COR.textoFraco;
+    ctx.fillText(
+      this.nosAjustes
+        ? this.dificuldadeAtiva
+        : `${capturadas} capturadas · ${vistas}/${total} vistas`,
+      canvas.width - 20,
+      canvas.height * 0.5 + 1,
     );
+    ctx.textBaseline = 'top';
+    this.titulo.marcarSujo();
   }
 
-  private redesenhar(bolaAtivaId: string) {
-    // --- fileira do time ---
+  private redesenharEngrenagem(sobMira: boolean) {
+    const { ctx, canvas } = this.cardEngrenagem;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cartao(
+      ctx,
+      2,
+      2,
+      canvas.width - 4,
+      canvas.height - 4,
+      { sobMira, ativo: this.nosAjustes },
+      RAIO.pequeno,
+    );
+    engrenagem(
+      ctx,
+      canvas.width / 2,
+      canvas.height / 2,
+      canvas.width * 0.3,
+      this.nosAjustes ? COR.bordaAtiva : sobMira ? COR.texto : COR.textoFraco,
+    );
+    this.cardEngrenagem.marcarSujo();
+  }
+
+  private redesenharTime() {
     for (let i = 0; i < this.entradas.length; i++) {
       const e = this.entradas[i];
       const card = this.cards[i];
       const { ctx, canvas } = card;
       const sobMira = this.destacado?.tipo === 'criatura' && this.destacado.indice === i;
       const desmaiado = e.hp <= 0;
-      const corTipo = `#${new THREE.Color(TIPOS[e.especie.tipo].cor).getHexString()}`;
+      const corTipo = TIPOS[e.especie.tipo].cor;
 
-      card.limpar(
-        desmaiado
-          ? 'rgba(26, 14, 18, 0.92)'
-          : sobMira
-            ? 'rgba(30, 44, 66, 0.95)'
-            : 'rgba(14, 20, 30, 0.9)',
-        e.emCampo ? '#7fe7c4' : sobMira ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.14)',
-        20,
-      );
-
-      ctx.fillStyle = corTipo;
-      ctx.globalAlpha = desmaiado ? 0.3 : 1;
-      ctx.beginPath();
-      ctx.roundRect(14, 14, canvas.width - 28, 8, 4);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, {
+        sobMira,
+        ativo: e.emCampo,
+        apagado: desmaiado,
+        acento: corTipo,
+      });
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.font = '700 28px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = desmaiado ? '#7a6a70' : e.shiny ? '#ffe08a' : '#f2f5fa';
-      ctx.fillText(
-        e.shiny ? `✦ ${e.especie.nome}` : e.especie.nome,
-        canvas.width / 2,
-        34,
-        canvas.width - 20,
+      ctx.font = fonte(27, 700);
+      ctx.fillStyle = desmaiado ? COR.textoApagado : e.shiny ? '#ffe08a' : COR.texto;
+      // Centralizado, então a estrela do brilhante entra na conta da largura: o
+      // nome é medido primeiro e o conjunto inteiro é que fica no meio.
+      ctx.textAlign = 'left';
+      const largura = Math.min(
+        ctx.measureText(e.especie.nome).width + (e.shiny ? 23 : 0),
+        canvas.width - 28,
       );
+      nomeComBrilho(ctx, e.especie.nome, e.shiny, (canvas.width - largura) / 2, 30, 27, largura);
+      ctx.textAlign = 'center';
 
-      ctx.font = '600 21px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = desmaiado ? '#6a5a60' : corTipo;
+      ctx.font = fonte(20, 700);
+      ctx.fillStyle = desmaiado ? COR.textoApagado : hex(corTipo);
       ctx.fillText(
         e.especie.tipos.map((t) => TIPOS[t].nome).join('/').toUpperCase(),
         canvas.width / 2,
-        70,
+        62,
         canvas.width - 20,
       );
 
-      // Barra de vida.
-      const fracao = Math.max(0, e.hp / Math.max(1, e.hpMax));
       const larguraBarra = canvas.width - 40;
-      const y = 104;
-      ctx.beginPath();
-      ctx.roundRect(20, y, larguraBarra, 13, 6);
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fill();
-      if (fracao > 0) {
-        ctx.beginPath();
-        ctx.roundRect(20, y, Math.max(12, larguraBarra * fracao), 13, 6);
-        ctx.fillStyle = fracao > 0.5 ? '#5fd47a' : fracao > 0.22 ? '#ffc94a' : '#ff5f5f';
-        ctx.fill();
-      }
+      const yVida = 96;
+      barra(ctx, 20, yVida, larguraBarra, 13, e.hp / Math.max(1, e.hpMax), corDaVida(e.hp / Math.max(1, e.hpMax)));
+      barra(ctx, 20, yVida + 18, larguraBarra, 5, e.progresso, COR.xp, {
+        trilho: 'rgba(255,255,255,0.1)',
+      });
 
-      // Barra fina de experiência, logo abaixo — dá para ver o nível chegando.
-      const yXp = y + 17;
-      ctx.beginPath();
-      ctx.roundRect(20, yXp, larguraBarra, 5, 2.5);
-      ctx.fillStyle = 'rgba(255,255,255,0.1)';
-      ctx.fill();
-      if (e.progresso > 0) {
-        ctx.beginPath();
-        ctx.roundRect(20, yXp, Math.max(4, larguraBarra * e.progresso), 5, 2.5);
-        ctx.fillStyle = '#6fb6ff';
-        ctx.fill();
-      }
-
-      ctx.font = '600 19px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = '#93a0b4';
-      ctx.fillText(
-        desmaiado ? 'desmaiado' : `${Math.ceil(e.hp)}/${e.hpMax}`,
-        canvas.width / 2,
-        yXp + 12,
-      );
+      ctx.font = fonte(19, 600);
+      ctx.fillStyle = COR.textoFraco;
+      ctx.fillText(desmaiado ? 'desmaiado' : `${Math.ceil(e.hp)}/${e.hpMax}`, canvas.width / 2, yVida + 28);
 
       ctx.textAlign = 'left';
-      ctx.font = '700 20px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = '#c8d4e6';
-      ctx.fillText(`N${e.nivel}`, 18, 34);
+      ctx.font = fonte(20, 700);
+      ctx.fillStyle = desmaiado ? COR.textoApagado : '#c8d4e6';
+      ctx.fillText(`N${e.nivel}`, 16, 30);
 
-      if (e.emCampo) {
+      // Os estágios de quem está em campo: a soma dos buffs e debuffs ativos.
+      // É a única forma de o jogador saber que o Escudo que ele usou há dez
+      // segundos ainda está valendo.
+      if (e.emCampo && e.estagios) {
+        const marcas: string[] = [];
+        if (e.estagios.ataque) marcas.push(`ATQ${textoEstagio(e.estagios.ataque)}`);
+        if (e.estagios.defesa) marcas.push(`DEF${textoEstagio(e.estagios.defesa)}`);
+        if (e.estagios.velocidade) marcas.push(`VEL${textoEstagio(e.estagios.velocidade)}`);
         ctx.textAlign = 'center';
-        ctx.font = '700 18px system-ui, -apple-system, "Segoe UI", sans-serif';
-        ctx.fillStyle = '#7fe7c4';
-        ctx.fillText('EM CAMPO', canvas.width / 2, yXp + 34);
+        ctx.font = fonte(17, 700);
+        ctx.fillStyle = COR.bom;
+        ctx.fillText(marcas.length ? marcas.join(' ') : 'EM CAMPO', canvas.width / 2, yVida + 50);
       }
 
       card.marcarSujo();
     }
+  }
 
-    // --- fileira das bolas ---
+  private redesenharBolas(bolaAtivaId: string) {
     for (let i = 0; i < this.bolas.length; i++) {
       const { tipo, quantidade } = this.bolas[i];
       const card = this.cardsBola[i];
@@ -336,166 +461,256 @@ export class PainelTime {
       const sobMira = this.destacado?.tipo === 'bola' && this.destacado.indice === i;
       const vazia = quantidade <= 0;
 
-      card.limpar(
-        vazia ? 'rgba(18, 18, 24, 0.85)' : sobMira ? 'rgba(30, 44, 66, 0.95)' : 'rgba(14, 20, 30, 0.9)',
-        selecionada ? '#ffd78a' : sobMira ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.12)',
-        16,
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      cartao(
+        ctx,
+        2,
+        2,
+        canvas.width - 4,
+        canvas.height - 4,
+        { sobMira, ativo: selecionada, apagado: vazia },
+        RAIO.pequeno,
       );
 
-      // Desenha a bolinha: metade de cima colorida, metade de baixo clara.
+      // A bolinha desenhada: metade de cima colorida, metade de baixo clara.
       const cx = canvas.width / 2;
-      const cy = 46;
-      const r = 24;
-      ctx.globalAlpha = vazia ? 0.28 : 1;
+      const cy = 44;
+      const r = 22;
+      ctx.globalAlpha = vazia ? 0.26 : 1;
 
       ctx.beginPath();
       ctx.arc(cx, cy, r, Math.PI, 0);
-      ctx.fillStyle = `#${new THREE.Color(tipo.corTopo).getHexString()}`;
+      ctx.fillStyle = hex(tipo.corTopo);
       ctx.fill();
-
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI);
-      ctx.fillStyle = `#${new THREE.Color(tipo.corBase).getHexString()}`;
+      ctx.fillStyle = hex(tipo.corBase);
       ctx.fill();
-
       ctx.beginPath();
       ctx.rect(cx - r, cy - 3, r * 2, 6);
-      ctx.fillStyle = '#1a1a1e';
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(cx, cy, 8, 0, Math.PI * 2);
-      ctx.fillStyle = '#1a1a1e';
+      ctx.fillStyle = '#12141a';
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 7.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#12141a';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
       ctx.fillStyle = '#f4f4f8';
       ctx.fill();
       ctx.globalAlpha = 1;
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.font = '700 26px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = vazia ? '#5e5a66' : '#f2f5fa';
-      ctx.fillText(`×${quantidade}`, cx, 80);
+      ctx.font = fonte(25, 700);
+      ctx.fillStyle = vazia ? COR.textoApagado : COR.texto;
+      ctx.fillText(`×${quantidade}`, cx, 76);
 
       if (tipo.multiplicador > 1) {
-        ctx.font = '700 18px system-ui, -apple-system, "Segoe UI", sans-serif';
-        ctx.fillStyle = vazia ? '#5e5a66' : '#9fe0ff';
-        ctx.fillText(`${tipo.multiplicador}×`, cx, 108);
+        ctx.font = fonte(17, 700);
+        ctx.fillStyle = vazia ? COR.textoApagado : COR.destaque;
+        ctx.fillText(`${tipo.multiplicador}×`, cx, 106);
       }
 
       card.marcarSujo();
     }
+  }
 
-    // --- fileira dos itens ---
+  private redesenharItens() {
     for (let i = 0; i < this.itens.length; i++) {
       const { tipo, quantidade } = this.itens[i];
       const card = this.cardsItem[i];
       const { ctx, canvas } = card;
       const sobMira = this.destacado?.tipo === 'item' && this.destacado.indice === i;
       const vazio = quantidade <= 0;
-      const cor = `#${new THREE.Color(tipo.cor).getHexString()}`;
 
-      card.limpar(
-        vazio ? 'rgba(18, 18, 24, 0.85)' : sobMira ? 'rgba(30, 44, 66, 0.95)' : 'rgba(14, 20, 30, 0.9)',
-        sobMira ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.12)',
-        14,
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      cartao(
+        ctx,
+        2,
+        2,
+        canvas.width - 4,
+        canvas.height - 4,
+        { sobMira, apagado: vazio, acento: tipo.cor },
+        RAIO.pequeno,
       );
 
-      ctx.globalAlpha = vazio ? 0.3 : 1;
-      ctx.fillStyle = cor;
-      ctx.beginPath();
-      ctx.roundRect(12, 12, 10, canvas.height - 24, 5);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
       ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = fonte(23, 700);
+      ctx.fillStyle = vazio ? COR.textoApagado : COR.texto;
+      ctx.fillText(textoAjustado(ctx, tipo.nome, canvas.width - 74), 18, canvas.height * 0.54);
+
+      ctx.textAlign = 'right';
+      ctx.font = fonte(25, 700);
+      ctx.fillStyle = vazio ? COR.textoApagado : hex(tipo.cor);
+      ctx.fillText(`×${quantidade}`, canvas.width - 18, canvas.height * 0.54);
       ctx.textBaseline = 'top';
-      ctx.font = '700 24px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = vazio ? '#5e5a66' : '#f2f5fa';
-      ctx.fillText(tipo.nome, 32, 22, canvas.width - 44);
-
-      ctx.font = '700 26px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = vazio ? '#5e5a66' : cor;
-      ctx.fillText(`×${quantidade}`, 32, 58);
 
       card.marcarSujo();
     }
+  }
 
-    // --- fileira dos modos ---
-    for (let i = 0; i < MODOS.length; i++) {
-      const modo = MODOS[i];
-      const card = this.cardsModo[i];
-      const ativo = modo.id === this.modoAtivo;
-      const { ctx, canvas } = card;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      ctx.beginPath();
-      ctx.roundRect(2, 2, canvas.width - 4, canvas.height - 4, 12);
-      ctx.fillStyle = ativo ? 'rgba(18,26,40,0.94)' : 'rgba(10,14,22,0.72)';
-      ctx.fill();
-      ctx.lineWidth = ativo ? 4 : 2;
-      ctx.strokeStyle = ativo ? modo.cor : 'rgba(255,255,255,0.1)';
-      ctx.stroke();
-
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'alphabetic';
-      ctx.font = '700 27px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = ativo ? modo.cor : '#93a0b4';
-      ctx.fillText(modo.nome, canvas.width / 2, 40, canvas.width - 16);
-
-      ctx.font = '500 19px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = ativo ? '#b9c6d8' : '#6c7788';
-      ctx.fillText(modo.resumo, canvas.width / 2, 66, canvas.width - 12);
-
-      card.marcarSujo();
-    }
-
-    // --- fileira dos golpes ---
-    // Existe para o modo Batalha: em vez de o jogo escolher o golpe mais eficaz
-    // sozinho, os nomes ficam à mão e você arma o que quiser usar.
+  /**
+   * A fileira de golpes. Quatro cards, com a CATEGORIA visível.
+   *
+   * A categoria precisa estar na cara do card porque ela é a regra do jogo que
+   * o jogador mais usa sem saber: físico bate contra Defesa, especial contra
+   * Defesa Especial, e status não bate em nada. Sem esse rótulo, escolher entre
+   * dois golpes do mesmo tipo é escolher pelo nome.
+   */
+  private redesenharGolpes() {
     for (let i = 0; i < this.golpes.length; i++) {
       const { golpe, armado } = this.golpes[i];
       const card = this.cardsGolpe[i];
-      const cor = `#${new THREE.Color(TIPOS[golpe.tipo].cor).getHexString()}`;
       const { ctx, canvas } = card;
+      const sobMira = this.destacado?.tipo === 'golpe' && this.destacado.indice === i;
+      const cat = CATEGORIA[golpe.categoria];
+      const corTipo = TIPOS[golpe.tipo].cor;
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      ctx.beginPath();
-      ctx.roundRect(2, 2, canvas.width - 4, canvas.height - 4, 12);
-      ctx.fillStyle = armado ? 'rgba(20,28,42,0.95)' : 'rgba(10,14,22,0.74)';
-      ctx.fill();
-      ctx.lineWidth = armado ? 4 : 2;
-      ctx.strokeStyle = armado ? cor : 'rgba(255,255,255,0.1)';
-      ctx.stroke();
-
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      ctx.font = '700 26px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = armado ? '#f2f5fa' : '#9aa5b8';
-      ctx.fillText(golpe.nome, 20, 40, canvas.width - 110);
-
-      ctx.textAlign = 'right';
-      ctx.font = '700 20px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = cor;
-      ctx.fillText(TIPOS[golpe.tipo].nome.toUpperCase(), canvas.width - 20, 40);
+      cartao(
+        ctx,
+        2,
+        2,
+        canvas.width - 4,
+        canvas.height - 4,
+        { sobMira, ativo: armado, acento: golpe.categoria === 'status' ? undefined : corTipo },
+        RAIO.pequeno,
+      );
 
       ctx.textAlign = 'left';
-      ctx.font = '500 19px system-ui, -apple-system, "Segoe UI", sans-serif';
-      ctx.fillStyle = '#6c7788';
-      ctx.fillText(`potência ${golpe.potencia}`, 20, 66);
+      ctx.textBaseline = 'top';
+      ctx.font = fonte(23, 700);
+      ctx.fillStyle = COR.texto;
+      ctx.fillText(textoAjustado(ctx, golpe.nome, canvas.width - 84), 16, 20);
+
+      pilula(ctx, cat.rotulo, canvas.width - 14, 18, 22, cat.cor, { alinhar: 'right' });
+
+      ctx.textAlign = 'left';
+      ctx.font = fonte(18, 500);
+      ctx.fillStyle = COR.textoFraco;
+      const detalhe =
+        golpe.categoria === 'status'
+          ? (golpe.resumo ?? 'muda os stats')
+          : `${TIPOS[golpe.tipo].nome} · potência ${golpe.potencia}`;
+      ctx.fillText(textoAjustado(ctx, detalhe, canvas.width - 90), 16, 52);
 
       if (armado) {
         ctx.textAlign = 'right';
-        ctx.font = '700 18px system-ui, -apple-system, "Segoe UI", sans-serif';
-        ctx.fillStyle = '#7fe7c4';
-        ctx.fillText('ARMADO', canvas.width - 20, 66);
+        ctx.font = fonte(17, 700);
+        ctx.fillStyle = COR.bom;
+        ctx.fillText('ARMADO', canvas.width - 14, 54);
       }
 
       card.marcarSujo();
     }
   }
+
+  private redesenharAjustes() {
+    for (let i = 0; i < MODOS.length; i++) {
+      const modo = MODOS[i];
+      const card = this.cardsModo[i];
+      const { ctx, canvas } = card;
+      const sobMira = this.destacado?.tipo === 'modo' && this.destacado.indice === i;
+      const ativo = modo.id === this.modoAtivo;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, { sobMira, ativo }, RAIO.pequeno);
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.font = fonte(24, 700);
+      ctx.fillStyle = ativo ? modo.cor : COR.texto;
+      ctx.fillText(modo.nome, 18, 18);
+
+      ctx.font = fonte(18, 500);
+      ctx.fillStyle = COR.textoFraco;
+      ctx.fillText(textoAjustado(ctx, modo.resumo, canvas.width - 36), 18, 50);
+
+      card.marcarSujo();
+    }
+
+    for (let i = 0; i < DIFICULDADES.length; i++) {
+      const dif = DIFICULDADES[i];
+      const card = this.cardsDificuldade[i];
+      const { ctx, canvas } = card;
+      const sobMira = this.destacado?.tipo === 'dificuldade' && this.destacado.indice === i;
+      const ativo = dif.id === this.dificuldadeAtiva;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, { sobMira, ativo }, RAIO.pequeno);
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = fonte(22, 700);
+      ctx.fillStyle = ativo ? dif.cor : COR.texto;
+      ctx.fillText(dif.nome, 18, canvas.height * 0.36);
+
+      ctx.font = fonte(17, 500);
+      ctx.fillStyle = COR.textoFraco;
+      ctx.fillText(
+        textoAjustado(ctx, dif.resumo, canvas.width - 36),
+        18,
+        canvas.height * 0.72,
+      );
+      ctx.textBaseline = 'top';
+
+      card.marcarSujo();
+    }
+
+    for (let i = 0; i < this.interruptores.length; i++) {
+      const chave = this.interruptores[i];
+      const card = this.cardsChave[i];
+      const { ctx, canvas } = card;
+      const sobMira = this.destacado?.tipo === 'interruptor' && this.destacado.indice === i;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, { sobMira }, RAIO.pequeno);
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = fonte(22, 700);
+      ctx.fillStyle = COR.texto;
+      ctx.fillText(chave.nome, 18, canvas.height * 0.36);
+
+      ctx.font = fonte(17, 500);
+      ctx.fillStyle = COR.textoFraco;
+      ctx.fillText(textoAjustado(ctx, chave.diz, canvas.width - 130), 18, canvas.height * 0.72);
+
+      // O interruptor desenhado: trilho e botão, do jeito que todo mundo já sabe
+      // ler sem legenda.
+      const l = 54;
+      const a = 28;
+      const x = canvas.width - l - 18;
+      const y = (canvas.height - a) / 2;
+      ctx.beginPath();
+      ctx.roundRect(x, y, l, a, a / 2);
+      ctx.fillStyle = chave.ligado ? COR.bom : 'rgba(255,255,255,0.14)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(chave.ligado ? x + l - a / 2 : x + a / 2, y + a / 2, a / 2 - 4, 0, Math.PI * 2);
+      ctx.fillStyle = chave.ligado ? '#0b0e15' : '#c8d4e6';
+      ctx.fill();
+      ctx.textBaseline = 'top';
+
+      card.marcarSujo();
+    }
+  }
+
+  private redesenhar(bolaAtivaId: string) {
+    this.redesenharEngrenagem(this.destacado?.tipo === 'engrenagem');
+    if (this.nosAjustes) {
+      this.redesenharAjustes();
+      return;
+    }
+    this.redesenharTime();
+    this.redesenharBolas(bolaAtivaId);
+    this.redesenharItens();
+    this.redesenharGolpes();
+  }
+
+  // ------------------------------------------------------------ quadro
 
   atualizar(
     dt: number,
@@ -512,6 +727,13 @@ export class PainelTime {
     this.grupo.visible = this.abertura > 0.03;
     if (!this.grupo.visible) {
       this.destacado = null;
+      // Fechar o painel volta para a página principal: reabrir e cair nos
+      // ajustes seria uma surpresa toda vez.
+      if (this.nosAjustes) {
+        this.nosAjustes = false;
+        this.assinatura = '';
+        this.reposicionar();
+      }
       return;
     }
 
@@ -543,16 +765,23 @@ export class PainelTime {
         anterior.indice !== this.destacado.indice);
 
     const assinatura = [
+      this.nosAjustes ? 'aj' : 'pr',
       this.destacado ? `${this.destacado.tipo}:${this.destacado.indice}` : '-',
       bolaAtivaId,
       resumo.vistas,
       resumo.capturadas,
       this.entradas
-        .map((e) => `${e.especie.id}:${Math.ceil(e.hp)}:${e.nivel}:${e.emCampo ? 1 : 0}`)
+        .map(
+          (e) =>
+            `${e.especie.id}:${Math.ceil(e.hp)}:${e.nivel}:${e.emCampo ? 1 : 0}:` +
+            `${e.estagios ? `${e.estagios.ataque},${e.estagios.defesa},${e.estagios.velocidade}` : ''}`,
+        )
         .join(','),
       this.bolas.map((b) => `${b.tipo.id}:${b.quantidade}`).join(','),
       this.itens.map((b) => `${b.tipo.id}:${b.quantidade}`).join(','),
       this.modoAtivo,
+      this.dificuldadeAtiva,
+      this.interruptores.map((c) => `${c.id}:${c.ligado ? 1 : 0}`).join(','),
       this.golpes.map((g) => `${g.golpe.nome}:${g.armado ? 1 : 0}`).join(','),
     ].join('|');
     if (assinatura !== this.assinatura) {
@@ -562,18 +791,21 @@ export class PainelTime {
     }
 
     // O item sob a mira salta um pouco para a frente.
-    const saltar = (cards: Placa[], tipo: string, quantos: number, altura: number) => {
-      for (let i = 0; i < quantos; i++) {
+    const saltar = (cards: Placa[], tipo: string, altura: number) => {
+      for (let i = 0; i < cards.length; i++) {
         const alvoZ = this.destacado?.tipo === tipo && this.destacado.indice === i ? altura : 0;
         const m = cards[i].malha;
         m.position.z += (alvoZ - m.position.z) * Math.min(1, dt * 12);
       }
     };
-    saltar(this.cards, 'criatura', this.entradas.length, 0.016);
-    saltar(this.cardsBola, 'bola', this.bolas.length, 0.014);
-    saltar(this.cardsItem, 'item', this.itens.length, 0.012);
-    saltar(this.cardsModo, 'modo', MODOS.length, 0.012);
-    saltar(this.cardsGolpe, 'golpe', this.golpes.length, 0.014);
+    saltar(this.cards, 'criatura', 0.016);
+    saltar(this.cardsBola, 'bola', 0.014);
+    saltar(this.cardsItem, 'item', 0.012);
+    saltar(this.cardsGolpe, 'golpe', 0.014);
+    saltar(this.cardsModo, 'modo', 0.014);
+    saltar(this.cardsDificuldade, 'dificuldade', 0.012);
+    saltar(this.cardsChave, 'interruptor', 0.01);
+    saltar([this.cardEngrenagem], 'engrenagem', 0.012);
   }
 
   /** Traduz um alvo (tipo + índice) no que ele representa. */
@@ -594,6 +826,16 @@ export class PainelTime {
       case 'golpe': {
         const entrada = this.golpes[indice];
         return entrada ? { tipo: 'golpe', entrada } : null;
+      }
+      case 'engrenagem':
+        return { tipo: 'engrenagem' };
+      case 'dificuldade': {
+        const entrada = DIFICULDADES[indice];
+        return entrada ? { tipo: 'dificuldade', entrada } : null;
+      }
+      case 'interruptor': {
+        const entrada = this.interruptores[indice];
+        return entrada ? { tipo: 'interruptor', entrada } : null;
       }
       default: {
         const entrada = this.bolas[indice];
@@ -641,6 +883,9 @@ export class PainelTime {
       ...this.cardsItem,
       ...this.cardsModo,
       ...this.cardsGolpe,
+      ...this.cardsDificuldade,
+      ...this.cardsChave,
+      this.cardEngrenagem,
     ])
       card.descartar();
     for (const d of this.descartaveis) d.dispose();
