@@ -36,6 +36,8 @@ import { Pokebola } from './orb';
 import { Sala } from './room';
 import { BOTAO_A, BOTAO_B, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, RaioMira } from './hands';
 import { Luva } from './glove';
+import { Cinto } from './cinto';
+import { Tablet, ALCANCE_TABLET } from './tablet';
 import { Aviso, BarraVida, PainelPulso, type Carga } from './hud';
 import { Evolucao, PromptEvolucao } from './evolucao';
 import type { GestoDeAtaque } from './anima';
@@ -50,7 +52,7 @@ import {
 } from './ajustes';
 import { PainelDex, type EstadoDex } from './dexpanel';
 import { EscolhaInicial } from './starter';
-import { BOLAS, BOLA_PADRAO, bolaPorId } from './balls';
+import { BOLA_PADRAO, bolaPorId, type TipoBola } from './balls';
 import { BONUS_FRUTA, ITENS, SEGUNDOS_FRUTA, itemPorId } from './itens';
 import { ItemNaMao, RastroDeIsca } from './isca';
 import { Aura, Efeito, Impacto } from './attacks';
@@ -83,6 +85,28 @@ const DISTANCIA_DE_SUMICO = 9;
 /** Só a bola comum recarrega sozinha; as outras vêm de capturas. */
 const RECARGA_BOLA_COMUM = 5;
 const ALCANCE_BATALHA = 4.5;
+
+/**
+ * Quão perto a mão precisa chegar de uma bola caída para pegá-la.
+ *
+ * Dezesseis centímetros é muito, e é de propósito: a bola está no CHÃO, você
+ * está agachado, o controle não tem dedos e você não vê a própria mão por trás
+ * dela. Exigir precisão aqui transformaria "pegar do chão" em "tentar três
+ * vezes", que é o oposto do gesto.
+ */
+const ALCANCE_DO_CHAO = 0.16;
+
+/**
+ * Até que altura um Pokémon cabe no colo.
+ *
+ * Meio metro: dá Pikachu, Charmander, Eevee, Squirtle — os que uma pessoa
+ * pegaria no colo sem pensar. Onix não entra, e não entrar é a resposta certa;
+ * um Onix de oito metros na palma da mão não é uma coisa fofa, é um erro de
+ * escala andando pela sala.
+ */
+const ALTURA_DE_COLO = 0.5;
+/** Quão perto a mão precisa chegar do corpo dele para pegar. */
+const ALCANCE_DE_COLO = 0.3;
 
 /**
  * O mapeamento de boas-vindas, em superfícies e em segundos.
@@ -241,7 +265,11 @@ export class Jogo {
     this.aviso = new Aviso(this.cena);
     this.sala.usarFallback();
 
-    this.cena.add(this.painelTime.grupo, this.painelDex.grupo, this.pc.grupo);
+    this.cena.add(this.painelTime.grupo, this.pc.grupo);
+    // A Pokédex não entra solta na cena: as placas dela são a TELA do tablet,
+    // e é a carcaça que anda pelo mundo.
+    this.tablet.tela.add(this.painelDex.grupo);
+    this.cena.add(this.tablet.grupo);
     this.cena.add(this.promptEvolucao.grupo);
     this.pc.definirDex(this.dex);
 
@@ -381,7 +409,211 @@ export class Jogo {
    */
   private saiuDoPainel = new Set<number>();
 
+  /**
+   * O cinto de bolas do antebraço esquerdo. Ver src/cinto.ts.
+   *
+   * Ele é filho do punho esquerdo, então nasce só quando esse punho aparece —
+   * e some junto quando o controle se desconecta, sem ninguém precisar cuidar
+   * disso.
+   */
+  private cinto = new Cinto('left');
+  private cintoAnexado = false;
+  /** A carcaça da Pokédex, nas suas costas. Ver src/tablet.ts. */
+  private tablet = new Tablet();
+  /**
+   * De qual slot saiu a bola que cada mão está segurando.
+   *
+   * É o que faz "devolver no mesmo lugar" ser uma frase com sentido: sem isso,
+   * soltar a bola em cima do cinto devolveria para o primeiro slot que
+   * estivesse por perto, e tirar a Lacuna para guardar uma Comum no lugar dela
+   * é o tipo de bug que só aparece depois de você ter perdido a Lacuna.
+   */
+  private bolaVeioDoSlot = new Map<number, string>();
+  /** Quem já tirou a mão do cinto desde que pegou. Mesmo papel do `saiuDoPainel`. */
+  private saiuDoCinto = new Set<number>();
+
+  /**
+   * O slot do cinto sob esta mão, se houver.
+   *
+   * A mão que CARREGA o cinto nunca alcança o próprio cinto: ele está preso ao
+   * antebraço dela, então a distância é sempre zero e todo grip da esquerda
+   * viraria "peguei uma bola". Quem pega é a outra — que é como funciona num
+   * braço de verdade.
+   */
+  /**
+   * A mão está nas costas, onde a Pokédex fica guardada?
+   *
+   * Mede contra o PONTO de guarda, e não contra a carcaça: com o tablet na sua
+   * mão, a carcaça está na sua frente, e devolver precisa continuar sendo
+   * "leve a mão às costas" — que é o mesmo lugar de onde ela saiu.
+   */
+  private maoNasCostas(mao: Mao): boolean {
+    if (!mao.conectada) return false;
+    this.tablet.pontoGuardado(this.pontoDoTablet);
+    return mao.posicaoMundo().distanceToSquared(this.pontoDoTablet) < ALCANCE_TABLET ** 2;
+  }
+
+  /**
+   * Pega a Pokédex das costas, ou devolve se já estiver com ela.
+   *
+   * Qualquer uma das mãos serve, e é de propósito: a mão que estiver livre é
+   * que vai lá atrás. Trocar de mão também vale — pegar com a direita estando
+   * com ela na esquerda passa o tablet de uma para a outra, como um objeto de
+   * verdade.
+   */
+  private pegarTablet(mao: Mao): boolean {
+    if (!this.maoNasCostas(mao)) return false;
+
+    if (this.tablet.naMaoDe === mao.indice) {
+      this.guardarTablet(mao);
+      return true;
+    }
+
+    this.tablet.naMaoDe = mao.indice;
+    mao.vibrar(0.5, 60);
+    audio.abrirPainel();
+    this.aviso.mostrar(
+      [
+        { texto: 'Pokédex na mão', tamanho: 36, cor: '#ff8a8a' },
+        {
+          texto: 'aponte com a outra mão · leve às costas para guardar',
+          tamanho: 21,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      1.8,
+    );
+    return true;
+  }
+
+  private guardarTablet(mao: Mao) {
+    if (this.tablet.naMaoDe === null) return;
+    this.tablet.naMaoDe = null;
+    this.tablet.grupo.removeFromParent();
+    this.cena.add(this.tablet.grupo);
+    mao.vibrar(0.3, 40);
+    audio.clique();
+    // Guardou no meio de uma ficha falada: a voz para junto.
+    calar();
+  }
+
+  /** Reaproveitado a cada quadro para não alocar um vetor por medição. */
+  private pontoDoTablet = new THREE.Vector3();
+
+  /**
+   * O Pokémon que cada mão está segurando no colo.
+   *
+   * É um mapa e não um campo só porque as duas mãos podem estar ocupadas: uma
+   * com o bicho e outra com a Pokédex, ou — e isto é a melhor parte — uma com o
+   * bicho e a outra fazendo carinho nele.
+   */
+  private pokemonNoColo = new Map<number, Pokemon>();
+  private pontoDaMao = new THREE.Vector3();
+
+  /**
+   * Pega no colo o Pokémon que estiver sob esta mão.
+   *
+   * Só os SEUS, e só os que cabem: pegar um selvagem no colo seria pegar no
+   * colo um bicho que não te conhece, e a resposta dele a isso não é ronronar.
+   */
+  private pegarNoColo(mao: Mao): boolean {
+    const c = this.companheiro;
+    if (!c || !c.viva || c.desmaiado) return false;
+    if (c.altura * c.raiz.scale.y > ALTURA_DE_COLO) return false;
+
+    const alcance = Math.max(ALCANCE_DE_COLO, c.raio * 1.1);
+    if (mao.pontoDeToque(this.pontoDaMao).distanceToSquared(c.centro) > alcance * alcance) {
+      return false;
+    }
+
+    if (!c.pegarNoColo()) return false;
+    this.pokemonNoColo.set(mao.indice, c);
+    mao.segurando = true;
+    mao.vibrar(0.6, 80);
+    audio.carinho();
+    audio.grito(c.especie.id, c.shiny, c.especie.num);
+    this.aviso.mostrar(
+      [
+        { texto: `${c.especie.nome} no colo`, tamanho: 36, cor: corHexDe(c.especie) },
+        {
+          texto: 'a outra mão faz carinho · abra a mão para pôr no chão',
+          tamanho: 21,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      2,
+    );
+    return true;
+  }
+
+  /** Abriu a mão: ele desce de onde estava. */
+  private soltarDoColo(mao: Mao) {
+    const bicho = this.pokemonNoColo.get(mao.indice);
+    if (!bicho) return;
+    this.pokemonNoColo.delete(mao.indice);
+    mao.segurando = false;
+    bicho.soltarDoColo();
+    mao.vibrar(0.25, 35);
+  }
+
+  /**
+   * O bicho no colo vai onde a mão vai.
+   *
+   * Um palmo à frente da palma e um pouco acima, que é onde um bicho pequeno
+   * fica quando você o segura contra o peito — e não centrado na mão, que o
+   * deixaria atravessando os seus dedos.
+   */
+  private atualizarColo() {
+    for (const [indice, bicho] of this.pokemonNoColo) {
+      const mao = this.maos.find((m) => m.indice === indice);
+      if (!mao?.conectada || !bicho.viva) {
+        this.pokemonNoColo.delete(indice);
+        bicho.soltarDoColo();
+        continue;
+      }
+      mao.pontoDeToque(this.pontoDaMao);
+      bicho.raiz.position.set(
+        this.pontoDaMao.x,
+        this.pontoDaMao.y + 0.02,
+        this.pontoDaMao.z,
+      );
+    }
+  }
+
+  /** A bola caída mais perto desta mão, dentro do alcance. */
+  private bolaCaidaPerto(mao: Mao): Pokebola | null {
+    const ponto = mao.posicaoMundo();
+    let melhor: Pokebola | null = null;
+    let menor = ALCANCE_DO_CHAO * ALCANCE_DO_CHAO;
+    for (const bola of this.bolas) {
+      if (!bola.noChao) continue;
+      const d = bola.posicao.distanceToSquared(ponto);
+      if (d < menor) {
+        menor = d;
+        melhor = bola;
+      }
+    }
+    return melhor;
+  }
+
+  private slotSobAMao(mao: Mao) {
+    if (mao.lado === 'left' || !this.cintoAnexado) return null;
+    return this.cinto.slotSob(mao.posicaoMundo());
+  }
+
   private pegarBola(mao: Mao) {
+    // A mão foi às costas: isso é a Pokédex, e ela vem antes de tudo — é o
+    // único lugar do corpo onde não há mais nada para agarrar.
+    if (this.pegarTablet(mao)) return;
+
+    // Mão com bicho no colo já está cheia — de bicho. Ela não cata bola do chão
+    // nem tira nada do cinto: para pegar outra coisa, primeiro ponha ele no
+    // chão. Sem isto, fechar a mão de novo com o Charmander nela começava a
+    // recolher pokébolas por cima dele.
+    if (this.pokemonNoColo.has(mao.indice)) return;
+
     // Mão cheia em cima do painel: o GRIP GUARDA o que ela está segurando, em
     // vez de pegar mais uma coisa. É o "desisti" — você leva a bola de volta
     // para o lugar de onde tirou e ela volta para a cinta, sem ser gasta.
@@ -390,7 +622,59 @@ export class Jogo {
       return;
     }
 
+    // O mesmo gesto, no cinto do antebraço: fechar a mão em cima do slot de
+    // onde a bola saiu guarda ela de volta.
+    const slotDaVez = this.slotSobAMao(mao);
+    if (slotDaVez && this.maoCheia(mao) && this.bolaVeioDoSlot.get(mao.indice) === slotDaVez.id) {
+      this.guardarNaMochila(mao);
+      return;
+    }
+
     if (this.bolaNaMao.has(mao.indice)) return;
+
+    // Uma bola caída no carpete: agarrar recolhe ELA, a mesma. Nada é criado e
+    // nada é gasto — a bola já saiu da mochila quando voou, e voltar para a sua
+    // mão é ela deixando de estar perdida. É o que faz uma captura que falhou
+    // custar a tentativa, e não a bola.
+    if (!this.maoCheia(mao)) {
+      const caida = this.bolaCaidaPerto(mao);
+      if (caida) {
+        caida.recolher();
+        this.bolaNaMao.set(mao.indice, caida);
+        mao.segurando = true;
+        mao.vibrar(0.5, 55);
+        audio.clique();
+        return;
+      }
+    }
+
+    // O seu Pokémon debaixo da mão: pega ele no colo. Vem antes do cinto
+    // porque um bicho é maior do que um slot e você está claramente mirando
+    // nele — e depois da bola caída, que é a coisa pequena e precisa.
+    if (!this.maoCheia(mao) && !this.pokemonNoColo.has(mao.indice) && this.pegarNoColo(mao)) {
+      return;
+    }
+
+    // Mão vazia no cinto: tira AQUELA bola, a que os seus dedos estão em cima.
+    // Não é escolher num menu e receber — é pegar a que está ali.
+    if (slotDaVez && !this.maoCheia(mao)) {
+      if (this.dex.bolas(slotDaVez.id) <= 0) {
+        audio.recusa();
+        mao.vibrar(0.2, 25);
+        this.aviso.mostrar(
+          [
+            { texto: `acabou a ${slotDaVez.nome}`, tamanho: 36, cor: '#ff9f9f' },
+            { texto: 'o lugar dela continua no braço', tamanho: 22, cor: '#9aa5b8', peso: 500 },
+          ],
+          1.4,
+        );
+        return;
+      }
+      this.escolherBola(slotDaVez.id);
+      mao.vibrar(0.45, 45);
+      this.tirarBolaDaCinta(mao, slotDaVez.id);
+      return;
+    }
 
     // Painel aberto e a mão em cima de uma carta: o GRIP pega o que está ali.
     // É o gesto que o painel pedia desde sempre — ele fica preso ao seu pulso,
@@ -446,7 +730,12 @@ export class Jogo {
       }
     }
 
-    this.tirarBolaDaCinta(mao);
+    // E fora disso, nada. Fechar a mão no ar costumava FABRICAR uma pokébola:
+    // o grip em qualquer lugar da sala materializava uma bola do nada, o que
+    // tornava impossível fechar a mão sem consequência — e num jogo em que a
+    // mão é a única ferramenta, não poder fechá-la é caro. Agora agarrar só
+    // vale sobre alguma coisa: um slot do cinto, uma carta do painel, uma bola
+    // no chão ou um Pokémon.
   }
 
   // --------------------------------------------------- o que está na mão
@@ -498,12 +787,28 @@ export class Jogo {
     );
   }
 
+  /**
+   * A bola saiu da mão: o slot de onde ela veio volta a ser um slot comum.
+   *
+   * Vale para os três destinos — devolvida, arremessada ou descartada —, porque
+   * um berço que fica piscando por uma bola que já voou pede de volta uma coisa
+   * que não existe mais.
+   */
+  private fecharSlotDaMao(mao: Mao) {
+    const origem = this.bolaVeioDoSlot.get(mao.indice);
+    if (!origem) return;
+    this.bolaVeioDoSlot.delete(mao.indice);
+    this.saiuDoCinto.delete(mao.indice);
+    this.cinto.definirAberto(origem, false);
+  }
+
   /** Tira a bola da mão e da cena, sem julgar o motivo. */
   private largarBolaDaMao(mao: Mao) {
     const bola = this.bolaNaMao.get(mao.indice);
     if (!bola) return;
     this.bolaNaMao.delete(mao.indice);
     this.bolaDeInvocacao.delete(mao.indice);
+    this.fecharSlotDaMao(mao);
     mao.segurando = false;
     bola.descartar(this.cena);
     const i = this.bolas.indexOf(bola);
@@ -812,7 +1117,7 @@ export class Jogo {
    * Materializa uma pokébola na mão: a do Pokémon ativo, se houver um esperando
    * para entrar, ou uma bola de captura do tipo escolhido.
    */
-  private tirarBolaDaCinta(mao: Mao) {
+  private tirarBolaDaCinta(mao: Mao, slotDeOrigem?: string) {
     if (this.bolaNaMao.has(mao.indice)) return;
     // Pegar a bola guarda a isca: você não arremessa com a fruta na mão.
     this.guardarIsca(mao);
@@ -847,6 +1152,14 @@ export class Jogo {
     this.bolas.push(bola);
     this.bolaNaMao.set(mao.indice, bola);
 
+    // O slot fica ABERTO: a miniatura some do braço enquanto a bola está na sua
+    // mão, e o berço pisca dizendo para onde ela volta.
+    if (slotDeOrigem) {
+      this.bolaVeioDoSlot.set(mao.indice, slotDeOrigem);
+      this.saiuDoCinto.delete(mao.indice);
+      this.cinto.definirAberto(slotDeOrigem, true);
+    }
+
     if (vaiInvocar) {
       this.bolaDeInvocacao.set(mao.indice, ativo!);
     } else {
@@ -871,6 +1184,12 @@ export class Jogo {
   }
 
   private arremessarBola(mao: Mao) {
+    // Abrir a mão com um bicho nela é pôr o bicho no chão, não arremessar nada.
+    if (this.pokemonNoColo.has(mao.indice)) {
+      this.soltarDoColo(mao);
+      return;
+    }
+
     const bola = this.bolaNaMao.get(mao.indice);
     if (!bola) return;
 
@@ -881,7 +1200,24 @@ export class Jogo {
       this.guardarNaMochila(mao);
       return;
     }
+
+    // O mesmo, no cinto: abrir a mão de volta EM CIMA DO SLOT DE ONDE ELA SAIU
+    // guarda a bola. Em cima de outro slot, não — aquela bola tem um lugar, e
+    // é nele que ela volta.
+    const origem = this.bolaVeioDoSlot.get(mao.indice);
+    if (this.saiuDoCinto.has(mao.indice)) {
+      const slot = this.slotSobAMao(mao);
+      // Ou o slot de onde ela saiu, ou — para uma bola catada do chão, que não
+      // saiu de slot nenhum — o slot do TIPO dela. Uma Comum recolhida do
+      // carpete guarda no berço das Comuns, que é o lugar dela.
+      const alvo = origem ?? (bola.raiz.userData.idBola as string | undefined);
+      if (slot && alvo && slot.id === alvo) {
+        this.guardarNaMochila(mao);
+        return;
+      }
+    }
     this.bolaNaMao.delete(mao.indice);
+    this.fecharSlotDaMao(mao);
     mao.segurando = false;
 
     const velocidade = mao.velocidadeArremesso(performance.now());
@@ -2190,6 +2526,9 @@ export class Jogo {
     this.atualizarSelvagens(dt);
     this.atualizarMarcaDeAlvo(dt);
     this.atualizarCompanheiro(dt);
+    // Depois do companheiro: quem está no colo tem a posição escrita pela mão,
+    // e ela precisa ser a última palavra sobre onde ele está neste quadro.
+    this.atualizarColo();
     this.atualizarEvolucao(dt);
     this.atualizarCarinho(dt);
     this.atualizarAtaqueSelvagem(dt);
@@ -2336,6 +2675,11 @@ export class Jogo {
       // A memória de ter saído do painel, para guardar e pegar não serem o
       // mesmo gesto. Ver saiuDoPainel.
       if (!this.cartaSobAMao(mao)) this.saiuDoPainel.add(mao.indice);
+      // O mesmo para o cinto: você fecha a mão NO slot para tirar a bola, e a
+      // mão continua ali. Devolver só passa a valer depois que ela saiu e
+      // voltou — senão tirar e guardar seriam o mesmo gesto, e a bola nunca
+      // sairia do braço.
+      if (!this.slotSobAMao(mao)) this.saiuDoCinto.add(mao.indice);
       const raio = this.raios.get(mao.indice);
       if (raio) raio.atualizar(dt, mao.lado === 'right', 0.9);
     }
@@ -2401,6 +2745,10 @@ export class Jogo {
     // tem carência é a RECOMPENSA — senão um encosto de dois segundos curaria o
     // bicho inteiro e o afago viraria poção.
     c.receberCarinho();
+    // E a cabeça vai atrás da mão. É a diferença entre um bicho que RECEBE
+    // carinho e um que responde a ele: você move a mão para o lado e o pescoço
+    // acompanha, encostando na palma.
+    c.seguirCarinho(toque);
     this.tempoDeCarinho += dt;
 
     if (this.recargaCarinho > 0) {
@@ -2634,7 +2982,9 @@ export class Jogo {
       const raio = this.raios.get(mao.indice);
       if (raio) {
         const apontandoTime = this.painelTime.aberto && mao.lado === 'right';
-        const apontandoDex = this.painelDex.aberto && mao.lado === 'left';
+        // Na Pokédex quem aponta é a mão LIVRE: a outra está segurando o tablet,
+        // e qual delas é isso muda conforme com qual você o pegou.
+        const apontandoDex = this.painelDex.aberto && this.tablet.naMaoDe !== mao.indice;
         raio.atualizar(dt, apontandoTime || apontandoDex, 0.6);
       }
 
@@ -2677,12 +3027,25 @@ export class Jogo {
         mao.punho.add(this.painelPulso.grupo);
         this.pulsoAnexado = true;
       }
+
+      if (!this.cintoAnexado && mao.lado === 'left') {
+        mao.punho.add(this.cinto.grupo);
+        this.cintoAnexado = true;
+      }
     }
   }
 
   private atualizarPaineis(dt: number) {
     const esquerda = this.maos.find((m) => m.lado === 'left' && m.conectada);
     const direita = this.maos.find((m) => m.lado === 'right' && m.conectada);
+
+    // --- o cinto, no antebraço esquerdo ---
+    this.cinto.definirEstoque((id) => this.dex.bolas(id));
+    // Quem destaca é a mão que VEM PEGAR, e ela é sempre a outra.
+    this.cinto.destacar(
+      direita && !this.maoCheia(direita) ? direita.posicaoMundo() : null,
+    );
+    this.cinto.atualizar(dt);
 
     // --- painel do time, na mão esquerda ---
     const entradas = this.dex.time.map((exemplar) => {
@@ -2701,7 +3064,11 @@ export class Jogo {
         estagios: emCampo ? this.companheiro!.estagios : undefined,
       };
     });
-    const bolas = BOLAS.map((tipo) => ({ tipo, quantidade: this.dex.bolas(tipo.id) }));
+    // As bolas NÃO vão mais para o painel: elas são objetos no antebraço
+    // esquerdo (src/cinto.ts), e a mesma bola em dois lugares seria duas
+    // verdades sobre quantas você tem. A lista vazia apaga a fileira sem mexer
+    // no painel, que continua sabendo desenhá-la se um dia ela voltar.
+    const bolas: { tipo: TipoBola; quantidade: number }[] = [];
     const itens = ITENS.map((tipo) => ({ tipo, quantidade: this.dex.item(tipo.id) }));
     this.painelTime.definirConteudo(
       entradas,
@@ -2760,12 +3127,22 @@ export class Jogo {
       this.painelDex.definirEstados(estados);
     }
 
+    // A carcaça primeiro: é ela que diz onde a tela está e se ela está ligada.
+    const quemSegura =
+      this.tablet.naMaoDe === null
+        ? null
+        : (this.maos.find((m) => m.indice === this.tablet.naMaoDe) ?? null);
+    this.tablet.atualizar(dt, this.camera, quemSegura?.punho ?? null);
+
+    // Quem aponta na Pokédex é a mão LIVRE — a outra está segurando o tablet.
+    const livre = this.maos.find(
+      (m) => m.conectada && m.indice !== this.tablet.naMaoDe,
+    );
     const dexEstavaAberta = this.painelDex.aberto;
     this.painelDex.atualizar(
       dt,
-      direita?.punho ?? null,
-      esquerda ? esquerda.mira() : null,
-      this.camera,
+      this.tablet.naMaoDe !== null,
+      this.tablet.naMaoDe !== null && livre ? livre.mira() : null,
     );
     if (this.painelDex.aberto && !dexEstavaAberta) audio.abrirPainel();
     if (this.painelDex.mudouDestaque) {
@@ -3424,6 +3801,8 @@ export class Jogo {
     this.painelPulso.descartar();
     this.painelTime.descartar();
     this.painelDex.descartar();
+    this.cinto.descartar();
+    this.tablet.descartar();
     this.pc.descartar();
     this.promptEvolucao.descartar();
     this.evolucaoEmCurso?.efeito.descartar(this.cena);

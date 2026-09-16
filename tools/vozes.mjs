@@ -21,8 +21,9 @@
 // Sem rede o comando desiste em silêncio: src/audio.ts volta para o grito dos
 // jogos, que continua no pacote.
 
-import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { falaDe, lerPokedex } from './falas.mjs';
 
 /**
  * A biblioteca de TTS é carregada só aqui dentro, e NÃO está no package.json —
@@ -47,87 +48,7 @@ async function carregarTts() {
 const SAIDA = 'public/vozes';
 const VOZ = 'pt-BR-FranciscaNeural';
 
-/**
- * Como cada um chama a si mesmo.
- *
- * A lista à mão existe para os que têm jeito consagrado — o "Pika pi" é o
- * "Pika pi", e uma regra de sílaba jamais chegaria nele. Quem não está aqui cai
- * na regra geral logo abaixo, que acerta a grande maioria: o bicho diz o começo
- * do próprio nome e depois o nome inteiro.
- */
-const JEITOS = {
-  pikachu: 'Pika! Pika pi!',
-  charmander: 'Char! Charmander!',
-  bulbasaur: 'Bulba! Bulbasaur!',
-  squirtle: 'Squirt! Squirtle!',
-  jigglypuff: 'Jiggly! Jigglypuff!',
-  meowth: 'Meowth! Meowth!',
-  psyduck: 'Psai... Psyduck!',
-  togepi: 'Toge! Togepi!',
-  eevee: 'Vui! Eevee!',
-  mew: 'Mew! Mew!',
-  mewtwo: 'Mewtwo.',
-  snorlax: 'Snor... Snorlax!',
-  gengar: 'Gen! Gengar!',
-  onix: 'Oooo! Onix!',
-  geodude: 'Geo! Geodude!',
-  magikarp: 'Karp! Karp! Magikarp!',
-  ditto: 'Ditto! Ditto!',
-  articuno: 'Articuno!',
-  zapdos: 'Zapdos!',
-  moltres: 'Moltres!',
-  dragonite: 'Dragonite!',
-  vulpix: 'Vul! Vulpix!',
-  growlithe: 'Grow! Growlithe!',
-  abra: 'Abra...',
-  machop: 'Machop! Chop!',
-  gastly: 'Gaaas... Gastly!',
-  haunter: 'Haunter!',
-  lapras: 'Laaa! Lapras!',
-  scyther: 'Scy! Scyther!',
-  pidgey: 'Pidge! Pidgey!',
-  rattata: 'Ratta! Rattata!',
-  caterpie: 'Cater! Caterpie!',
-  weedle: 'Wee! Weedle!',
-  zubat: 'Zu! Zubat!',
-  clefairy: 'Clefa! Clefairy!',
-};
-
-/**
- * O pedaço do nome que o bicho diz antes do nome inteiro.
- *
- * Corta na primeira vogal seguida de consoante, o que dá "Char" em Charmander,
- * "Bulba" em Bulbasaur e "Rhy" em Rhyhorn. Nomes de uma sílaba só não ganham
- * pedaço: "Mew! Mew!" já é a regra da tabela acima, e repetir "On! Onix!" num
- * nome curto soa como gagueira, não como fala.
- */
-function pedacoDe(nome) {
-  const m = /^[^aeiouáéíóúãõ]*[aeiouáéíóúãõ]+[^aeiouáéíóúãõ]?/i.exec(nome);
-  if (!m) return null;
-  const pedaco = m[0];
-  if (pedaco.length < 3 || pedaco.length >= nome.length) return null;
-  return pedaco;
-}
-
-function falaDe(id, nome) {
-  if (JEITOS[id]) return JEITOS[id];
-  const pedaco = pedacoDe(nome);
-  return pedaco ? `${pedaco}! ${nome}!` : `${nome}!`;
-}
-
-// A lista dos 151 sai do mesmo arquivo gerado que o jogo usa: dois catálogos
-// sairiam do ar um do outro no primeiro `npm run pokedex`.
-const fonte = await readFile('src/pokedex.gen.ts', 'utf8');
-const POKEDEX = [];
-for (const m of fonte.matchAll(
-  /"num":\s*(\d+),\s*"id":\s*"([a-z0-9-]+)",\s*"nome":\s*"([^"]+)"/g,
-)) {
-  POKEDEX.push({ num: Number(m[1]), id: m[2], nome: m[3] });
-}
-if (POKEDEX.length === 0) {
-  console.error('não achei os 151 em src/pokedex.gen.ts — rode `npm run pokedex` antes');
-  process.exit(1);
-}
+const POKEDEX = await lerPokedex();
 
 const tudo = process.argv.includes('--tudo');
 const alvos = process.argv

@@ -14,9 +14,95 @@ export type EstadoBola =
   | 'inerte';
 
 const GRAVIDADE = -9.81;
+/**
+ * Quanto tempo uma bola largada fica no chão antes de sumir.
+ *
+ * Ela precisa DURAR: uma bola que falhou é uma bola que você ainda tem, e o
+ * jogo pedia que você a visse cair no carpete e sumir em quatro segundos, o que
+ * é tempo de ver e não de buscar. Um minuto e meio é o bastante para terminar a
+ * briga, respirar e ir catar — e curto o bastante para a sala não virar um
+ * depósito de pokébolas esquecidas.
+ */
+const SEGUNDOS_NO_CHAO = 90;
 const RESTITUICAO = 0.42;
 const RAIO = 0.045;
 const SACUDIDAS = 3;
+
+/**
+ * O corpo da pokébola — duas meias-esferas, faixa equatorial e o botão dos dois
+ * lados —, montado em geometria como todo o resto do jogo.
+ *
+ * Fica fora da classe porque o cinto do antebraço (src/cinto.ts) desenha as
+ * MESMAS bolas em miniatura: duas montagens diferentes para o mesmo objeto
+ * seriam duas coisas para manter parecidas, e elas ficam lado a lado o jogo
+ * inteiro — a do cinto e a da mão, a um palmo uma da outra.
+ *
+ * O `guardar` é de quem chama: quem monta é quem descarta.
+ */
+export function montarCorpoDeBola(
+  raio: number,
+  corAcento: number,
+  corBase: number,
+  guardar: <T extends THREE.BufferGeometry | THREE.Material>(x: T) => T,
+): { grupo: THREE.Group; botao: THREE.Mesh; matBotao: THREE.MeshStandardMaterial } {
+  const grupo = new THREE.Group();
+
+  const matTopo = guardar(
+    new THREE.MeshStandardMaterial({ color: corAcento, roughness: 0.25, metalness: 0.15 }),
+  );
+  const matBase = guardar(
+    new THREE.MeshStandardMaterial({ color: corBase, roughness: 0.28, metalness: 0.1 }),
+  );
+  const matFaixa = guardar(
+    new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.4, metalness: 0.2 }),
+  );
+  const matBotao = guardar(
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.35,
+      roughness: 0.2,
+    }),
+  );
+
+  const topo = new THREE.Mesh(
+    guardar(new THREE.SphereGeometry(raio, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.5)),
+    matTopo,
+  );
+  const base = new THREE.Mesh(
+    guardar(new THREE.SphereGeometry(raio, 28, 16, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5)),
+    matBase,
+  );
+  topo.castShadow = true;
+  base.castShadow = true;
+  grupo.add(topo, base);
+
+  const faixa = new THREE.Mesh(
+    guardar(new THREE.CylinderGeometry(raio * 1.008, raio * 1.008, raio * 0.17, 28)),
+    matFaixa,
+  );
+  grupo.add(faixa);
+
+  // Botão: um anel escuro com o miolo claro, nos dois lados.
+  for (const frente of [1, -1]) {
+    const anel = new THREE.Mesh(
+      guardar(new THREE.CylinderGeometry(raio * 0.3, raio * 0.3, raio * 0.1, 20)),
+      matFaixa,
+    );
+    anel.rotation.x = Math.PI * 0.5;
+    anel.position.z = frente * raio * 0.94;
+    grupo.add(anel);
+  }
+  const botao = new THREE.Mesh(
+    guardar(new THREE.CylinderGeometry(raio * 0.19, raio * 0.19, raio * 0.14, 18)),
+    matBotao,
+  );
+  botao.rotation.x = Math.PI * 0.5;
+  botao.position.z = raio * 0.97;
+  grupo.add(botao);
+
+  return { grupo, botao, matBotao };
+}
 
 /**
  * A pokébola: duas meias-esferas, faixa preta e botão. Montada em geometria,
@@ -33,8 +119,7 @@ export class Pokebola {
   presa: Pokemon | null = null;
   resultado: 'capturou' | 'escapou' | 'soltou' | null = null;
 
-  private corpo = new THREE.Group();
-  private botao: THREE.Mesh;
+  private corpo: THREE.Group;
   private matBotao: THREE.MeshStandardMaterial;
   private luz: THREE.PointLight;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
@@ -56,61 +141,9 @@ export class Pokebola {
       return x;
     };
 
-    const matTopo = guardar(
-      new THREE.MeshStandardMaterial({ color: corAcento, roughness: 0.25, metalness: 0.15 }),
-    );
-    const matBase = guardar(
-      new THREE.MeshStandardMaterial({ color: corBase, roughness: 0.28, metalness: 0.1 }),
-    );
-    const matFaixa = guardar(
-      new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.4, metalness: 0.2 }),
-    );
-    this.matBotao = guardar(
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        emissive: 0xffffff,
-        emissiveIntensity: 0.35,
-        roughness: 0.2,
-      }),
-    ) as THREE.MeshStandardMaterial;
-
-    // Hemisfério de cima e de baixo.
-    const topo = new THREE.Mesh(
-      guardar(new THREE.SphereGeometry(RAIO, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.5)),
-      matTopo,
-    );
-    const base = new THREE.Mesh(
-      guardar(new THREE.SphereGeometry(RAIO, 28, 16, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5)),
-      matBase,
-    );
-    topo.castShadow = true;
-    base.castShadow = true;
-    this.corpo.add(topo, base);
-
-    // Faixa equatorial.
-    const faixa = new THREE.Mesh(
-      guardar(new THREE.CylinderGeometry(RAIO * 1.008, RAIO * 1.008, RAIO * 0.17, 28)),
-      matFaixa,
-    );
-    this.corpo.add(faixa);
-
-    // Botão: um anel escuro com o miolo claro, nos dois lados.
-    for (const frente of [1, -1]) {
-      const anel = new THREE.Mesh(
-        guardar(new THREE.CylinderGeometry(RAIO * 0.3, RAIO * 0.3, RAIO * 0.1, 20)),
-        matFaixa,
-      );
-      anel.rotation.x = Math.PI * 0.5;
-      anel.position.z = frente * RAIO * 0.94;
-      this.corpo.add(anel);
-    }
-    this.botao = new THREE.Mesh(
-      guardar(new THREE.CylinderGeometry(RAIO * 0.19, RAIO * 0.19, RAIO * 0.14, 18)),
-      this.matBotao,
-    );
-    this.botao.rotation.x = Math.PI * 0.5;
-    this.botao.position.z = RAIO * 0.97;
-    this.corpo.add(this.botao);
+    const montado = montarCorpoDeBola(RAIO, corAcento, corBase, guardar);
+    this.corpo = montado.grupo;
+    this.matBotao = montado.matBotao;
 
     this.raiz.add(this.corpo);
 
@@ -261,6 +294,13 @@ export class Pokebola {
           this.resolvido = true;
           this.resultado = 'escapou';
         }
+        // Escapou, mas a bola não evaporou: ela encolhe de volta e cai no chão,
+        // de onde dá para pegar e tentar de novo. Era aqui que a bola sumia.
+        if (this.cronometro > 0.75) {
+          this.corpo.scale.setScalar(1);
+          this.estado = 'inerte';
+          this.tempoInerte = 0;
+        }
         break;
       }
 
@@ -273,11 +313,16 @@ export class Pokebola {
         break;
       }
 
-      case 'inerte':
+      case 'inerte': {
         this.integrar(dt);
         this.tempoInerte += dt;
-        this.luz.intensity = Math.max(0, 0.25 - this.tempoInerte * 0.1);
+        // Um respiro de luz enquanto ela pode ser recolhida, e o apagar nos
+        // últimos dez segundos — o aviso de que ela está indo embora.
+        const indoEmbora = Math.max(0, 1 - (SEGUNDOS_NO_CHAO - this.tempoInerte) / 10);
+        this.luz.intensity = (0.2 + Math.sin(this.tempoInerte * 2.4) * 0.12) * (1 - indoEmbora);
+        this.matBotao.emissiveIntensity = (0.5 + Math.sin(this.tempoInerte * 2.4) * 0.35) * (1 - indoEmbora);
         break;
+      }
     }
   }
 
@@ -301,11 +346,33 @@ export class Pokebola {
   }
 
   get acabou(): boolean {
-    if (this.estado === 'falha') return this.cronometro > 0.6;
     if (this.estado === 'sucesso') return this.cronometro > 1.6;
     if (this.estado === 'soltando') return this.cronometro > 0.9;
-    if (this.estado === 'inerte') return this.tempoInerte > 4;
+    // 'falha' não acaba: ela vira 'inerte' e a bola fica no carpete.
+    if (this.estado === 'inerte') return this.tempoInerte > SEGUNDOS_NO_CHAO;
     return false;
+  }
+
+  /** Está parada no chão, esperando alguém pegar. */
+  get noChao(): boolean {
+    return this.estado === 'inerte';
+  }
+
+  /**
+   * Volta para a mão depois de um tempo no carpete.
+   *
+   * O estado vira 'mao' e o cronômetro de chão zera: se você pegar, arremessar
+   * e errar de novo, ela ganha outros noventa segundos, como qualquer bola que
+   * acabou de cair.
+   */
+  recolher() {
+    this.estado = 'mao';
+    this.velocidade.set(0, 0, 0);
+    this.tempoInerte = 0;
+    this.cronometro = 0;
+    this.resolvido = false;
+    this.luz.intensity = 0.25;
+    this.matBotao.emissiveIntensity = 0.35;
   }
 
   descartar(cena: THREE.Object3D) {

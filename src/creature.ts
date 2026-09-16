@@ -27,7 +27,9 @@ export type Estado =
   | 'preso'
   | 'saindo'
   /** Indo até o ponto que você marcou no chão com o gatilho. */
-  | 'indo';
+  | 'indo'
+  /** No seu colo: você o pegou com a mão e ele está no ar, preso a ela. */
+  | 'colo';
 
 const GRAVIDADE = -9.0;
 
@@ -101,6 +103,16 @@ export class Pokemon {
   private cronometroEstado = 0;
   private escalaAlvo = 1;
   private olharPara: THREE.Vector3 | null = null;
+  /**
+   * Onde está a mão que faz carinho, quando há uma.
+   *
+   * Existe separado do `olharPara` porque ele é reescrito a cada quadro pelo
+   * estado (ocioso olha para um lado, atento olha para você), e o toque tem de
+   * ganhar de tudo isso: uma mão na cabeça é a coisa mais importante que está
+   * acontecendo com ele.
+   */
+  private maoNoCafune: THREE.Vector3 | null = null;
+  private tempoSemCafune = 0;
   private recarga = 0;
   private tremor = 0;
   /** Achatada ao aterrissar, volta sozinha. */
@@ -503,6 +515,49 @@ export class Pokemon {
     this.impulso(2.1);
   }
 
+  /**
+   * A mão está na cabeça dele, NESTE ponto.
+   *
+   * Chamar isto a cada quadro é o que faz a cabeça ACOMPANHAR o carinho em vez
+   * de só receber: você move a mão para o lado e ela vai atrás, como um bicho
+   * que encosta a cabeça na mão de quem está fazendo cafuné. Parar de chamar
+   * solta a cabeça sozinho, um quarto de segundo depois — sem isso, tirar a mão
+   * deixaria o pescoço travado olhando para o vazio.
+   */
+  seguirCarinho(ponto: THREE.Vector3) {
+    (this.maoNoCafune ??= new THREE.Vector3()).copy(ponto);
+    this.tempoSemCafune = 0;
+  }
+
+  /**
+   * Você o pegou no colo.
+   *
+   * O corpo sai da física: enquanto está na sua mão, quem diz onde ele está é a
+   * sua mão, e a gravidade do jogo não tem nada a dizer sobre isso. Ele continua
+   * animando, olhando em volta e respondendo a carinho — é um bicho no colo, não
+   * um objeto carregado.
+   */
+  pegarNoColo() {
+    if (this.desmaiado || this.estado === 'preso' || this.estado === 'saindo') return false;
+    this.estado = 'colo';
+    this.cronometroEstado = 0;
+    this.velY = 0;
+    this.noChao = false;
+    this.destinoComandado = null;
+    return true;
+  }
+
+  /** Você abriu a mão: ele cai de onde estava e volta a viver sozinho. */
+  soltarDoColo() {
+    if (this.estado !== 'colo') return;
+    this.estado = 'ocioso';
+    this.cronometroEstado = 0;
+    this.noChao = false;
+    // Sem impulso: ele CAI do ponto onde a sua mão estava. Jogar para cima
+    // seria uma decisão que você não tomou.
+    this.velY = 0;
+  }
+
   /** A cabeça no mundo — é nela que a mão precisa encostar para o cafuné. */
   pontoDaCabeca(alvo = new THREE.Vector3()): THREE.Vector3 {
     this.raiz.updateMatrixWorld();
@@ -614,6 +669,18 @@ export class Pokemon {
       case 'saindo':
         if (this.raiz.scale.x < 0.02) this.viva = false;
         break;
+
+      case 'colo':
+        // No colo quem manda na posição é a MÃO, e ela escreve direto na raiz
+        // (ver `porNoColo` em src/game.ts). O `mover` fica de fora por isso: ele
+        // aplicaria gravidade e passada num bicho que está no ar porque alguém
+        // o está segurando. O resto da vida continua — ele anima, olha em volta
+        // e responde a carinho.
+        this.olharPara = jogador;
+        this.velocidadeAndando = 0;
+        this.noChao = false;
+        this.animar(dt);
+        return;
     }
 
     this.mover(dt);
@@ -847,6 +914,24 @@ export class Pokemon {
       }
     } else {
       this.velocidadeAndando = Math.max(0, this.velocidadeAndando - dt * 4);
+    }
+
+    // A mão no cafuné manda na cabeça, e só nela: o corpo NÃO gira atrás dela.
+    // Quem está sendo afagado vira o pescoço na direção da mão; um bicho que
+    // roda o tronco inteiro atrás de um carinho parece estar tentando escapar.
+    if (this.maoNoCafune) {
+      this.tempoSemCafune += dt;
+      if (this.tempoSemCafune > 0.25) {
+        this.maoNoCafune = null;
+      } else {
+        const p = this.maoNoCafune;
+        const anguloAlvo = Math.atan2(p.x - this.raiz.position.x, p.z - this.raiz.position.z);
+        let delta = anguloAlvo - this.raiz.rotation.y;
+        delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+        // Depressa: resposta a toque é reflexo, não decisão.
+        this.residuoOlhar += (delta - this.residuoOlhar) * Math.min(1, dt * 9);
+        return;
+      }
     }
 
     const alvo = this.olharPara ?? (this.flutua || !this.noChao ? this.destino : null);

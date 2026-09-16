@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
 import { ESPECIES, TIPOS, type Especie } from './species';
-import { olhandoORelogio } from './gesto';
 
 export interface EstadoDex {
   visto: boolean;
@@ -255,29 +254,30 @@ export class PainelDex {
     if (restante) ctx.fillText(restante, x, y + 26, largura);
   }
 
+  /**
+   * Desenha a Pokédex. Quem diz se ela está ligada é o TABLET.
+   *
+   * Isto aqui já decidiu sozinho: lia o gesto do relógio no pulso direito e se
+   * posicionava flutuando acima dele. Agora a Pokédex é uma coisa que se pega
+   * (ver src/tablet.ts), e estas placas são só a TELA dela — quem sabe onde a
+   * tela está no mundo é a carcaça, que é filha da mão que a segura. Uma tela
+   * que se reposiciona sozinha dentro de um objeto que também se move seria
+   * duas leis de movimento para a mesma coisa.
+   */
   atualizar(
     dt: number,
-    punhoDireito: THREE.Object3D | null,
+    naMao: boolean,
     mira: { origem: THREE.Vector3; direcao: THREE.Vector3 } | null,
-    camera: THREE.Camera,
   ) {
-    const querAbrir = olhandoORelogio(punhoDireito, 'right', camera, this.aberto);
-    this.aberto = querAbrir;
+    this.aberto = naMao;
 
-    this.abertura += ((querAbrir ? 1 : 0) - this.abertura) * Math.min(1, dt * 10);
+    this.abertura += ((naMao ? 1 : 0) - this.abertura) * Math.min(1, dt * 10);
+    // A tela acende e apaga; a carcaça continua lá, nas suas costas.
     this.grupo.visible = this.abertura > 0.03;
     if (!this.grupo.visible) {
       this.destacado = -1;
       return;
     }
-
-    if (punhoDireito) {
-      const posicao = punhoDireito.getWorldPosition(new THREE.Vector3());
-      posicao.y += 0.2;
-      this.grupo.position.lerp(posicao, Math.min(1, dt * 14));
-      this.grupo.lookAt(camera.getWorldPosition(new THREE.Vector3()));
-    }
-    this.grupo.scale.setScalar(0.6 + this.abertura * 0.4);
 
     const anterior = this.destacado;
     this.destacado = -1;

@@ -70,8 +70,14 @@ sem pôr o headset a cada mudança:
 
 | Ação | Controle |
 |---|---|
-| Pegar a pokébola | segurar o **GRIP** |
+| Pegar a pokébola | levar a mão ao **cinto do antebraço esquerdo** e fechar o **GRIP** na bola |
+| Guardar a bola de volta | levar a mão ao **mesmo slot** e abrir a mão |
 | Arremessar | **soltar o GRIP** no meio do movimento do braço |
+| Recolher uma bola do chão | **GRIP** com a mão em cima dela |
+| Pegar seu Pokémon no colo | **GRIP** com a mão nele (até meio metro de altura) |
+| Pôr ele no chão | **abrir a mão** |
+| Pegar a Pokédex | levar a mão **às costas** e fechar o **GRIP** |
+| Guardar a Pokédex | levar de volta às costas e fechar o **GRIP** |
 | Mandar seu Pokémon atacar | **apontar para o alvo** e tocar o GATILHO |
 | Mandar ele andar até um ponto | **segurar** o GATILHO e apontar o chão; ele vai onde você soltar — e **fica lá** |
 | Recolher para a bola | apontar para ele e apertar **A** |
@@ -79,8 +85,7 @@ sem pôr o headset a cada mudança:
 | Ligar o PC (equipe e caixa) | **Y**, ou o ícone de monitor no painel do pulso |
 | Time, bolas, itens e os quatro golpes | girar o **pulso esquerdo**, como para ver as horas |
 | Modo de jogo, dificuldade e opções | a **engrenagem**, no canto do painel do pulso |
-| Pokédex das 151 | girar o **pulso direito** do mesmo jeito |
-| Ouvir a ficha da Pokédex | **GATILHO** com a Pokédex aberta |
+| Ouvir a ficha da Pokédex | **GATILHO** com a Pokédex na mão |
 | Escolher / recolher / usar item | apontar com a outra mão e puxar o **GATILHO** |
 | Trocar de bola | **analógico direito** para os lados |
 | Virar página da Pokédex | **analógico direito**, com a Pokédex aberta |
@@ -106,6 +111,39 @@ se confere que os dedos dobram para dentro da palma sem pôr o headset.
 
 O arco pontilhado aparece enquanto você move o braço e mostra onde a bola vai
 cair. Ele some quando a mão está parada — mirar é movimento, não apontar.
+
+### Agarrar é o verbo
+
+O GRIP fazia uma coisa só e fazia sempre: fechar a mão em qualquer lugar da sala
+FABRICAVA uma pokébola. Era conveniente e era estranho — num jogo em que a graça
+é que as coisas estão no seu quarto, a bola vinha do nada, a Pokédex era uma
+projeção que brotava do pulso e o seu Pokémon era a única coisa que não se
+tocava.
+
+Agora **agarrar só vale sobre alguma coisa**, e há coisas para agarrar:
+
+- **As bolas ficam no seu antebraço esquerdo**, em miniatura, flutuando em
+  berços — uma por tipo. A mão direita vai lá e pega AQUELA em que os dedos
+  estão. Tirar deixa o berço piscando, que é o que diz para onde ela volta:
+  devolver é pôr a mão no mesmo slot e abrir. A cintura seria o lugar de um
+  treinador, mas o Quest não rastreia o seu quadril — rastreia as suas mãos, e o
+  antebraço é rastreado de verdade.
+- **A bola que falhou fica no carpete** por um minuto e meio, respirando uma luz
+  fraca, e volta para a mão com um GRIP. Uma captura que não deu custa a
+  tentativa, não a bola.
+- **A Pokédex é um tablet** de plástico vermelho e branco com o símbolo da
+  pokébola no topo, e ela mora nas suas costas. Você leva a mão lá atrás, pega —
+  com qualquer das duas mãos —, lê apontando com a outra, e guarda levando de
+  volta. A silhueta na palma é o que diz que você pegou a Pokédex e não outra
+  coisa, porque a mão vai lá atrás às cegas.
+- **O seu Pokémon se pega no colo**, se couber nele: até meio metro, o que dá
+  Pikachu, Charmander, Eevee, Squirtle. Ele sai da física enquanto está na sua
+  mão e continua vivo — olhando em volta, respondendo. Abrir a mão o põe no chão
+  de onde ele estava.
+- **E o carinho virou conversa.** A cabeça dele ACOMPANHA a sua mão: você move
+  para o lado e o pescoço vai atrás, encostando na palma. Só o pescoço — o corpo
+  fica onde está, porque um bicho que roda o tronco inteiro atrás de um carinho
+  parece estar tentando escapar.
 
 ## O laço do jogo
 
@@ -455,19 +493,34 @@ Uma coisa que vale dizer sem rodeio: **o grito do jogo não é a voz do desenho*
 O Charmander dos jogos guincha; quem fala "Charmander" é o dublador do anime, e
 isso não existe em fonte estruturada nenhuma — nem poderia ser baixado de uma.
 
-### Ele fala o próprio nome
+### Ele fala o próprio nome, com voz de anime
 
-Por isso as 151 falas são **gravadas** (`npm run vozes`, 2,4 MB de MP3, o mesmo
-TTS da narração da Pokédex): "Char! Charmander!", "Pika! Pika pi!", "Bulba!
-Bulbasaur!". Quem tem jeito consagrado está numa tabela à mão; o resto sai da
-regra — o bicho diz o começo do próprio nome e depois o nome inteiro.
+Por isso as 151 falas são **gravadas** (`npm run vozes:anime`): "Char!
+Charmander!", "Pika! Pika pi!", "Bulba! Bulbasaur!". Quem tem jeito consagrado
+está numa tabela à mão (em `tools/falas.mjs`); o resto sai da regra — o bicho diz
+o começo do próprio nome e depois o nome inteiro.
 
-Uma voz só seriam 151 bichos com a mesma garganta, então o **tom** vem do jogo:
-cada espécie ganha uma velocidade de reprodução deduzida do número da Pokédex e
-do peso. Caterpie sai fino e apressado, Snorlax sai grave e arrastado, e os dois
-saem do mesmo arquivo — que é o truque que os jogos antigos faziam com um sample
-só. O interruptor **"Ele fala o nome"** devolve o grito dos jogos a quem
-preferir.
+Quem grava é o **TTS do Gemini**, e o motivo é uma coisa que ele aceita e os
+outros não: uma INSTRUÇÃO DE ATUAÇÃO junto do texto. Dá para pedir que a fala
+saia como criatura de desenho animado em vez de locutor lendo legenda, e a
+diferença é audível na primeira frase. Cada espécie ganha uma das trinta vozes
+prontas — escolhida pelo PESO do bicho, em escala logarítmica, porque a Pokédex
+vai de 0,1 kg a 460 kg — e uma atuação escolhida pelo TIPO: o fogo raspa a
+garganta, a água arrasta as vogais, o fantasma é mais ar do que voz. Snorlax sai
+grave e arrastado, Caterpie sai fininho e apressado, e não é o mesmo arquivo
+esticado: são gargantas diferentes.
+
+O gerador antigo continua ali (`npm run vozes`, TTS do Edge) como reserva de quem
+não tem a chave da API. E o **tom** que o jogo aplica por cima encolheu de
+propósito: ele ia de 0,82 a 1,34 porque precisava fazer 151 bichos saírem de uma
+locutora só, e hoje sobra como empurrãozinho de 7% — o bastante para dois bichos
+que calharam na mesma voz pronta não soarem gêmeos. O interruptor **"Ele fala o
+nome"** devolve o grito dos jogos a quem preferir.
+
+E onde existe **gravação de verdade**, ela ganha de todas: `public/dublagem/`
+guarda as falas do desenho, sorteadas a cada grito (o Charmander tem duas). É
+arquivo + uma linha na tabela `DUBLAGEM` de src/audio.ts para dar voz real a
+outro.
 
 Os gritos sintetizados continuam no código como reserva: eles tocam no primeiro
 encontro de cada espécie, antes de o arquivo chegar, e são o que sobra se o

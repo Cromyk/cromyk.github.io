@@ -471,14 +471,28 @@ export class Audio {
   }
 
   /**
-   * O tom da fala de cada espécie, entre 0,82 (grave e lento) e 1,34 (agudo e
-   * apressado).
+   * O tom da fala de cada espécie, entre 0,93 (grave) e 1,09 (agudo).
    *
    * Sai do número da Pokédex por uma mistura embaralhada de propósito: espécies
    * vizinhas na numeração costumam ser da mesma linha evolutiva, e uma progressão
    * suave daria Charmander, Charmeleon e Charizard com quase a mesma voz. O
    * peso, quando o jogo o informa, puxa o resultado para baixo — bicho pesado
    * fala grosso.
+   *
+   * ## Por que a faixa encolheu
+   *
+   * Ela ia de 0,82 a 1,34, que é muito, e fazia falta: as 151 falas eram a MESMA
+   * locutora brasileira lendo 151 nomes, e sem esticar o arquivo o jogo teria
+   * 151 bichos com uma garganta só. Esticar 30% é audível — a fala fica lenta e
+   * cavernosa embaixo, rápida e de desenho antigo em cima — mas era o preço.
+   *
+   * As falas de hoje vêm do TTS do Gemini (tools/vozes-anime.mjs), com uma voz
+   * de personagem POR ESPÉCIE e uma atuação escolhida pelo tipo e pelo porte: o
+   * Snorlax já sai grave e arrastado, o Caterpie já sai fino e apressado. O
+   * trabalho que o pitch fazia sozinho agora está gravado, e continuar
+   * esticando 30% por cima só arruinaria a atuação. O que sobra aqui é um
+   * empurrãozinho — o bastante para dois bichos que calharam na mesma voz
+   * pronta não soarem gêmeos.
    */
   private tomDe(num: number): number {
     const embaralhado = (Math.imul(num, 2654435761) >>> 0) / 4294967295;
@@ -487,7 +501,7 @@ export class Audio {
     // 460 kg (Snorlax), e uma régua linear deixaria 140 dos 151 no mesmo ponto.
     const corpo = peso === undefined ? 0.5 : 1 - Math.min(1, Math.log10(peso + 1) / 2.7);
     const t = embaralhado * 0.45 + corpo * 0.55;
-    return 0.82 + t * 0.52;
+    return 0.93 + t * 0.16;
   }
 
   /** O peso de cada espécie, para a voz acompanhar o corpo. Ver `tomDe`. */
