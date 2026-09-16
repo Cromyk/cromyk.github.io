@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EFETIVIDADE, POKEDEX, type EntradaDex, type Tipo } from './pokedex.gen';
 import { temModelo, temShiny } from './modelos';
 import { APRENDE, GOLPES_DEX } from './golpes.gen';
+import { EVOLUI_SO_COM_PEDRA, evolucaoPorPedra } from './pedras';
 
 export type { Tipo } from './pokedex.gen';
 
@@ -667,10 +668,25 @@ export function nivelPorXp(xp: number): number {
   return nivel;
 }
 
-/** Para quem esta espécie evolui neste nível, se for a hora. */
+/**
+ * Para quem esta espécie evolui neste nível, se for a hora.
+ *
+ * Quem depende de PEDRA não passa por aqui, por mais alto que o nível chegue:
+ * a tabela gerada dá a essas espécies um nível 28 inventado (a PokeAPI não
+ * informa nível nenhum para `use-item`, e o gerador precisava de um número), e
+ * deixá-lo valer faria o Pikachu virar Raichu sozinho — o que esvazia a Pedra do
+ * Trovão. Ver src/pedras.ts.
+ */
 export function evolucaoEm(especie: Especie, nivel: number): Especie | null {
+  if (EVOLUI_SO_COM_PEDRA.has(especie.id)) return null;
   if (!especie.evolui || nivel < especie.evolui.nivel) return null;
   return PorId.get(especie.evolui.para) ?? null;
+}
+
+/** A evolução que esta pedra provoca nesta espécie, se provocar alguma. */
+export function evolucaoDaPedra(idPedra: string, especie: Especie): Especie | null {
+  const alvo = evolucaoPorPedra(idPedra, especie.id);
+  return alvo ? (PorId.get(alvo) ?? null) : null;
 }
 
 // ---------------------------------------------------------------- combate

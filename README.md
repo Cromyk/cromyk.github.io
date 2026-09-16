@@ -326,6 +326,33 @@ evoluindo!"* e ele espera: **A** deixa, **B** adia. Quem quer manter o Pikachu
 Pikachu tem o direito de manter — e a recusa fica guardada no nível em que foi
 feita, então a pergunta volta quando ele subir, como no jogo original.
 
+### As pedras, e as catorze que esperavam por elas
+
+Cinco pedras — **Fogo, Água, Trovão, Folha e Lua** — e dezesseis evoluções que
+só acontecem com elas. Você pega a pedra na mochila e **encosta no seu**
+**Pokémon**, o mesmo gesto da poção e da fruta; ela não pergunta nada, porque
+você já respondeu três vezes: foi à mochila, pegou aquela pedra e atravessou a
+sala com ela na mão.
+
+Elas consertam uma mentira que estava no jogo desde o começo. O
+`tools/pokedex.mjs` monta a tabela de evolução a partir da PokeAPI, e lá quem
+evolui por pedra **não tem nível nenhum** — o gatilho é `use-item`. Como o jogo
+só sabia evoluir por nível, o gerador inventava um 28 plausível para não deixar
+a linha truncada, e o comentário dizendo isso está no arquivo até hoje. O
+resultado era o Pikachu virando Raichu sozinho ao fazer aniversário. Agora as
+catorze espécies que dependem de pedra **saem da evolução por nível** e passam a
+esperar a sua mão (`EVOLUI_SO_COM_PEDRA`, em src/pedras.ts).
+
+O Eevee é o caso que justifica tudo: **três pedras, três bichos diferentes**, e
+a escolha é para sempre. As outras duas ficam na mochila sem uso naquele Eevee.
+
+Encostar a pedra errada **não a gasta**: ela é o item mais raro do jogo depois
+da Bola Lacuna (uma a cada trinta e poucas capturas), e o aviso diz em quem ela
+serve. E as pedras só ocupam carta na mochila **depois que você acha a**
+**primeira** — ver “0 poções” é informação, mas uma pedra que nunca caiu não é
+uma falta. Quando a mochila passa de três itens ela quebra em linhas de três: é
+a largura do painel, e quatro cartas ficariam para fora dele.
+
 O efeito é o clássico: o corpo **estica e encolhe** cada vez mais rápido
 enquanto vai ficando branco, a luz cresce, e no estouro — quando a silhueta não
 se vê — o corpo é trocado. O novo nasce branco e a cor volta. Antes e depois,

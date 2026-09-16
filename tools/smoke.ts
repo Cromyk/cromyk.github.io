@@ -36,6 +36,7 @@ import {
   multEstagio,
   golpesDeStatus,
   evolucaoEm,
+  evolucaoDaPedra,
   multiplicador,
   nivelPorXp,
   porId,
@@ -46,6 +47,7 @@ import {
 import { MEDIDAS } from '../src/modelos.gen';
 import type { Corpo } from '../src/modelos';
 import { BOLAS } from '../src/balls';
+import { PEDRAS, EVOLUI_SO_COM_PEDRA } from '../src/pedras';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
 import { GOLPES_DEX } from '../src/golpes.gen';
@@ -1428,15 +1430,44 @@ console.log('26. cada golpe tem o seu gesto');
     const animador = new Animador(corpo);
     const ctx = { velocidade: 0, alarme: 0, vida: 1, encarar: 0, desmaiado: false };
     for (let i = 0; i < 60; i++) animador.atualizar(1 / 72, ctx);
+
+    /** O maior desvio de cada osso ao longo de um segundo de animação. */
+    const picoEm = (quadros: number) => {
+      const maiores = new Map<string, number>();
+      for (let i = 0; i < quadros; i++) {
+        animador.atualizar(1 / 72, ctx);
+        for (const nome of nomes) {
+          const osso = porNome.get(nome)!;
+          const repouso = repousos.get(nome)!;
+          const desvio = Math.abs(osso.quaternion.angleTo(repouso));
+          if (desvio > (maiores.get(nome) ?? 0)) maiores.set(nome, desvio);
+        }
+      }
+      return maiores;
+    };
+
+    // O PICO do gesto, DESCONTADO o que o ocioso já fazia sozinho.
+    //
+    // Duas armadilhas, uma de cada vez. A medição era num quadro fixo (o 43), e
+    // a verificação era INTERMITENTE: o ocioso balança a cauda sozinho, os
+    // sessenta quadros de aquecimento acima param numa fase qualquer dele, e
+    // conforme a fase a chicotada era medida enquanto a cauda já voltava — o
+    // número caía de 30° para 8° e o teste falhava sem nada ter mudado no jogo.
+    // Isso custou duas caçadas a uma regressão que não existia.
+    //
+    // Trocar para o pico ao longo do gesto conserta a fase e cria a segunda
+    // armadilha: o balanço ocioso entra no pico de TODOS os gestos, inclusive
+    // no da mordida, e "a cauda se move mais na chicotada do que na mordida"
+    // deixa de ser verdade por diluição. Daí a linha de base — um segundo de
+    // ocioso puro, medido no mesmo bicho e na mesma fase — subtraída do pico
+    // com o gesto. O que sobra é o gesto, que é o que estas frases querem dizer.
+    const ocioso = picoEm(72);
     animador.disparar(gesto, 1);
-    // 0,6 do gesto: logo depois do disparo, que é onde a pose diz o que é.
-    for (let i = 0; i < 43; i++) animador.atualizar(1 / 72, ctx);
+    const comGesto = picoEm(72);
 
     const desvios = new Map<string, number>();
     for (const nome of nomes) {
-      const osso = porNome.get(nome)!;
-      const repouso = repousos.get(nome)!;
-      desvios.set(nome, Math.abs(osso.quaternion.angleTo(repouso)));
+      desvios.set(nome, Math.max(0, (comGesto.get(nome) ?? 0) - (ocioso.get(nome) ?? 0)));
     }
     return desvios;
   };
@@ -1573,6 +1604,54 @@ console.log('28. tamanho real');
     `   Onix ${onix.alturaReal} m para a ${perto.toFixed(1)} m; ` +
       `Diglett ${diglett.alturaReal} m para a ${pertinho.toFixed(1)} m`,
   );
+}
+
+console.log('29. as pedras de evolução');
+{
+  // Os dezesseis pares existem de verdade. Um id errado aqui não quebraria
+  // nada: a pedra só não funcionaria naquele bicho, calada, e ninguém
+  // descobriria sem ter o Pokémon e a pedra na mão ao mesmo tempo.
+  let pares = 0;
+  for (const pedra of PEDRAS) {
+    for (const [de, para] of Object.entries(pedra.evolucoes)) {
+      checar(porId(de) !== undefined, `${pedra.nome}: ${de} não está na Pokédex`);
+      checar(porId(para) !== undefined, `${pedra.nome}: ${para} não está na Pokédex`);
+      pares++;
+    }
+  }
+
+  // Quem depende de pedra NÃO evolui por nível, nem no teto. É o ponto todo:
+  // a tabela gerada dá a essas espécies um nível 28 inventado, e deixá-lo valer
+  // faria o Pikachu virar Raichu sozinho — o que esvazia a Pedra do Trovão.
+  for (const id of EVOLUI_SO_COM_PEDRA) {
+    const especie = porId(id);
+    if (!especie) continue;
+    checar(
+      evolucaoEm(especie, 100) === null,
+      `${especie.nome} ainda evolui por nível, e devia esperar a pedra`,
+    );
+  }
+
+  // E as pedras funcionam neles.
+  checar(evolucaoDaPedra('pedra-trovao', porId('pikachu')!)?.id === 'raichu', 'a Pedra do Trovão devia virar o Pikachu em Raichu');
+  checar(evolucaoDaPedra('pedra-fogo', porId('pikachu')!) === null, 'a Pedra do Fogo não devia fazer nada com o Pikachu');
+
+  // O Eevee é o caso que justifica as pedras existirem: três pedras, três
+  // bichos diferentes, e a escolha é irreversível.
+  const eevee = porId('eevee')!;
+  const caminhos = ['pedra-agua', 'pedra-trovao', 'pedra-fogo'].map(
+    (p) => evolucaoDaPedra(p, eevee)?.id,
+  );
+  checar(
+    new Set(caminhos).size === 3 && !caminhos.includes(undefined),
+    `o Eevee devia ter três destinos distintos, tem ${caminhos.join(', ')}`,
+  );
+
+  console.log(
+    `   ${PEDRAS.length} pedras, ${pares} evoluções · ` +
+      `${EVOLUI_SO_COM_PEDRA.size} espécies saíram da evolução por nível`,
+  );
+  console.log(`   Eevee: ${caminhos.join(' · ')}`);
 }
 
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);

@@ -18,6 +18,7 @@ import {
   multEstagio,
   textoEstagio,
   evolucaoEm,
+  evolucaoDaPedra,
   nivelSelvagem,
   pesoSpawn,
   porId,
@@ -54,6 +55,7 @@ import { PainelDex, type EstadoDex } from './dexpanel';
 import { EscolhaInicial } from './starter';
 import { BOLA_PADRAO, bolaPorId, type TipoBola } from './balls';
 import { BONUS_FRUTA, ITENS, SEGUNDOS_FRUTA, itemPorId } from './itens';
+import { ehPedra, pedraPorId, aQuemServe } from './pedras';
 import { ItemNaMao, RastroDeIsca } from './isca';
 import { Aura, Efeito, Impacto } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
@@ -1004,6 +1006,33 @@ export class Jogo {
     }
 
     const id = item.tipo.id;
+
+    // A pedra é conferida ANTES de ser gasta, e é a única da mochila que tem
+    // esse cuidado: o efeito dela é irreversível e ela aparece uma vez a cada
+    // trinta capturas. Encostar a Pedra da Água num Charmander não pode custar
+    // a Pedra da Água.
+    const alvoDaPedra = ehPedra(id) ? evolucaoDaPedra(id, c.especie) : null;
+    if (ehPedra(id) && !alvoDaPedra) {
+      const pedra = pedraPorId(id);
+      audio.recusa();
+      mao.vibrar(0.2, 30);
+      this.aviso.mostrar(
+        [
+          { texto: `${c.especie.nome} não responde a ela`, tamanho: 34, cor: '#ffb1b1' },
+          {
+            texto: pedra ? `serve em: ${aQuemServe(pedra, (x) => porId(x)?.nome)}` : '',
+            tamanho: 21,
+            cor: '#9aa5b8',
+            peso: 500,
+          },
+        ],
+        2.6,
+      );
+      // Continua na mão: você ainda está segurando a pedra, e provavelmente
+      // quer levá-la a outro bicho.
+      return true;
+    }
+
     if (!this.dex.gastarItem(id)) {
       this.guardarIsca(mao);
       audio.recusa();
@@ -1015,7 +1044,9 @@ export class Jogo {
     this.cena.add(brilho.pontos);
     this.impactos.push(brilho);
 
-    if (id === 'doce') {
+    if (alvoDaPedra) {
+      this.evoluirComPedra(alvoDaPedra, item.tipo.nome);
+    } else if (id === 'doce') {
       this.subirUmNivel();
     } else if (id === 'pocao') {
       this.curarCompanheiro(0.5, 'Poção');
@@ -2182,6 +2213,39 @@ export class Jogo {
     this.companheiro.comemorar();
   }
 
+  /**
+   * A pedra evolui NA HORA, sem perguntar.
+   *
+   * A pergunta existe porque evoluir por nível acontece COM você, não por você:
+   * o bicho chega no 16 sozinho e o jogo precisa saber se era isso que você
+   * queria. A pedra é o contrário — você foi à mochila, pegou a pedra certa,
+   * atravessou a sala e encostou nele. Perguntar "tem certeza?" depois disso é
+   * duvidar de uma decisão que já foi tomada três vezes.
+   *
+   * E há a razão prática: a pedra é gasta no toque. Perguntar abriria a porta
+   * para dizer "agora não" com a pedra já consumida, e ela aparece uma vez a
+   * cada trinta capturas.
+   */
+  private evoluirComPedra(para: Especie, nomeDaPedra: string) {
+    const exemplar = this.exemplarEmCampo;
+    const atual = exemplar ? porId(exemplar.id) : null;
+    if (!exemplar || !atual || this.evolucaoPendente || this.evolucaoEmCurso) return;
+
+    this.aviso.mostrar(
+      [
+        { texto: `${nomeDaPedra}!`, tamanho: 38, cor: '#ffd76a' },
+        { texto: `${atual.nome} está evoluindo`, tamanho: 24, cor: '#9aa5b8', peso: 500 },
+      ],
+      2.2,
+    );
+
+    this.evolucaoPendente = { exemplar, de: atual, para };
+    void garantir(para.id, exemplar.shiny);
+    // Direto para o sim: o efeito, o som e a troca de corpo são os mesmos da
+    // evolução por nível, e reescrevê-los aqui seria manter duas evoluções.
+    this.permitirEvolucao();
+  }
+
   /** Botão A no pedido: a transformação começa. */
   private permitirEvolucao() {
     const pendente = this.evolucaoPendente;
@@ -3069,7 +3133,12 @@ export class Jogo {
     // verdades sobre quantas você tem. A lista vazia apaga a fileira sem mexer
     // no painel, que continua sabendo desenhá-la se um dia ela voltar.
     const bolas: { tipo: TipoBola; quantidade: number }[] = [];
-    const itens = ITENS.map((tipo) => ({ tipo, quantidade: this.dex.item(tipo.id) }));
+    // As pedras só ocupam carta depois de você achar uma: ver `guardado` em
+    // src/itens.ts. Os três básicos ficam sempre à vista, zerados inclusive,
+    // porque "0 poções" é informação e uma pedra que nunca caiu não é falta.
+    const itens = ITENS.map((tipo) => ({ tipo, quantidade: this.dex.item(tipo.id) })).filter(
+      (i) => !i.tipo.guardado || i.quantidade > 0,
+    );
     this.painelTime.definirConteudo(
       entradas,
       bolas,

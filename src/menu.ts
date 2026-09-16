@@ -274,6 +274,53 @@ export class PainelTime {
     }
   }
 
+  /**
+   * Como a `fileira`, mas quebrando em linhas quando não cabe.
+   *
+   * A mochila tinha três itens e três cabiam numa linha de trinta centímetros,
+   * que é a largura do painel. Com as pedras de evolução ela passou a ter até
+   * oito — e cinco já dão quarenta e quatro centímetros, ou seja, catorze
+   * centímetros de carta pendurados fora do painel, no ar. Quebrar em linhas de
+   * quatro resolve sem encolher carta nenhuma: elas continuam do tamanho em que
+   * dá para acertar com o braço esticado, que é a medida que importa aqui.
+   *
+   * Devolve quantas linhas foram usadas, para quem vem embaixo saber onde
+   * começar.
+   */
+  private grade(
+    cards: Placa[],
+    indiceAlvoBase: number,
+    quantos: number,
+    largura: number,
+    altura: number,
+    yTopo: number,
+    visivelNaPagina: boolean,
+    // Três por linha, e não quatro: quatro cartas dão 0,34 m e o painel tem
+    // 0,30 m de largura útil — as das pontas ficariam para fora. Três dão 0,25 m
+    // e, de quebra, deixam os três itens básicos exatamente onde sempre
+    // estiveram: a mochila de quem ainda não achou pedra nenhuma não muda.
+    porLinha = 3,
+  ): number {
+    const linhas = Math.max(1, Math.ceil(quantos / porLinha));
+    for (let i = 0; i < cards.length; i++) {
+      const visivel = visivelNaPagina && i < quantos;
+      cards[i].malha.visible = visivel;
+      const alvo = this.alvos[indiceAlvoBase + i];
+      alvo.visible = visivel;
+      if (!visivel) continue;
+
+      const linha = Math.floor(i / porLinha);
+      const nestaLinha = Math.min(porLinha, quantos - linha * porLinha);
+      const total = nestaLinha * largura + Math.max(0, nestaLinha - 1) * ESPACO;
+      const coluna = i % porLinha;
+      const x = -total / 2 + largura / 2 + coluna * (largura + ESPACO);
+      const y = yTopo - linha * (altura + ESPACO * 0.7);
+      cards[i].malha.position.set(x, y, cards[i].malha.position.z);
+      alvo.position.set(x, y, -0.001);
+    }
+    return linhas;
+  }
+
   private reposicionar() {
     const baseBola = this.cards.length;
     const baseItem = baseBola + this.cardsBola.length;
@@ -292,8 +339,19 @@ export class PainelTime {
 
     this.fileira(this.cards, 0, this.entradas.length, LARGURA_CARD, 0, principal);
     this.fileira(this.cardsBola, baseBola, this.bolas.length, LARGURA_BOLA, yBola, principal);
-    this.fileira(this.cardsItem, baseItem, this.itens.length, LARGURA_ITEM, yItem, principal);
-    this.fileira(this.cardsGolpe, baseGolpe, this.golpes.length, LARGURA_GOLPE, yGolpe, principal);
+    const linhasDeItem = this.grade(
+      this.cardsItem,
+      baseItem,
+      this.itens.length,
+      LARGURA_ITEM,
+      ALTURA_ITEM,
+      yItem,
+      principal,
+    );
+    // Os golpes descem junto com a mochila: a segunda linha de itens só existe
+    // depois que uma pedra cai, e até lá nada se mexe.
+    const yGolpeReal = yGolpe - (linhasDeItem - 1) * (ALTURA_ITEM + ESPACO * 0.7);
+    this.fileira(this.cardsGolpe, baseGolpe, this.golpes.length, LARGURA_GOLPE, yGolpeReal, principal);
 
     // --- página de ajustes, ocupando o mesmo espaço ---
     const yModo = ALTURA_CARD * 0.2;
@@ -597,7 +655,11 @@ export class PainelTime {
       ctx.textBaseline = 'middle';
       ctx.font = fonte(23, 700);
       ctx.fillStyle = vazio ? COR.textoApagado : COR.texto;
-      ctx.fillText(textoAjustado(ctx, tipo.nome, canvas.width - 74), 18, canvas.height * 0.54);
+      ctx.fillText(
+        textoAjustado(ctx, tipo.curto ?? tipo.nome, canvas.width - 74),
+        18,
+        canvas.height * 0.54,
+      );
 
       ctx.textAlign = 'right';
       ctx.font = fonte(25, 700);

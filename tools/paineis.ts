@@ -88,7 +88,12 @@ const time = [
 ];
 
 const bolas = BOLAS.map((tipo, i) => ({ tipo, quantidade: [12, 4, 1, 0][i] ?? 0 }));
-const itens = ITENS.map((tipo, i) => ({ tipo, quantidade: [3, 5, 0][i] ?? 0 }));
+// Duas pedras na mochila: é assim que a fileira fica depois que a primeira
+// cai. Sem elas a folha mostraria só os três básicos e a carta de pedra nunca
+// seria conferida.
+const itens = ITENS.map((tipo, i) => ({ tipo, quantidade: [3, 5, 0, 1, 2][i] ?? 0 })).filter(
+  (i) => !i.tipo.guardado || i.quantidade > 0,
+);
 const golpes = porId('charmander')!.golpes.map((golpe, i) => ({ golpe, armado: i === 1 }));
 const interruptores = INTERRUPTORES.map((c, i) => ({
   id: c.id,
