@@ -32,3 +32,6 @@ android.keystore
 
 # Os gritos vêm da PokeAPI no build, como os modelos.
 public/gritos/
+
+# A mão vem do webxr-input-profiles no build. Ver tools/maos.mjs.
+public/maos/

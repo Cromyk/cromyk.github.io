@@ -211,7 +211,15 @@ function medir(documento) {
  * e a folha desenha com o mesmo skinning que o headset — se ela e o jogo
  * discordarem, é bug de pipeline, não caso para ajuste manual.
  */
-const AJUSTES = {};
+const AJUSTES = {
+  // Gastly veio de costas e a heurística não tinha como ver: os materiais do
+  // rip se chamam "PaletteMaterial001".."006", então o teste por nome não acha
+  // olho nenhum e a função desiste com `rosto: null`. Medindo a cor de cada
+  // primitiva na textura, o rosto aparece: a primitiva branca (os olhos) tem
+  // centroide em z = −0,19 e a rosa (a língua) em z = −0,52, as duas atrás do
+  // centro. É exatamente o caso que a regra dos olhos chamaria de "costas".
+  gastly: { giroY: Math.PI },
+};
 
 function orientar(id, rosto) {
   if (AJUSTES[id]) return { giroX: 0, giroY: 0, ...AJUSTES[id], fonte: 'mão' };

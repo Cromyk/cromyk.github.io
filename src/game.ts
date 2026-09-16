@@ -34,7 +34,7 @@ import {
 import { garantir, instanciar, type Corpo } from './modelos';
 import { Pokebola } from './orb';
 import { Sala } from './room';
-import { BOTAO_A, BOTAO_B, MarcaDeDestino, Mao, Mira, RaioMira } from './hands';
+import { BOTAO_A, BOTAO_B, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, RaioMira } from './hands';
 import { Luva } from './glove';
 import { Aviso, BarraVida, PainelPulso, type Carga } from './hud';
 import { Evolucao, PromptEvolucao } from './evolucao';
@@ -52,7 +52,7 @@ import { PainelDex, type EstadoDex } from './dexpanel';
 import { EscolhaInicial } from './starter';
 import { BOLAS, BOLA_PADRAO, bolaPorId } from './balls';
 import { BONUS_FRUTA, ITENS, SEGUNDOS_FRUTA, itemPorId } from './itens';
-import { Isca, RastroDeIsca } from './isca';
+import { ItemNaMao, RastroDeIsca } from './isca';
 import { Aura, Efeito, Impacto } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
 import { PainelPc } from './pc';
@@ -154,9 +154,9 @@ export class Jogo {
     trocou: boolean;
   } | null = null;
   /** A fruta ou o doce na mão, por índice de mão. Ver src/isca.ts. */
-  private iscaNaMao = new Map<number, Isca>();
+  private itemNaMao = new Map<number, ItemNaMao>();
   /** Há quanto tempo a isca está apontada para o mesmo bicho. */
-  private miraDaIsca = new Map<number, { alvo: Pokemon; tempo: number }>();
+  private miraDoItem = new Map<number, { alvo: Pokemon; tempo: number }>();
   private rastros = new Map<number, RastroDeIsca>();
   /** Mão do modo sem headset — só para o jogador ver que tem mão. */
   private luvaPlana: Luva | null = null;
@@ -191,6 +191,10 @@ export class Jogo {
   private golpeArmado: string | null = null;
   /** Selvagens que você aceitou encarar, no Safari. */
   private encarados = new Set<Pokemon>();
+  /** Quem você apontou para o companheiro bater. Ver `alvoEscolhido`. */
+  private alvoTravado: Pokemon | null = null;
+  /** O anel que marca esse alvo no chão, para não haver dúvida de quem é. */
+  private marcaDeAlvo = new MarcaDeAlvo();
   private proximoSpawn = 2;
   private tempoLeituraSala = 0;
   private acumuladoCura = 0;
@@ -223,6 +227,12 @@ export class Jogo {
 
     this.montarLuzes();
     this.montarMaos();
+
+    // A voz de cada bicho acompanha o peso dele: a mesma gravação sai grave num
+    // Snorlax e fina num Caterpie. Ver `tomDe` em src/audio.ts.
+    audio.definirPesos(ESPECIES.map((e) => [e.num, e.peso] as [number, number]));
+    audio.vozDoNome = this.ajustes.vozDoNome;
+    audio.musicaDeBatalha = this.ajustes.musicaDeBatalha;
   }
 
   private montarLuzes() {
@@ -286,7 +296,7 @@ export class Jogo {
       this.maos.push(mao);
     }
 
-    this.cena.add(this.marca.grupo);
+    this.cena.add(this.marca.grupo, this.marcaDeAlvo.grupo);
   }
 
   ativarModoPlano() {
@@ -299,13 +309,67 @@ export class Jogo {
     this.luvaPlana = luva;
   }
 
+  // ------------------------------------------------------------ tamanho
+
+  /**
+   * De que tamanho o bicho entra na sala, em metros.
+   *
+   * Com `tamanhoReal` ligado — que é o padrão — vale a medida da Pokédex, sem
+   * teto nenhum: Diglett tem vinte centímetros, Charizard tem um metro e setenta
+   * e olha na sua cara, e Onix tem oito metros e oitenta e não cabe no quarto.
+   * Não caber é o ponto. Esse é o único lugar do jogo onde a realidade
+   * misturada mostra o que só ela mostra, e espremer tudo para dentro do sofá
+   * jogava fora justamente isso.
+   *
+   * Desligado, vale a curva de compressão de antes (24 cm a 1,1 m), que é a
+   * versão que cabe entre a mesa e a estante.
+   */
+  private alturaDe(especie: Especie): number {
+    return this.ajustes.tamanhoReal ? especie.alturaReal : especie.altura;
+  }
+
   // ------------------------------------------------------------ pokébolas
 
   private get temCompanheiroEmCampo(): boolean {
     return this.companheiro !== null && this.companheiro.viva && !this.companheiro.desmaiado;
   }
 
+  /**
+   * O alcance da mão dentro do painel do pulso.
+   *
+   * Generoso de propósito: o painel está preso ao seu próprio braço, as cartas
+   * têm dez centímetros e a mão que vai pegá-las não tem onde se apoiar. Uma
+   * tolerância apertada transformaria "pegue a bola do Charmander" numa prova
+   * de pontaria com o braço no ar.
+   */
+  private static readonly ALCANCE_PAINEL = 0.09;
+
+  /** O que a mão está tocando no painel agora, se o painel estiver aberto. */
+  private cartaSobAMao(mao: Mao) {
+    if (!this.painelTime.aberto) return null;
+    return this.painelTime.alcancado(mao.posicaoMundo(), Jogo.ALCANCE_PAINEL);
+  }
+
+  /**
+   * Quem já tirou a mão do painel desde que pegou o que está segurando.
+   *
+   * Sem esta memória, devolver e pegar seriam o mesmo gesto: você fecha o grip
+   * na carta para tirar a bola, abre a mão ainda em cima do painel — que é onde
+   * ela está — e a bola voltaria para a mochila no mesmo instante. Guardar só
+   * vale depois que a mão saiu e VOLTOU, que é o que 'pôr de volta no lugar'
+   * quer dizer.
+   */
+  private saiuDoPainel = new Set<number>();
+
   private pegarBola(mao: Mao) {
+    // Mão cheia em cima do painel: o GRIP GUARDA o que ela está segurando, em
+    // vez de pegar mais uma coisa. É o "desisti" — você leva a bola de volta
+    // para o lugar de onde tirou e ela volta para a cinta, sem ser gasta.
+    if (this.painelTime.aberto && this.maoCheia(mao) && this.cartaSobAMao(mao)) {
+      this.guardarNaMochila(mao);
+      return;
+    }
+
     if (this.bolaNaMao.has(mao.indice)) return;
 
     // Painel aberto e a mão em cima de uma carta: o GRIP pega o que está ali.
@@ -313,16 +377,14 @@ export class Jogo {
     // a um palmo do outro braço, e alcançar com a mão é mais natural do que
     // mirar de longe numa coisa encostada em você.
     if (this.painelTime.aberto) {
-      const alcancado = this.painelTime.alcancado(mao.posicaoMundo());
+      const alcancado = this.cartaSobAMao(mao);
       if (alcancado) {
         mao.vibrar(0.45, 45);
         if (alcancado.tipo === 'item') {
-          // GRIP pega o item PARA A MÃO; o gatilho é que usa na hora. A fruta e
-          // o doce servem de isca, e isca é uma coisa que se segura — pegar com
-          // a mão e usar de longe não podiam ser o mesmo gesto.
-          const id = alcancado.entrada.tipo.id;
-          if (id === 'fruta' || id === 'doce') this.pegarIsca(mao, id);
-          else this.usarItem(id);
+          // Todo item vai PARA A MÃO, inclusive a poção: segurar o frasco e
+          // encostar no bicho é o que um treinador faz, e era estranho que a
+          // fruta fosse uma coisa que se pega e a poção um botão que se aperta.
+          this.pegarIsca(mao, alcancado.entrada.tipo.id);
           return;
         }
         if (alcancado.tipo === 'modo') {
@@ -343,6 +405,10 @@ export class Jogo {
           this.abrirAjustes();
           return;
         }
+        if (alcancado.tipo === 'pc') {
+          this.alternarPc();
+          return;
+        }
         if (alcancado.tipo === 'dificuldade') {
           this.escolherDificuldade(alcancado.entrada);
           return;
@@ -361,6 +427,67 @@ export class Jogo {
     }
 
     this.tirarBolaDaCinta(mao);
+  }
+
+  // --------------------------------------------------- o que está na mão
+
+  /** Ela está segurando alguma coisa — uma bola ou um item. */
+  private maoCheia(mao: Mao): boolean {
+    return this.bolaNaMao.has(mao.indice) || this.itemNaMao.has(mao.indice);
+  }
+
+  /**
+   * Devolve à mochila o que estiver na mão.
+   *
+   * É a metade que faltava do gesto de pegar: se você tirou a bola e mudou de
+   * ideia, leva a mão de volta ao painel e solta ali. A bola de captura volta
+   * ao estoque — ela só é gasta de verdade quando voa —, a bola de um Pokémon
+   * seu simplesmente some, e o item volta inteiro porque ele nunca chegou a ser
+   * gasto (ver `pegarIsca`).
+   */
+  private guardarNaMochila(mao: Mao) {
+    const item = this.itemNaMao.get(mao.indice);
+    if (item) {
+      const nome = item.tipo.nome;
+      this.guardarIsca(mao);
+      mao.vibrar(0.3, 35);
+      audio.clique();
+      this.aviso.mostrar([{ texto: `${nome} de volta na mochila`, tamanho: 32, cor: '#9aa5b8' }], 1.4);
+      return;
+    }
+
+    const bola = this.bolaNaMao.get(mao.indice);
+    if (!bola) return;
+
+    const invocacao = this.bolaDeInvocacao.get(mao.indice);
+    const idBola = bola.raiz.userData.idBola as string | undefined;
+    this.largarBolaDaMao(mao);
+
+    if (!invocacao && idBola) this.dex.ganharBola(idBola, 1);
+    mao.vibrar(0.3, 35);
+    audio.clique();
+    this.aviso.mostrar(
+      [
+        {
+          texto: invocacao ? 'bola de volta na cinta' : 'bola de volta na mochila',
+          tamanho: 32,
+          cor: '#9aa5b8',
+        },
+      ],
+      1.4,
+    );
+  }
+
+  /** Tira a bola da mão e da cena, sem julgar o motivo. */
+  private largarBolaDaMao(mao: Mao) {
+    const bola = this.bolaNaMao.get(mao.indice);
+    if (!bola) return;
+    this.bolaNaMao.delete(mao.indice);
+    this.bolaDeInvocacao.delete(mao.indice);
+    mao.segurando = false;
+    bola.descartar(this.cena);
+    const i = this.bolas.indexOf(bola);
+    if (i !== -1) this.bolas.splice(i, 1);
   }
 
   // ------------------------------------------------------------ isca
@@ -390,39 +517,45 @@ export class Jogo {
     }
 
     this.guardarIsca(mao);
-    // Uma bola e uma isca não cabem na mesma mão.
-    const bola = this.bolaNaMao.get(mao.indice);
-    if (bola) {
-      this.bolaNaMao.delete(mao.indice);
-      this.bolaDeInvocacao.delete(mao.indice);
-      mao.segurando = false;
-      bola.descartar(this.cena);
-      const i = this.bolas.indexOf(bola);
-      if (i !== -1) this.bolas.splice(i, 1);
+    // Uma bola e um item não cabem na mesma mão. A bola sai para a mochila em
+    // vez de sumir: ela ainda não foi arremessada, e portanto ainda é sua.
+    if (this.bolaNaMao.has(mao.indice)) {
+      const idBola = this.bolaNaMao.get(mao.indice)!.raiz.userData.idBola as string | undefined;
+      const invocacao = this.bolaDeInvocacao.has(mao.indice);
+      this.largarBolaDaMao(mao);
+      if (!invocacao && idBola) this.dex.ganharBola(idBola, 1);
     }
 
-    const isca = new Isca(tipo);
+    const isca = new ItemNaMao(tipo);
     // Sem headset a luva mora na camera, e e nela que a isca precisa ficar.
     (this.modoPlano && this.luvaPlana ? this.luvaPlana.grupo : mao.punho).add(isca.grupo);
-    this.iscaNaMao.set(mao.indice, isca);
+    this.itemNaMao.set(mao.indice, isca);
     mao.vibrar(0.3, 35);
     audio.tilintar();
 
     this.aviso.mostrar(
       [
         { texto: `${tipo.nome} na mão`, tamanho: 38, cor: `#${new THREE.Color(tipo.cor).getHexString()}` },
-        { texto: 'aponte para um selvagem e segure — ele vem até você', tamanho: 22, cor: '#9aa5b8', peso: 500 },
+        {
+          texto:
+            id === 'pocao'
+              ? 'encoste no seu Pokémon para usar · grip no painel devolve'
+              : 'aponte para um selvagem e segure — ou encoste no seu Pokémon',
+          tamanho: 22,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
       ],
       3,
     );
   }
 
   private guardarIsca(mao: Mao) {
-    const isca = this.iscaNaMao.get(mao.indice);
+    const isca = this.itemNaMao.get(mao.indice);
     if (!isca) return;
     isca.descartar();
-    this.iscaNaMao.delete(mao.indice);
-    this.miraDaIsca.delete(mao.indice);
+    this.itemNaMao.delete(mao.indice);
+    this.miraDoItem.delete(mao.indice);
   }
 
   /**
@@ -434,6 +567,16 @@ export class Jogo {
    * funcionar de perto — justamente onde ela não é necessária.
    */
   private alvoDaIsca(mao: Mao, alcance: number): Pokemon | null {
+    return this.selvagemNaMira(mao, alcance);
+  }
+
+  /**
+   * O selvagem que está sob a mira desta mão, no mesmo cone da isca.
+   *
+   * Serve à isca e ao ataque: os dois gestos são o mesmo — estender o braço na
+   * direção de um bicho — e só mudam no que fazem depois de acertar quem é.
+   */
+  private selvagemNaMira(mao: Mao, alcance: number): Pokemon | null {
     const { origem, direcao } = this.modoPlano ? this.miraDaCamera() : mao.mira();
     let melhor: Pokemon | null = null;
     let menorDesvio = Infinity;
@@ -469,11 +612,25 @@ export class Jogo {
    */
   private atualizarIscas(dt: number) {
     for (const mao of this.maos) {
-      const isca = this.iscaNaMao.get(mao.indice);
+      const isca = this.itemNaMao.get(mao.indice);
       const rastro = this.rastros.get(mao.indice);
 
       if (!isca || (!mao.conectada && !this.modoPlano)) {
-        this.miraDaIsca.delete(mao.indice);
+        this.miraDoItem.delete(mao.indice);
+        rastro?.atualizar(dt, null, null, 0);
+        continue;
+      }
+
+      // Encostar no seu Pokémon usa o que estiver na mão nele. É o caminho de
+      // TODO item, e o único caminho da poção: ela não chama ninguém de longe.
+      if (this.usarItemNoCompanheiro(mao, isca)) {
+        rastro?.atualizar(dt, null, null, 0);
+        continue;
+      }
+
+      if (isca.tipo.id === 'pocao') {
+        this.miraDoItem.delete(mao.indice);
+        isca.atualizar(dt, false);
         rastro?.atualizar(dt, null, null, 0);
         continue;
       }
@@ -482,10 +639,10 @@ export class Jogo {
       const doce = isca.tipo.id === 'doce';
       const alvo = this.alvoDaIsca(mao, doce ? 9 : 5.5);
 
-      const anterior = this.miraDaIsca.get(mao.indice);
+      const anterior = this.miraDoItem.get(mao.indice);
       const acumulado = anterior && anterior.alvo === alvo ? anterior.tempo + dt : 0;
-      if (alvo) this.miraDaIsca.set(mao.indice, { alvo, tempo: acumulado });
-      else this.miraDaIsca.delete(mao.indice);
+      if (alvo) this.miraDoItem.set(mao.indice, { alvo, tempo: acumulado });
+      else this.miraDoItem.delete(mao.indice);
 
       const espera = 0.6;
       isca.atualizar(dt, alvo !== null);
@@ -499,7 +656,96 @@ export class Jogo {
     }
   }
 
-  private chamarComIsca(mao: Mao, isca: Isca, alvo: Pokemon) {
+  /**
+   * O item na mão encostado no seu Pokémon.
+   *
+   * É o gesto que faltava para a mochila fazer sentido em VR: você pega o
+   * frasco, estende o braço e encosta nele — em vez de mirar de longe numa
+   * carta e ver a vida subir sozinha. Devolve true quando o item foi usado, e
+   * aí o quadro acaba ali.
+   *
+   * O alcance acompanha o tamanho do bicho pela mesma razão do carinho: a mão
+   * precisa alcançar o CORPO, e num Onix o corpo começa a dois metros do centro.
+   */
+  private usarItemNoCompanheiro(mao: Mao, item: ItemNaMao): boolean {
+    if (!this.temCompanheiroEmCampo) return false;
+    const c = this.companheiro!;
+    if (c.estado === 'saindo' || c.estado === 'preso') return false;
+
+    const toque = mao.pontoDeToque(new THREE.Vector3());
+    const alcance = Math.max(0.22, c.raio * 0.9 + 0.12);
+    if (toque.distanceTo(c.centro) > alcance && toque.distanceTo(c.pontoDaCabeca()) > alcance) {
+      return false;
+    }
+
+    const id = item.tipo.id;
+    if (!this.dex.gastarItem(id)) {
+      this.guardarIsca(mao);
+      audio.recusa();
+      return true;
+    }
+
+    mao.vibrar(0.6, 80);
+    const brilho = new Impacto(c.centro, item.tipo.cor);
+    this.cena.add(brilho.pontos);
+    this.impactos.push(brilho);
+
+    if (id === 'doce') {
+      this.subirUmNivel();
+    } else if (id === 'pocao') {
+      this.curarCompanheiro(0.5, 'Poção');
+    } else {
+      // A fruta na boca do seu Pokémon é petisco, não isca: cura pouco, anima
+      // muito, e o bônus da próxima bola vem junto porque a fruta é a fruta.
+      this.curarCompanheiro(0.15, 'Fruta');
+      this.bonusFruta = SEGUNDOS_FRUTA;
+      c.comemorar();
+    }
+
+    this.guardarIsca(mao);
+    return true;
+  }
+
+  /** Cura quem está em campo por uma fração da vida máxima. */
+  private curarCompanheiro(fracao: number, porQuem: string) {
+    const c = this.companheiro;
+    if (!c) return;
+    const cura = Math.max(1, Math.ceil(c.hpMax * fracao));
+    c.curar(cura);
+    if (this.exemplarEmCampo) this.dex.definirHp(this.exemplarEmCampo, c.hp);
+    audio.sucesso();
+    this.aviso.mostrar(
+      [
+        { texto: `${c.especie.nome} recuperou ${cura}`, tamanho: 38, cor: '#7fe7c4' },
+        { texto: `${porQuem} usada`, tamanho: 23, cor: '#9aa5b8', peso: 500 },
+      ],
+      2,
+    );
+  }
+
+  /** O Doce Raro: um nível inteiro, custe o que custar em experiência. */
+  private subirUmNivel() {
+    const exemplar = this.exemplarEmCampo ?? this.dex.exemplarAtivo;
+    if (!exemplar) return;
+    const especie = porId(exemplar.id);
+    if (!especie) return;
+    const alvo = Math.min(this.dex.nivelDe(exemplar) + 1, NIVEL_MAXIMO);
+    this.dex.ganharXp(exemplar, Math.max(1, xpParaNivel(alvo) - exemplar.xp));
+    audio.subiuDeNivel();
+    this.aviso.mostrar(
+      [
+        {
+          texto: `${especie.nome} chegou ao nível ${this.dex.nivelDe(exemplar)}!`,
+          tamanho: 38,
+          cor: '#d8b4ff',
+        },
+      ],
+      2.4,
+    );
+    void this.conferirEvolucao(exemplar);
+  }
+
+  private chamarComIsca(mao: Mao, isca: ItemNaMao, alvo: Pokemon) {
     const tipo = isca.tipo;
     if (!this.dex.gastarItem(tipo.id)) {
       this.guardarIsca(mao);
@@ -591,16 +837,30 @@ export class Jogo {
       const comFruta = this.bonusFruta > 0 ? BONUS_FRUTA : 1;
       bola.raiz.userData.multiplicador = tipoBola.multiplicador * comFruta;
       bola.raiz.userData.nomeBola = tipoBola.nome;
+      // De que tipo ela é, para poder ser devolvida ao estoque certo se você
+      // mudar de ideia antes de arremessar. Ver guardarNaMochila.
+      bola.raiz.userData.idBola = tipoBola.id;
     }
 
     mao.segurando = true;
     mao.limparAmostras();
     mao.vibrar(0.25, 30);
+    // Pegou agora: a mão ainda não saiu do painel, então soltar aqui mesmo não
+    // devolve nada.
+    this.saiuDoPainel.delete(mao.indice);
   }
 
   private arremessarBola(mao: Mao) {
     const bola = this.bolaNaMao.get(mao.indice);
     if (!bola) return;
+
+    // Soltar com a mão de volta em cima do painel é DEVOLVER, não arremessar: é
+    // o gesto de quem tirou a bola, olhou, e decidiu que não era essa. Sem isto
+    // a desistência custava uma bola jogada no carpete.
+    if (this.saiuDoPainel.has(mao.indice) && this.cartaSobAMao(mao)) {
+      this.guardarNaMochila(mao);
+      return;
+    }
     this.bolaNaMao.delete(mao.indice);
     mao.segurando = false;
 
@@ -652,8 +912,14 @@ export class Jogo {
       this.aviso.mostrar(
         [
           { texto: `${this.companheiro!.especie.nome} está indo`, tamanho: 34, cor: '#7fe7c4' },
+          {
+            texto: 'e fica lá — aperte X para chamar de volta',
+            tamanho: 21,
+            cor: '#9aa5b8',
+            peso: 500,
+          },
         ],
-        1.4,
+        1.8,
       );
       return;
     }
@@ -739,9 +1005,13 @@ export class Jogo {
       else if (selecao.tipo === 'modo') this.escolherModo(selecao.entrada);
       else if (selecao.tipo === 'golpe') this.armarGolpe(selecao.entrada);
       else if (selecao.tipo === 'engrenagem') this.abrirAjustes();
+      else if (selecao.tipo === 'pc') this.alternarPc();
       else if (selecao.tipo === 'dificuldade') this.escolherDificuldade(selecao.entrada);
       else if (selecao.tipo === 'interruptor') this.alternarInterruptor(selecao.entrada.id);
-      else this.usarItem(selecao.entrada.tipo.id);
+      // O item vai para a MÃO, aqui também: mirar e apertar o gatilho é o
+      // mesmo pedido que encostar a mão na carta, e um pedido só não pode ter
+      // dois resultados diferentes. Quem usa de verdade é o toque no bicho.
+      else this.pegarIsca(mao, selecao.entrada.tipo.id);
       return;
     }
 
@@ -925,9 +1195,21 @@ export class Jogo {
     const ligado = this.ajustes.alternar(id);
     audio.clique();
 
-    // Dois deles mexem no mundo na hora, e não só no que aparece escrito.
+    // Alguns mexem no mundo na hora, e não só no que aparece escrito.
     if (id === 'contornoDaSala' && this.sala.debugLigado !== ligado) this.sala.alternarDebug();
     if (id === 'vozDaDex' && !ligado) calar();
+    if (id === 'vozDoNome') audio.vozDoNome = ligado;
+    if (id === 'musicaDeBatalha') {
+      audio.musicaDeBatalha = ligado;
+      // Desligar no meio de uma briga precisa calar AGORA: o laço só chamaria
+      // `batalhaAcabou` quando o último selvagem saísse do alcance.
+      if (!ligado) audio.batalhaAcabou();
+    }
+    // Trocar de escala é trocar de corpo: quem está em campo é remontado no
+    // tamanho novo, e os selvagens em volta não — eles nascem certos, e
+    // recarregar três modelos no meio de uma briga custaria mais do que a
+    // incoerência de meio minuto até eles serem trocados.
+    if (id === 'tamanhoReal') void this.remontarCompanheiro();
 
     const tipo = INTERRUPTORES.find((c) => c.id === id);
     this.aviso.mostrar(
@@ -1004,122 +1286,6 @@ export class Jogo {
     this.encarados.clear();
   }
 
-  // ------------------------------------------------------------ itens
-
-  private usarItem(id: string) {
-    if (this.dex.item(id) <= 0) {
-      const tipo = ITENS.find((i) => i.id === id);
-      this.aviso.mostrar(
-        [
-          { texto: `sem ${tipo?.nome ?? 'item'}`, tamanho: 36, cor: '#ff9f9f' },
-          { texto: 'itens caem quando você captura', tamanho: 23, cor: '#9aa5b8', peso: 500 },
-        ],
-        2,
-      );
-      return;
-    }
-
-    if (id === 'pocao') this.usarPocao();
-    else if (id === 'fruta') this.usarFruta();
-    else if (id === 'doce') this.usarDoce();
-  }
-
-  private usarPocao() {
-    const exemplar = this.exemplarEmCampo ?? this.dex.exemplarAtivo;
-    if (!exemplar) return;
-    const especie = porId(exemplar.id);
-    if (!especie) return;
-
-    const maximo = this.dex.hpMaxDe(exemplar);
-    const atual = this.companheiro?.viva ? this.companheiro.hp : exemplar.hp;
-    if (atual >= maximo) {
-      this.aviso.mostrar(
-        [{ texto: `${especie.nome} já está inteiro`, tamanho: 34, cor: '#9aa5b8' }],
-        1.6,
-      );
-      return;
-    }
-
-    this.dex.gastarItem('pocao');
-    const cura = Math.ceil(maximo * 0.5);
-    if (this.companheiro?.viva) this.companheiro.curar(cura);
-    this.dex.definirHp(exemplar, Math.min(maximo, atual + cura));
-    audio.sucesso();
-    this.aviso.mostrar(
-      [
-        { texto: `${especie.nome} recuperou ${cura}`, tamanho: 38, cor: '#7fe7c4' },
-        { texto: 'Poção usada', tamanho: 23, cor: '#9aa5b8', peso: 500 },
-      ],
-      2,
-    );
-  }
-
-  /**
-   * A fruta faz duas coisas ao mesmo tempo, e é por isso que ela é o item mais
-   * útil da mochila: acalma o selvagem mais próximo — desfazendo o alarme que
-   * você acumulou chegando perto — e deixa a próxima bola valer quase o dobro.
-   */
-  private usarFruta() {
-    let alvo: Pokemon | null = null;
-    let menor = Infinity;
-    for (const { pokemon } of this.selvagens) {
-      if (!pokemon.viva || pokemon.estado === 'preso') continue;
-      const d = pokemon.raiz.position.distanceTo(this.posicaoJogador);
-      if (d < menor) {
-        menor = d;
-        alvo = pokemon;
-      }
-    }
-
-    this.dex.gastarItem('fruta');
-    this.bonusFruta = SEGUNDOS_FRUTA;
-    audio.clique();
-
-    if (alvo) {
-      alvo.acalmar(0.7);
-      this.aviso.mostrar(
-        [
-          { texto: `${alvo.especie.nome} se acalmou`, tamanho: 38, cor: '#ffc98a' },
-          { texto: 'a próxima bola pega mais fácil', tamanho: 24, cor: '#9ff0c4', peso: 600 },
-        ],
-        2.4,
-      );
-      return;
-    }
-
-    // Sem selvagem por perto, a fruta vira petisco: o companheiro vem buscar.
-    if (this.companheiro?.viva) {
-      this.companheiro.chamarPara(this.posicaoJogador);
-      this.companheiro.curar(Math.ceil(this.companheiro.hpMax * 0.12));
-    }
-    this.aviso.mostrar(
-      [
-        { texto: 'você guardou a fruta na mão', tamanho: 34, cor: '#ffc98a' },
-        { texto: 'a próxima bola pega mais fácil', tamanho: 24, cor: '#9ff0c4', peso: 600 },
-      ],
-      2.2,
-    );
-  }
-
-  private usarDoce() {
-    const exemplar = this.exemplarEmCampo ?? this.dex.exemplarAtivo;
-    if (!exemplar) return;
-    const especie = porId(exemplar.id);
-    if (!especie) return;
-    this.dex.gastarItem('doce');
-    // Sobe exatamente um nível, custe o que custar em XP.
-    const alvo = Math.min(this.dex.nivelDe(exemplar) + 1, NIVEL_MAXIMO);
-    this.dex.ganharXp(exemplar, Math.max(1, xpParaNivel(alvo) - exemplar.xp));
-    audio.sucesso();
-    this.aviso.mostrar(
-      [
-        { texto: `${especie.nome} chegou ao nível ${this.dex.nivelDe(exemplar)}!`, tamanho: 38, cor: '#d8b4ff' },
-      ],
-      2.4,
-    );
-    void this.conferirEvolucao(exemplar);
-  }
-
   // ------------------------------------------------------------ time
 
   /** Fecha a escolha inicial e entrega o parceiro com a vida cheia. */
@@ -1190,6 +1356,52 @@ export class Jogo {
 
   // ------------------------------------------------------------ batalha
 
+  /**
+   * Em quem o companheiro vai bater: **quem você está apontando**, e só depois
+   * disso quem está mais perto.
+   *
+   * O jogo escolhia sozinho o selvagem mais próximo do companheiro, o que
+   * tornava impossível a jogada mais básica de uma briga — escolher o alvo. Com
+   * três bichos na sala, mandar bater no Geodude enquanto o Rattata passeia ao
+   * lado não era uma coisa que se pudesse pedir.
+   *
+   * Agora o braço decide. O alvo apontado TRAVA: os golpes seguintes continuam
+   * nele mesmo que a mão saia da linha, porque ninguém consegue manter o braço
+   * parado a três metros de um bicho que anda. A trava cai sozinha quando ele
+   * desmaia, foge ou some da sala.
+   */
+  private alvoEscolhido(mao: Mao): Pokemon | null {
+    const apontado = this.selvagemNaMira(mao, ALCANCE_BATALHA + 2);
+    if (apontado) {
+      if (apontado !== this.alvoTravado) this.travarAlvo(apontado, mao);
+      return apontado;
+    }
+
+    const travado = this.alvoTravado;
+    if (travado && travado.viva && !travado.desmaiado && travado.estado !== 'preso') {
+      const perto =
+        this.companheiro !== null &&
+        travado.raiz.position.distanceTo(this.companheiro.raiz.position) < ALCANCE_BATALHA + 2;
+      if (perto) return travado;
+    }
+    this.alvoTravado = null;
+
+    return this.alvoDoCompanheiro();
+  }
+
+  private travarAlvo(alvo: Pokemon, mao: Mao) {
+    this.alvoTravado = alvo;
+    mao.vibrar(0.3, 30);
+    audio.clique();
+    this.aviso.mostrar(
+      [
+        { texto: `alvo: ${alvo.especie.nome}`, tamanho: 34, cor: corHexDe(alvo.especie) },
+        { texto: 'o gatilho bate nele até ele cair', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+      ],
+      1.6,
+    );
+  }
+
   /** O selvagem mais próximo do companheiro, dentro do alcance. */
   private alvoDoCompanheiro(): Pokemon | null {
     if (!this.companheiro) return null;
@@ -1218,7 +1430,7 @@ export class Jogo {
       return;
     }
 
-    const alvo = this.alvoDoCompanheiro();
+    const alvo = this.alvoEscolhido(mao);
     if (!alvo) {
       // Sem ninguém para brigar, o gatilho ainda serve: ele acerta o ponto da
       // sala para onde você está apontando. É o que dá o que fazer no modo
@@ -1563,7 +1775,7 @@ export class Jogo {
     const novoNivel = this.dex.ganharXp(exemplar, ganho);
     if (novoNivel !== null) {
       const especie = porId(exemplar.id);
-      audio.sucesso();
+      audio.subiuDeNivel();
       this.aviso.mostrar(
         [
           { texto: `${especie?.nome ?? ''} subiu para o nível ${novoNivel}!`, tamanho: 40, cor: '#9fe0ff' },
@@ -1702,7 +1914,7 @@ export class Jogo {
 
     this.dex.evoluir(curso.exemplar, curso.para.id);
 
-    const corpo = instanciar(curso.para.id, curso.para.altura, curso.exemplar.shiny);
+    const corpo = instanciar(curso.para.id, this.alturaDe(curso.para), curso.exemplar.shiny, this.ajustes.tamanhoReal);
     if (!corpo) {
       // O modelo não chegou: a espécie já trocou nos dados, e o corpo entra no
       // próximo quadro pelo caminho normal. Melhor do que travar no branco.
@@ -1773,7 +1985,7 @@ export class Jogo {
       const local = this.sala.pontoDeSpawn(this.posicaoJogador, 1.2, 5.5);
       if (!local) return;
 
-      const corpo = instanciar(especie.id, especie.altura, shiny);
+      const corpo = instanciar(especie.id, this.alturaDe(especie), shiny, this.ajustes.tamanhoReal);
       if (!corpo) return;
 
       const piso = local.ponto.y;
@@ -1798,6 +2010,10 @@ export class Jogo {
       });
       this.dex.registrarEncontro(especie.id, shiny);
       audio.surgiu(especie.id === 'pikachu' || shiny);
+      // O brilhante tem carimbo sonoro próprio. Ele aparece uma vez a cada
+      // milhares de encontros e pode nascer atrás de você: o som é, muitas
+      // vezes, a única chance de saber que ele está ali.
+      if (shiny) audio.brilhante();
       window.setTimeout(() => audio.grito(especie.id, shiny, especie.num), 300);
 
       const novidade = !this.dex.jaCapturou(especie.id);
@@ -1844,6 +2060,32 @@ export class Jogo {
     } finally {
       this.nascendo = false;
     }
+  }
+
+  /**
+   * O anel aos pés de quem está sendo atacado, e a limpeza da trava.
+   *
+   * A trava é uma referência a um Pokémon que pode sumir a qualquer momento —
+   * derrubado, capturado, fugido ou longe demais. Conferir isso aqui, num lugar
+   * só, é o que impede o anel de ficar piscando no chão vazio.
+   */
+  private atualizarMarcaDeAlvo(dt: number) {
+    const alvo = this.alvoTravado;
+    const vale =
+      alvo !== null &&
+      alvo.viva &&
+      !alvo.desmaiado &&
+      alvo.estado !== 'preso' &&
+      alvo.estado !== 'saindo' &&
+      this.temCompanheiroEmCampo;
+
+    if (!vale && alvo) this.alvoTravado = null;
+    this.marcaDeAlvo.atualizar(
+      dt,
+      vale ? alvo!.raiz.position : null,
+      vale ? alvo!.pisoY : this.sala.pisoY,
+      vale ? Math.max(0.18, alvo!.raio * 1.15) : 0.2,
+    );
   }
 
   private removerSelvagem(alvo: Pokemon) {
@@ -1914,6 +2156,7 @@ export class Jogo {
     this.atualizarMarca(dt);
     this.atualizarIscas(dt);
     this.atualizarSelvagens(dt);
+    this.atualizarMarcaDeAlvo(dt);
     this.atualizarCompanheiro(dt);
     this.atualizarEvolucao(dt);
     this.atualizarCarinho(dt);
@@ -1975,6 +2218,9 @@ export class Jogo {
       mao.amostrar(agora);
       mao.amostrarBotoes();
       mao.atualizarLuva(dt);
+      // A memória de ter saído do painel, para guardar e pegar não serem o
+      // mesmo gesto. Ver saiuDoPainel.
+      if (!this.cartaSobAMao(mao)) this.saiuDoPainel.add(mao.indice);
       const raio = this.raios.get(mao.indice);
       if (raio) raio.atualizar(dt, mao.lado === 'right', 0.9);
     }
@@ -2369,6 +2615,11 @@ export class Jogo {
         capturadas: this.dex.especiesCapturadas,
         total: this.dex.totalEspecies,
       },
+      // A mão direita acende a carta que ela está tocando, antes da mira. É o
+      // que torna "vá lá e pegue" um gesto de verdade: a carta certa acende
+      // enquanto o braço chega, e o GRIP pega aquela mesma.
+      direita ? direita.posicaoMundo(new THREE.Vector3()) : null,
+      Jogo.ALCANCE_PAINEL,
     );
     if (this.painelTime.aberto && !estavaAberto) audio.abrirPainel();
     if (this.painelTime.mudouDestaque) {
@@ -2429,13 +2680,15 @@ export class Jogo {
   }
 
   private atualizarSelvagens(dt: number) {
+    let algumEmBatalha = false;
     for (const selvagem of [...this.selvagens]) {
       const { pokemon, barra } = selvagem;
-      pokemon.atualizar(dt, this.posicaoJogador);
+      pokemon.atualizar(dt, this.posicaoJogador, this.sala);
 
       const emBatalha =
         this.temCompanheiroEmCampo &&
         pokemon.raiz.position.distanceTo(this.companheiro!.raiz.position) < ALCANCE_BATALHA;
+      if (emBatalha) algumEmBatalha = true;
       const mostrar =
         (pokemon.estado === 'atento' || emBatalha || pokemon.hpFracao < 1) &&
         pokemon.raiz.scale.x > 0.6 &&
@@ -2489,6 +2742,12 @@ export class Jogo {
         this.removerSelvagem(pokemon);
       }
     }
+
+    // A trilha entra quando o primeiro selvagem chega no alcance do seu Pokémon
+    // e sai quando o último some. É a fronteira certa: ter bicho na sala não é
+    // briga — briga é quando os dois estão perto o bastante para se baterem.
+    if (algumEmBatalha) audio.batalhaComecou();
+    else audio.batalhaAcabou();
   }
 
   private atualizarCompanheiro(dt: number) {
@@ -2497,7 +2756,7 @@ export class Jogo {
     // Enquanto a evolução roda, quem escreve na escala do corpo é o efeito:
     // deixar a animação normal rodar junto desfaria o estica-e-encolhe a cada
     // quadro, porque ela reescreve `corpo.scale` inteiro.
-    if (!this.evolucaoEmCurso) c.atualizar(dt, this.posicaoJogador);
+    if (!this.evolucaoEmCurso) c.atualizar(dt, this.posicaoJogador, this.sala);
     c.alvo = this.alvoDoCompanheiro();
 
     if (this.barraCompanheiro) {
@@ -2647,7 +2906,7 @@ export class Jogo {
       this.removerCompanheiro();
     }
 
-    const corpo = instanciar(especie.id, especie.altura, exemplar.shiny);
+    const corpo = instanciar(especie.id, this.alturaDe(especie), exemplar.shiny, this.ajustes.tamanhoReal);
     if (!corpo) return;
 
     const piso = this.sala.alturaEm(bola.posicao);
@@ -2667,6 +2926,38 @@ export class Jogo {
   }
 
   /** Monta o companheiro e a barra dele. Usado ao invocar e ao evoluir. */
+  /**
+   * Troca o corpo de quem está em campo, mantendo quem ele é.
+   *
+   * Serve à troca de escala: ligar o tamanho real com um Charizard no meio da
+   * sala tem de mostrar o Charizard crescer, e não um aviso pedindo para
+   * recolher e soltar de novo. A vida, o nível e a posição continuam; o que
+   * muda é o modelo, remontado na altura nova.
+   */
+  private async remontarCompanheiro() {
+    if (!this.temCompanheiroEmCampo || !this.exemplarEmCampo) return;
+    const antigo = this.companheiro!;
+    const exemplar = this.exemplarEmCampo;
+    const especie = antigo.especie;
+
+    const posicao = antigo.raiz.position.clone();
+    const piso = antigo.pisoY;
+    const hp = antigo.hp;
+    const giro = antigo.raiz.rotation.y;
+
+    if (!(await garantir(especie.id, exemplar.shiny))) return;
+    // A escala pode ter mudado de novo enquanto o modelo chegava.
+    if (this.companheiro !== antigo) return;
+    const corpo = instanciar(especie.id, this.alturaDe(especie), exemplar.shiny, this.ajustes.tamanhoReal);
+    if (!corpo) return;
+
+    this.dex.definirHp(exemplar, hp);
+    this.removerCompanheiro();
+    const novo = this.porEmCampo(especie, corpo, exemplar, posicao, piso);
+    novo.raiz.rotation.y = giro;
+    novo.hp = Math.max(1, Math.min(hp, novo.hpMax));
+  }
+
   private porEmCampo(
     especie: Especie,
     corpo: Corpo,
@@ -2785,6 +3076,7 @@ export class Jogo {
         this.dex.gastarBola(tipoBola.id);
         bola.raiz.userData.multiplicador =
           tipoBola.multiplicador * (this.bonusFruta > 0 ? BONUS_FRUTA : 1);
+        bola.raiz.userData.idBola = tipoBola.id;
       }
       this.carregando = 0;
       return;
@@ -2880,7 +3172,7 @@ export class Jogo {
       case 'doce':
         // A isca já na mão sai; senão entra. Sem painel de pulso na tela, a
         // mesma tecla precisa fazer os dois.
-        if (this.iscaNaMao.has(mao.indice)) this.guardarIsca(mao);
+        if (this.itemNaMao.has(mao.indice)) this.guardarIsca(mao);
         else this.pegarIsca(mao, acao === 'doce' ? 'doce' : 'fruta');
         return;
       case 'atacar':
@@ -3009,10 +3301,11 @@ export class Jogo {
     for (const mira of this.miras.values()) mira.descartar();
     for (const raio of this.raios.values()) raio.descartar();
     for (const rastro of this.rastros.values()) rastro.descartar();
-    for (const isca of this.iscaNaMao.values()) isca.descartar();
+    for (const isca of this.itemNaMao.values()) isca.descartar();
     for (const mao of this.maos) mao.luva?.descartar();
     this.luvaPlana?.descartar();
     this.marca.descartar();
+    this.marcaDeAlvo.descartar();
     this.painelPulso.descartar();
     this.painelTime.descartar();
     this.painelDex.descartar();

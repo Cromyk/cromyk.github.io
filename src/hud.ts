@@ -280,11 +280,18 @@ export class BarraVida {
 
     this.placa.opacidade = this.visivel;
     this.placa.malha.position.copy(posicao);
-    this.placa.malha.position.y += alturaPokemon + 0.1 + this.visivel * 0.03;
+    // Acima da cabeça, mas nunca acima do teto: com o tamanho real ligado, um
+    // Onix de 8,8 m levaria a plaquinha para um lugar onde ela só apareceria
+    // se você deitasse no chão. Passando de dois metros e meio ela para de
+    // subir e encosta no corpo, que é onde ainda dá para ler.
+    this.placa.malha.position.y += Math.min(alturaPokemon, 2.5) + 0.1 + this.visivel * 0.03;
     // Na reta final a plaquinha inteira pulsa: é o aviso que se vê pelo canto do
     // olho, sem precisar estar lendo a barra.
     const pulso = carga?.iminente ? 1 + Math.sin(this.tempo * 18) * 0.045 : 1;
-    this.placa.malha.scale.setScalar((0.75 + this.visivel * 0.25) * pulso);
+    // Bicho grande é bicho que se olha de longe — e de longe a placa some. Ela
+    // cresce junto, até o dobro.
+    const porTamanho = 1 + Math.min(1, Math.max(0, (alturaPokemon - 1) / 6));
+    this.placa.malha.scale.setScalar((0.75 + this.visivel * 0.25) * pulso * porTamanho);
     this.placa.malha.lookAt(camera.getWorldPosition(new THREE.Vector3()));
   }
 

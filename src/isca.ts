@@ -19,7 +19,7 @@ import type { TipoItem } from './itens';
  * fruta redonda e vermelha com uma folha, doce alongado e roxo com as pontas
  * torcidas. Textura nenhuma sobreviveria a essa distância melhor do que isso.
  */
-export class Isca {
+export class ItemNaMao {
   readonly grupo = new THREE.Group();
   readonly tipo: TipoItem;
 
@@ -48,7 +48,44 @@ export class Isca {
       }),
     );
 
-    if (tipo.id === 'doce') {
+    if (tipo.id === 'pocao') {
+      // Frasco: corpo de vidro com o líquido dentro, gargalo e tampa. A forma
+      // precisa dizer "remédio" a trinta centímetros dos olhos e de relance,
+      // que é a única distância e o único tempo que ela vai ter.
+      const vidro = guardar(
+        new THREE.MeshStandardMaterial({
+          color: 0xdff3ff,
+          roughness: 0.15,
+          metalness: 0.05,
+          transparent: true,
+          opacity: 0.45,
+          emissive: new THREE.Color(0x9fd8ff).multiplyScalar(0.2),
+        }),
+      );
+      const corpo = new THREE.Mesh(guardar(new THREE.CylinderGeometry(0.019, 0.022, 0.05, 14)), vidro);
+      this.grupo.add(corpo);
+
+      const liquido = new THREE.Mesh(
+        guardar(new THREE.CylinderGeometry(0.0165, 0.0195, 0.03, 14)),
+        material,
+      );
+      liquido.position.y = -0.008;
+      this.grupo.add(liquido);
+
+      const gargalo = new THREE.Mesh(
+        guardar(new THREE.CylinderGeometry(0.008, 0.012, 0.016, 10)),
+        vidro,
+      );
+      gargalo.position.y = 0.031;
+      this.grupo.add(gargalo);
+
+      const tampa = new THREE.Mesh(
+        guardar(new THREE.CylinderGeometry(0.0095, 0.0095, 0.009, 10)),
+        guardar(new THREE.MeshStandardMaterial({ color: 0xe8e8ee, roughness: 0.5 })),
+      );
+      tampa.position.y = 0.042;
+      this.grupo.add(tampa);
+    } else if (tipo.id === 'doce') {
       // Bala de papel torcido: corpo alongado e duas pontinhas.
       const corpo = new THREE.Mesh(guardar(new THREE.CapsuleGeometry(0.018, 0.026, 4, 12)), material);
       corpo.rotation.z = Math.PI * 0.5;

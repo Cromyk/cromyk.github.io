@@ -1475,5 +1475,105 @@ console.log('26. cada golpe tem o seu gesto');
   );
 }
 
+// ---------------------------------------------------------------------------
+console.log('27. mandado ficar, ele fica');
+{
+  // A queixa que originou isto: "quando eu mando o Pokémon ir até um lugar ele
+  // não fica, ele sempre volta". E voltava mesmo — chegando ao destino, o
+  // companheiro caía na regra de andar ao lado do treinador e dava meia-volta.
+  const especie = porId('charmander')!;
+  const parceiro = nascer(especie, 'companheiro', 12, 7);
+  parceiro.raiz.position.set(0, 0, -1);
+  parceiro.estado = 'ocioso';
+
+  const marca = new THREE.Vector3(2.4, 0, -2.4);
+  parceiro.irPara(marca);
+  checar(parceiro.indoParaAlgumLugar, 'a ordem de ir não pegou');
+
+  for (let i = 0; i < 72 * 14; i++) parceiro.atualizar(1 / 72, JOGADOR);
+  const naMarca = Math.hypot(parceiro.raiz.position.x - marca.x, parceiro.raiz.position.z - marca.z);
+  checar(naMarca < 0.6, `parou a ${naMarca.toFixed(2)} m da marca`);
+  checar(parceiro.ficandoNoPosto, 'chegou mas não assumiu o posto');
+
+  // Trinta segundos depois, com você parado longe: ele continua lá.
+  const aoChegar = parceiro.raiz.position.clone();
+  for (let i = 0; i < 72 * 30; i++) parceiro.atualizar(1 / 72, JOGADOR);
+  const vagou = Math.hypot(
+    parceiro.raiz.position.x - aoChegar.x,
+    parceiro.raiz.position.z - aoChegar.z,
+  );
+  const doJogador = Math.hypot(
+    parceiro.raiz.position.x - JOGADOR.x,
+    parceiro.raiz.position.z - JOGADOR.z,
+  );
+  checar(vagou < 0.6, `saiu ${vagou.toFixed(2)} m do posto sem ninguém mandar`);
+  checar(doJogador > 2, `voltou para o treinador: está a ${doJogador.toFixed(2)} m dele`);
+
+  // Chamar desfaz a ordem — é a única coisa que desfaz, fora um novo comando.
+  parceiro.chamarPara(JOGADOR);
+  checar(!parceiro.ficandoNoPosto, 'chamado de volta, ele continuou preso ao posto');
+  for (let i = 0; i < 72 * 12; i++) parceiro.atualizar(1 / 72, JOGADOR);
+  const depoisDeChamar = Math.hypot(
+    parceiro.raiz.position.x - JOGADOR.x,
+    parceiro.raiz.position.z - JOGADOR.z,
+  );
+  checar(depoisDeChamar < 2, `chamado, parou a ${depoisDeChamar.toFixed(2)} m`);
+
+  console.log(
+    `   foi até a marca, ficou ${vagou.toFixed(2)} m em volta dela por 30 s e voltou quando chamado`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('28. tamanho real');
+{
+  // Com o tamanho real ligado o jogo instancia o modelo na altura da Pokédex,
+  // e as distâncias pessoais do bicho acompanham o corpo — senão um Onix de
+  // 8,8 m tentaria parar a 80 cm do treinador, ou seja, dentro dele.
+  const onix = porId('onix')!;
+  const diglett = porId('diglett')!;
+  checar(onix.alturaReal > 8, `Onix não tem a altura da Pokédex (${onix.alturaReal} m)`);
+  checar(onix.altura < 1.2, 'a altura comprimida deixou de ser comprimida');
+
+  const gigante = new Pokemon(
+    onix,
+    corpoFalso(onix.alturaReal),
+    new THREE.Vector3(0, 0, -6),
+    0,
+    'companheiro',
+    30,
+    false,
+    11,
+  );
+  gigante.estado = 'ocioso';
+  for (let i = 0; i < 72 * 20; i++) gigante.atualizar(1 / 72, JOGADOR);
+  const perto = Math.hypot(gigante.raiz.position.x - JOGADOR.x, gigante.raiz.position.z - JOGADOR.z);
+  checar(finito(gigante.raiz.position), 'a posição do gigante virou NaN');
+  checar(perto > 1.5, `o Onix inteiro parou a ${perto.toFixed(2)} m — ele mede ${onix.alturaReal} m`);
+
+  const pequeno = new Pokemon(
+    diglett,
+    corpoFalso(diglett.alturaReal),
+    new THREE.Vector3(0, 0, -2),
+    0,
+    'companheiro',
+    10,
+    false,
+    12,
+  );
+  pequeno.estado = 'ocioso';
+  for (let i = 0; i < 72 * 20; i++) pequeno.atualizar(1 / 72, JOGADOR);
+  const pertinho = Math.hypot(
+    pequeno.raiz.position.x - JOGADOR.x,
+    pequeno.raiz.position.z - JOGADOR.z,
+  );
+  checar(pertinho < 2, `o Diglett ficou longe demais (${pertinho.toFixed(2)} m) para o tamanho dele`);
+
+  console.log(
+    `   Onix ${onix.alturaReal} m para a ${perto.toFixed(1)} m; ` +
+      `Diglett ${diglett.alturaReal} m para a ${pertinho.toFixed(1)} m`,
+  );
+}
+
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

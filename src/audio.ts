@@ -23,8 +23,29 @@ const FAMILIA_SONORA: Record<Tipo, 'rugido' | 'jorro' | 'corte' | 'estalo' | 'ba
 };
 
 /**
- * Áudio 100% sintetizado na WebAudio — nenhum arquivo de som no pacote.
- * Tudo aqui é osciladores e ruído com envelope.
+ * Quantas falas dubladas cada espécie tem em public/dublagem/.
+ *
+ * São gravações de verdade — a voz do desenho, não o TTS de `tocarVozDoNome`
+ * nem o guincho de oito bits dos jogos. Quem tem mais de uma sorteia a cada
+ * grito: é o que impede o bicho de soar como um botão apertado duas vezes.
+ *
+ * O arquivo é `<id>-<n>.mp3`, com n começando em 1.
+ */
+const DUBLAGEM: Record<string, number> = {
+  charmander: 2,
+};
+
+const TRILHA_BATALHA = './trilha/batalha.mp3';
+const SFX_BRILHANTE = './sfx/brilhante.mp3';
+const SFX_NIVEL = './sfx/nivel.mp3';
+
+/** O volume da trilha, já contando que ela ainda passa pelo master. */
+const GANHO_TRILHA = 0.42;
+
+/**
+ * O áudio do jogo: osciladores com envelope para quase tudo, e as poucas
+ * gravações que não dá para sintetizar — a trilha da briga, o carimbo do
+ * brilhante, a fanfarra de nível e as falas dubladas.
  */
 export class Audio {
   private ctx: AudioContext | null = null;
@@ -33,6 +54,28 @@ export class Audio {
   /** Os gritos gravados, por número da Pokédex. null = não existe arquivo. */
   private gritos = new Map<number, AudioBuffer | null>();
   private baixandoGrito = new Set<number>();
+  /** As falas — o bicho dizendo o próprio nome. Ver `tocarVozDoNome`. */
+  private vozes = new Map<number, AudioBuffer | null>();
+  private baixandoVoz = new Set<number>();
+  private pesos = new Map<number, number>();
+  /**
+   * Se a fala vem antes do grito. Segue o interruptor "Ele fala o nome" da
+   * engrenagem; o jogo escreve aqui quando o ajuste muda.
+   */
+  vozDoNome = true;
+  /** As gravações soltas — trilha e efeitos —, pelo caminho do arquivo. */
+  private amostras = new Map<string, AudioBuffer | null>();
+  private baixandoAmostra = new Set<string>();
+  /** As falas dubladas, por `<id>-<n>`. Ver `DUBLAGEM`. */
+  private dublagens = new Map<string, AudioBuffer | null>();
+  /** A trilha de batalha tocando agora, se houver. */
+  private trilha: AudioBufferSourceNode | null = null;
+  private trilhaGanho: GainNode | null = null;
+  /**
+   * Se a trilha entra quando a briga começa. Segue o interruptor "Música de
+   * batalha" da engrenagem; o jogo escreve aqui quando o ajuste muda.
+   */
+  musicaDeBatalha = true;
 
   iniciar() {
     if (this.ctx) {
@@ -51,6 +94,16 @@ export class Audio {
     const dados = buffer.getChannelData(0);
     for (let i = 0; i < dados.length; i++) dados[i] = Math.random() * 2 - 1;
     this.ruido = buffer;
+
+    // As gravações vão para a memória agora, e não no primeiro uso: um som que
+    // chega meio segundo depois do brilhante aparecer não é mais o som do
+    // brilhante aparecendo.
+    void this.carregarAmostra(TRILHA_BATALHA);
+    void this.carregarAmostra(SFX_BRILHANTE);
+    void this.carregarAmostra(SFX_NIVEL);
+    for (const [id, quantas] of Object.entries(DUBLAGEM)) {
+      for (let n = 1; n <= quantas; n++) void this.carregarDublagem(`${id}-${n}`);
+    }
   }
 
   private get agora() {
@@ -373,8 +426,90 @@ export class Audio {
    * chegar, e porque sem rede nenhuma o jogo precisa continuar tendo voz.
    */
   grito(id: string, agudo = false, num?: number) {
+    // A dublagem vem antes de todas: onde ela existe, é a voz de verdade — o
+    // TTS e o grito dos jogos são as reservas de quem ainda não tem uma.
+    if (this.vozDoNome && this.tocarDublagem(id, agudo)) return;
+    if (num !== undefined && this.vozDoNome && this.tocarVozDoNome(num, agudo)) return;
     if (num !== undefined && this.tocarGritoGravado(num, agudo)) return;
     this.gritoSintetizado(id, agudo);
+  }
+
+  /**
+   * Ele diz o próprio nome, do jeito do desenho.
+   *
+   * O grito dos jogos é um guincho de oito bits com uma camada de reverb; o que
+   * fala "Char! Charmander!" é o dublador, e isso não existe em fonte nenhuma
+   * que se possa baixar. Então as 151 falas são gravadas em build com o mesmo
+   * TTS da Pokédex (ver tools/vozes.mjs) — uma voz só, 151 arquivos.
+   *
+   * Uma voz só seriam 151 bichos com a mesma garganta, então o TOM vem daqui:
+   * cada espécie ganha uma velocidade de reprodução própria, deduzida do número
+   * da Pokédex e do tamanho do bicho. Caterpie sai fininho e apressado, Snorlax
+   * sai grave e arrastado, e os dois saem do mesmo arquivo de MP3 — que é
+   * exatamente o truque que os jogos antigos usavam com um sample só.
+   */
+  private tocarVozDoNome(num: number, agudo: boolean): boolean {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return false;
+
+    const pronto = this.vozes.get(num);
+    if (pronto === undefined) {
+      void this.carregarVoz(num);
+      return false;
+    }
+    if (pronto === null) return false;
+
+    const fonte = ctx.createBufferSource();
+    fonte.buffer = pronto;
+    fonte.playbackRate.value = this.tomDe(num) * (agudo ? 1.1 : 1);
+    const ganho = ctx.createGain();
+    ganho.gain.value = 0.72;
+    fonte.connect(ganho).connect(master);
+    fonte.start();
+    return true;
+  }
+
+  /**
+   * O tom da fala de cada espécie, entre 0,82 (grave e lento) e 1,34 (agudo e
+   * apressado).
+   *
+   * Sai do número da Pokédex por uma mistura embaralhada de propósito: espécies
+   * vizinhas na numeração costumam ser da mesma linha evolutiva, e uma progressão
+   * suave daria Charmander, Charmeleon e Charizard com quase a mesma voz. O
+   * peso, quando o jogo o informa, puxa o resultado para baixo — bicho pesado
+   * fala grosso.
+   */
+  private tomDe(num: number): number {
+    const embaralhado = (Math.imul(num, 2654435761) >>> 0) / 4294967295;
+    const peso = this.pesos.get(num);
+    // A escala do peso é logarítmica porque a Pokédex vai de 0,1 kg (Gastly) a
+    // 460 kg (Snorlax), e uma régua linear deixaria 140 dos 151 no mesmo ponto.
+    const corpo = peso === undefined ? 0.5 : 1 - Math.min(1, Math.log10(peso + 1) / 2.7);
+    const t = embaralhado * 0.45 + corpo * 0.55;
+    return 0.82 + t * 0.52;
+  }
+
+  /** O peso de cada espécie, para a voz acompanhar o corpo. Ver `tomDe`. */
+  definirPesos(pesos: Iterable<[number, number]>) {
+    this.pesos = new Map(pesos);
+  }
+
+  private async carregarVoz(num: number) {
+    const ctx = this.ctx;
+    if (!ctx || this.baixandoVoz.has(num)) return;
+    this.baixandoVoz.add(num);
+    try {
+      const r = await fetch(`./vozes/${num}.mp3`);
+      if (!r.ok) throw new Error(String(r.status));
+      this.vozes.set(num, await ctx.decodeAudioData(await r.arrayBuffer()));
+    } catch {
+      // Sem arquivo, esta espécie volta para o grito dos jogos — e o null
+      // impede que cada encontro tente baixar de novo o que não existe.
+      this.vozes.set(num, null);
+    } finally {
+      this.baixandoVoz.delete(num);
+    }
   }
 
   /** Devolve false quando o arquivo ainda não chegou — aí o sintetizado entra. */
@@ -512,6 +647,174 @@ export class Audio {
     lfo.start(t0);
     osc.stop(t0 + duracao + 0.02);
     lfo.stop(t0 + duracao + 0.02);
+  }
+
+  // ---- gravações: trilha, efeitos e dublagem ----
+
+  /**
+   * Toca um arquivo solto. Devolve false quando ele ainda não chegou — quem
+   * chama decide se cai no sintetizado ou se deixa passar em silêncio.
+   */
+  private tocarAmostra(caminho: string, ganho: number): boolean {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return false;
+
+    const pronto = this.amostras.get(caminho);
+    if (pronto === undefined) {
+      void this.carregarAmostra(caminho);
+      return false;
+    }
+    if (pronto === null) return false;
+
+    const fonte = ctx.createBufferSource();
+    fonte.buffer = pronto;
+    const volume = ctx.createGain();
+    volume.gain.value = ganho;
+    fonte.connect(volume).connect(master);
+    fonte.start();
+    return true;
+  }
+
+  private async carregarAmostra(caminho: string) {
+    const ctx = this.ctx;
+    if (!ctx || this.baixandoAmostra.has(caminho)) return;
+    this.baixandoAmostra.add(caminho);
+    try {
+      const r = await fetch(caminho);
+      if (!r.ok) throw new Error(String(r.status));
+      this.amostras.set(caminho, await ctx.decodeAudioData(await r.arrayBuffer()));
+    } catch {
+      // Sem o arquivo, o jogo segue com o que ele sempre teve: os osciladores.
+      this.amostras.set(caminho, null);
+    } finally {
+      this.baixandoAmostra.delete(caminho);
+    }
+  }
+
+  /**
+   * O brilhante apareceu.
+   *
+   * Vem POR CIMA do `surgiu`, e não no lugar dele: aquele é o som de alguma
+   * coisa nascendo na sala, este é o carimbo de raridade. Juntos dizem
+   * "apareceu" e "corre" na mesma meia dúzia de quadros — e quem está de costas
+   * para o bicho só tem o som para saber.
+   */
+  brilhante() {
+    this.tocarAmostra(SFX_BRILHANTE, 0.85);
+  }
+
+  /** Subiu de nível. Cai no arpejo sintetizado se o arquivo não chegou. */
+  subiuDeNivel() {
+    if (!this.tocarAmostra(SFX_NIVEL, 0.8)) this.sucesso();
+  }
+
+  /**
+   * A trilha da briga, em loop, enquanto houver selvagem no alcance.
+   *
+   * Entra em fade porque ela começa no meio de uma cena que já está
+   * acontecendo — um corte seco soaria como um erro de reprodução. Chamar duas
+   * vezes não empilha: a segunda não faz nada, e é por isso que o laço do jogo
+   * pode chamar isto a cada quadro sem pensar.
+   */
+  batalhaComecou() {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master || this.trilha || !this.musicaDeBatalha) return;
+
+    const pronto = this.amostras.get(TRILHA_BATALHA);
+    if (pronto === undefined) {
+      void this.carregarAmostra(TRILHA_BATALHA);
+      return;
+    }
+    if (pronto === null) return;
+
+    const t0 = this.agora;
+    const fonte = ctx.createBufferSource();
+    fonte.buffer = pronto;
+    fonte.loop = true;
+
+    const volume = ctx.createGain();
+    volume.gain.setValueAtTime(0.0001, t0);
+    volume.gain.exponentialRampToValueAtTime(GANHO_TRILHA, t0 + 0.8);
+
+    fonte.connect(volume).connect(master);
+    fonte.start(t0);
+    this.trilha = fonte;
+    this.trilhaGanho = volume;
+  }
+
+  /** Acabou a briga: a trilha some em pouco mais de um segundo. */
+  batalhaAcabou() {
+    const fonte = this.trilha;
+    const volume = this.trilhaGanho;
+    if (!fonte || !volume || !this.ctx) return;
+    this.trilha = null;
+    this.trilhaGanho = null;
+
+    const t0 = this.agora;
+    volume.gain.cancelScheduledValues(t0);
+    volume.gain.setValueAtTime(Math.max(0.0001, volume.gain.value), t0);
+    volume.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.2);
+    fonte.stop(t0 + 1.3);
+  }
+
+  /**
+   * A fala dublada, sorteada entre as que a espécie tem.
+   *
+   * Sortear importa mais do que parece: um bicho que repete a MESMA gravação a
+   * cada golpe vira um efeito sonoro, e o que se quer aqui é o contrário — que
+   * ele pareça estar falando. Duas falas já bastam para o ouvido parar de
+   * prever qual vem.
+   *
+   * Quem ainda não baixou fica de fora do sorteio em vez de segurar o som: é
+   * melhor ouvir uma das duas na hora certa do que as duas tarde demais.
+   */
+  private tocarDublagem(id: string, agudo: boolean): boolean {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return false;
+
+    const quantas = DUBLAGEM[id];
+    if (!quantas) return false;
+
+    const prontas: AudioBuffer[] = [];
+    for (let n = 1; n <= quantas; n++) {
+      const chave = `${id}-${n}`;
+      const buffer = this.dublagens.get(chave);
+      if (buffer === undefined) void this.carregarDublagem(chave);
+      else if (buffer) prontas.push(buffer);
+    }
+    if (prontas.length === 0) return false;
+
+    const fonte = ctx.createBufferSource();
+    fonte.buffer = prontas[Math.floor(Math.random() * prontas.length)];
+    // Quase nada de mudança de tom: isto é uma voz de verdade, e esticá-la como
+    // se faz com o TTS em `tomDe` entregaria na hora que é um truque. O empurrão
+    // do brilhante fica no limite do perceptível de propósito.
+    fonte.playbackRate.value = agudo ? 1.08 : 1;
+    const volume = ctx.createGain();
+    volume.gain.value = 0.9;
+    fonte.connect(volume).connect(master);
+    fonte.start();
+    return true;
+  }
+
+  private async carregarDublagem(chave: string) {
+    const ctx = this.ctx;
+    if (!ctx || this.baixandoAmostra.has(chave)) return;
+    this.baixandoAmostra.add(chave);
+    try {
+      const r = await fetch(`./dublagem/${chave}.mp3`);
+      if (!r.ok) throw new Error(String(r.status));
+      this.dublagens.set(chave, await ctx.decodeAudioData(await r.arrayBuffer()));
+    } catch {
+      // Faltou o arquivo: esta espécie volta para o TTS, e o null impede que
+      // cada grito tente baixar de novo o que não existe.
+      this.dublagens.set(chave, null);
+    } finally {
+      this.baixandoAmostra.delete(chave);
+    }
   }
 
   // ---- narração gravada ----

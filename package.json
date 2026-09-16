@@ -14,8 +14,8 @@
     "preview": "vite preview --host",
     "test": "esbuild tools/smoke.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/smoke.mjs --log-level=error && node node_modules/.cache/smoke.mjs",
     "serve:dist": "node tools/serve.mjs",
-    "predev": "node tools/icons.mjs && node tools/draco.mjs && node tools/modelos.mjs && node tools/gritos.mjs",
-    "prebuild": "node tools/icons.mjs && node tools/draco.mjs && node tools/modelos.mjs && node tools/gritos.mjs",
+    "predev": "node tools/icons.mjs && node tools/draco.mjs && node tools/modelos.mjs && node tools/gritos.mjs && node tools/maos.mjs",
+    "prebuild": "node tools/icons.mjs && node tools/draco.mjs && node tools/modelos.mjs && node tools/gritos.mjs && node tools/maos.mjs",
     "render": "node tools/folha.mjs",
     "pokedex": "node tools/pokedex.mjs",
     "modelos": "node tools/modelos.mjs",
@@ -24,7 +24,10 @@
     "poses": "esbuild tools/poses.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/poses.mjs --log-level=error --external:draco3d --external:@gltf-transform/* && node node_modules/.cache/poses.mjs",
     "paineis": "esbuild tools/paineis.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/paineis.mjs --log-level=error --external:@napi-rs/canvas && node node_modules/.cache/paineis.mjs",
     "golpes": "node tools/golpes.mjs",
-    "gritos": "node tools/gritos.mjs"
+    "gritos": "node tools/gritos.mjs",
+    "maos": "node tools/maos.mjs",
+    "mao": "esbuild tools/mao.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mao.mjs --log-level=error && node node_modules/.cache/mao.mjs",
+    "vozes": "node tools/vozes.mjs"
   },
   "dependencies": {
     "three": "^0.184.0"

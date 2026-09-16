@@ -213,13 +213,21 @@ export async function precarregar(ids: string[], shiny = false): Promise<void> {
 /**
  * Monta um exemplar do bicho no tamanho pedido.
  *
- * A escala não é só `alturaAlvo / alturaDoModelo`: um Onix vem deitado e mais
- * de cinco vezes mais comprido do que alto, e escalar pela altura o deixaria
- * com dois metros e meio atravessando a sala. Então o limite leva em conta
- * também a maior medida horizontal: nenhum bicho passa do dobro da própria
- * altura em comprimento, por mais serpente que ele seja.
+ * Com `alturaExata`, a conta é a direta — `alturaAlvo / alturaDoModelo` — e o
+ * bicho fica com a altura da Pokédex, na bucha. É o que "tamanho real" quer
+ * dizer: Onix tem 8,8 m e atravessa a sala inteira, e atravessar é o ponto.
+ *
+ * Sem ela, o limite leva em conta também a maior medida horizontal: um Onix
+ * vem deitado e mais de cinco vezes mais comprido do que alto, e escalar pela
+ * altura o deixaria com dois metros e meio cruzando o quarto mesmo na curva
+ * comprimida. Nenhum bicho passa do dobro da própria altura em comprimento.
  */
-export function instanciar(id: string, alturaAlvo: number, shiny = false): Corpo | null {
+export function instanciar(
+  id: string,
+  alturaAlvo: number,
+  shiny = false,
+  alturaExata = false,
+): Corpo | null {
   const k = chave(id, shiny);
   const gltf = carregados.get(k);
   const medida = MEDIDAS[id];
@@ -229,7 +237,9 @@ export function instanciar(id: string, alturaAlvo: number, shiny = false): Corpo
   const cena = clonarComEsqueleto(gltf.scene) as THREE.Object3D;
 
   const maiorHorizontal = Math.max(medida.largura, medida.profundidade);
-  const referencia = Math.max(medida.alturaModelo, maiorHorizontal / 2, 1e-6);
+  const referencia = alturaExata
+    ? Math.max(medida.alturaModelo, 1e-6)
+    : Math.max(medida.alturaModelo, maiorHorizontal / 2, 1e-6);
   const escala = alturaAlvo / referencia;
 
   // Três nós, nesta ordem, porque a ordem é o que faz a conta fechar. O

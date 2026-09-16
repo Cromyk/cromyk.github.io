@@ -1,7 +1,7 @@
 {
  "versao": 7,
  "fonte": "Pokemon-3D-api/assets",
- "gerado": 1789397252208,
+ "gerado": 1789525635218,
  "especies": {
   "bulbasaur": {
    "num": 1,
@@ -1867,15 +1867,15 @@
    "bytes": 117288,
    "temShiny": false,
    "giroX": 0,
-   "giroY": 0,
+   "giroY": 3.141593,
    "alturaModelo": 1.79037,
    "largura": 1.94123,
    "profundidade": 1.96039,
    "baseY": 0.18741,
-   "centroX": 0.00003,
-   "centroZ": -0.02895,
+   "centroX": -0.00003,
+   "centroZ": 0.02895,
    "rosto": null,
-   "orientadoPor": "padrão",
+   "orientadoPor": "mão",
    "vertices": 18421,
    "animacoes": [],
    "temEsqueleto": false

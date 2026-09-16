@@ -444,3 +444,72 @@ export class MarcaDeDestino {
     this.matAnel.dispose();
   }
 }
+
+/**
+ * O anel que diz em quem o seu Pokémon está batendo.
+ *
+ * Escolher o alvo com o braço só vale se der para conferir quem foi escolhido:
+ * três selvagens na sala, um golpe saindo, e sem marca nenhuma o jogador
+ * descobre a escolha pelo bicho que apanhou — tarde demais para mudar de ideia.
+ *
+ * Fica no chão, aos pés do alvo, e não em volta do corpo: um bicho pode estar
+ * de costas, atrás do sofá ou pairando a dois metros, e o anel no chão continua
+ * visível em todos os casos. Duas voltas girando em sentidos contrários é o que
+ * separa "mira" de "aura de golpe", que é o outro anel do jogo (ver Aura).
+ */
+export class MarcaDeAlvo {
+  readonly grupo = new THREE.Group();
+
+  private externo: THREE.Mesh;
+  private interno: THREE.Mesh;
+  private geoExterno: THREE.RingGeometry;
+  private geoInterno: THREE.RingGeometry;
+  private material: THREE.MeshBasicMaterial;
+  private opacidade = 0;
+  private tempo = 0;
+
+  constructor(cor = 0xff7a6b) {
+    this.material = new THREE.MeshBasicMaterial({
+      color: cor,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+
+    // Dois arcos vazados, e não um anel inteiro: o vão é o que faz o giro ser
+    // percebido como giro.
+    this.geoExterno = new THREE.RingGeometry(0.15, 0.185, 24, 1, 0, Math.PI * 1.45);
+    this.geoInterno = new THREE.RingGeometry(0.1, 0.12, 20, 1, 0, Math.PI * 1.2);
+    this.externo = new THREE.Mesh(this.geoExterno, this.material);
+    this.interno = new THREE.Mesh(this.geoInterno, this.material);
+    this.externo.rotation.x = -Math.PI * 0.5;
+    this.interno.rotation.x = -Math.PI * 0.5;
+
+    this.grupo.add(this.externo, this.interno);
+    this.grupo.visible = false;
+  }
+
+  /** `raio` acompanha o tamanho do bicho: um Onix não cabe num anel de palmo. */
+  atualizar(dt: number, onde: THREE.Vector3 | null, pisoY: number, raio = 0.2) {
+    this.tempo += dt;
+    const alvo = onde ? 1 : 0;
+    this.opacidade += (alvo - this.opacidade) * Math.min(1, dt * 12);
+    this.grupo.visible = this.opacidade > 0.02;
+    if (!this.grupo.visible || !onde) return;
+
+    this.material.opacity = this.opacidade * (0.5 + Math.sin(this.tempo * 5) * 0.16);
+    this.grupo.position.set(onde.x, pisoY + 0.008, onde.z);
+    this.grupo.scale.setScalar(Math.max(0.5, raio / 0.18));
+    this.externo.rotation.z = this.tempo * 1.1;
+    this.interno.rotation.z = -this.tempo * 1.7;
+  }
+
+  descartar() {
+    this.grupo.removeFromParent();
+    this.geoExterno.dispose();
+    this.geoInterno.dispose();
+    this.material.dispose();
+  }
+}

@@ -7,6 +7,15 @@ import { Animador } from './anima';
 
 export type Papel = 'selvagem' | 'companheiro';
 
+/**
+ * O que a criatura precisa saber do quarto para andar nele: a altura do apoio
+ * sob um ponto qualquer. Quem implementa é a `Sala`; o tipo fica estreito de
+ * propósito, para a criatura não passar a depender do mapeamento inteiro.
+ */
+export interface Terreno {
+  alturaEm(ponto: THREE.Vector3): number;
+}
+
 export type Estado =
   | 'surgindo'
   | 'ocioso'
@@ -97,8 +106,33 @@ export class Pokemon {
   /** Achatada ao aterrissar, volta sozinha. */
   private impacto = 0;
   private velocidadeAndando = 0;
+  /**
+   * Quem sabe a altura do apoio em cada ponto do quarto — a `Sala`.
+   *
+   * Sem isto o bicho anda na altura em que nasceu e só: sobe num tapete sem
+   * subir, desce um degrau flutuando. Com isto o apoio é consultado a cada
+   * quadro sob os pés dele, que é o que faz ele reconhecer o terreno.
+   */
+  private terreno: Terreno | null = null;
+  /** Quanto tempo falta para o selvagem escolher um novo canto do quarto. */
+  private proximaAndanca = 0;
+  /** Onde ele nasceu. A andança se afasta daqui, mas não sem limite. */
+  private readonly berco: THREE.Vector3;
   /** Ponto marcado por você no chão. Enquanto existir, ele vai até lá. */
   private destinoComandado: THREE.Vector3 | null = null;
+  /**
+   * Onde ele foi mandado FICAR.
+   *
+   * Sem isto, a ordem "vá até ali" durava só a caminhada: assim que chegava, o
+   * companheiro voltava à regra de andar ao lado do treinador e dava meia-volta
+   * na frente de quem tinha acabado de mandar ele ir. O ponto fica guardado, e
+   * enquanto ele existir o passeio do bicho orbita a MARCA, não você — que é o
+   * que "fica aí" quer dizer em qualquer jogo de Pokémon.
+   *
+   * Sai daqui de três jeitos: você chama ele de volta, faz carinho nele, ou
+   * manda ele para outro lugar.
+   */
+  private posto: THREE.Vector3 | null = null;
   /** Quanto a cabeça ainda precisa girar para encarar o alvo, em radianos. */
   private residuoOlhar = 0;
   /** Segura o carinho por alguns segundos depois da mão sair. */
@@ -107,6 +141,20 @@ export class Pokemon {
   private atracao = 0;
 
   private static readonly RAIO_PASSEIO = 0.85;
+
+  /**
+   * As distâncias deste arquivo foram escritas para bichos de meio metro, que
+   * era o tamanho de todo mundo quando a altura vinha comprimida. Com o tamanho
+   * real ligado, um Onix de quase nove metros entra na sala — e "pare a oitenta
+   * centímetros do treinador" passa a significar "pare com a cabeça dentro da
+   * parede oposta".
+   *
+   * Então toda distância pessoal passa por aqui: ela é a maior entre a medida
+   * de antes e o tamanho do corpo. Num Diglett nada muda; num Onix, tudo.
+   */
+  private folga(minimo: number, vezes = 1): number {
+    return Math.max(minimo, this.raio * vezes);
+  }
 
   constructor(
     especie: Especie,
@@ -124,7 +172,9 @@ export class Pokemon {
     this.nivel = nivel;
     this.shiny = shiny;
     this.ancora = ancora.clone();
+    this.berco = ancora.clone();
     this.pisoY = pisoY;
+    this.proximaAndanca = entre(criarRng(semente + 7), 4, 12);
     this.hpMax = statsNoNivel(especie, nivel).hpMax;
     this.hp = this.hpMax;
     this.rng = criarRng(semente);
@@ -341,6 +391,8 @@ export class Pokemon {
 
   /** Vem até um ponto — a mão estendida com uma fruta, por exemplo. */
   chamarPara(ponto: THREE.Vector3) {
+    // Chamar desfaz o "fica aí": é a ordem contrária, e ela tem de ganhar.
+    this.posto = null;
     this.destino.set(ponto.x, this.pisoY, ponto.z);
     this.olharPara = ponto.clone();
     this.impulso(1.8);
@@ -357,6 +409,9 @@ export class Pokemon {
    */
   irPara(ponto: THREE.Vector3) {
     if (this.desmaiado || this.estado === 'preso' || this.estado === 'saindo') return;
+    // O posto antigo morre aqui: quem recebe uma ordem nova não guarda a velha.
+    // O novo só nasce quando ele CHEGAR (ver o estado 'indo').
+    this.posto = null;
     // A altura do destino e guardada: apontar para a mesa manda ele PARA a
     // mesa, e o apoio sobe junto conforme ele chega (ver o estado 'indo').
     this.destinoComandado = ponto.clone();
@@ -369,6 +424,11 @@ export class Pokemon {
 
   get indoParaAlgumLugar(): boolean {
     return this.destinoComandado !== null;
+  }
+
+  /** Ele está parado onde você mandou, em vez de te seguir. */
+  get ficandoNoPosto(): boolean {
+    return this.posto !== null;
   }
 
   /**
@@ -391,7 +451,7 @@ export class Pokemon {
       0,
       this.raiz.position.z - ponto.z,
     );
-    if (daqui.lengthSq() > 1e-6) parada.addScaledVector(daqui.normalize(), 0.75);
+    if (daqui.lengthSq() > 1e-6) parada.addScaledVector(daqui.normalize(), this.folga(0.75, 1.3));
 
     this.atracao = segundos;
     this.alarme = Math.max(0, this.alarme - 0.45);
@@ -410,6 +470,7 @@ export class Pokemon {
 
   cancelarComando() {
     this.destinoComandado = null;
+    this.posto = null;
     if (this.estado === 'indo') this.estado = 'ocioso';
   }
 
@@ -452,8 +513,9 @@ export class Pokemon {
     return alvo.set(p.x, p.y + this.altura * 0.8 * this.raiz.scale.y, p.z);
   }
 
-  atualizar(dt: number, jogador: THREE.Vector3) {
+  atualizar(dt: number, jogador: THREE.Vector3, terreno?: Terreno) {
     if (!this.viva) return;
+    if (terreno) this.terreno = terreno;
     this.tempo += dt;
     this.cronometroEstado += dt;
     if (this.recarga > 0) this.recarga -= dt;
@@ -512,11 +574,18 @@ export class Pokemon {
         // em cima da mesa, parar assim que o X e o Z batem deixaria o bicho
         // pousado no ar a meio caminho da rampa.
         const noApoio = Math.abs(alvo.y - this.pisoY) < 0.03;
-        if ((falta < 0.12 && noApoio) || this.cronometroEstado > 12) {
+        if ((falta < this.folga(0.12, 0.45) && noApoio) || this.cronometroEstado > 12) {
           this.destinoComandado = null;
           this.estado = 'ocioso';
           this.olharPara = jogador.clone();
           this.animador.disparar('olhar', 1.4);
+          // Chegou (ou desistiu de chegar): é AQUI que ele fica. O posto é o
+          // ponto onde ele de fato parou, e não a marca — se um sofá barrou o
+          // caminho, o lugar dele é deste lado do sofá.
+          if (this.papel === 'companheiro' && this.atracao <= 0) {
+            this.posto = this.raiz.position.clone();
+            this.ancora.copy(this.raiz.position);
+          }
           // Chegou atraído pela isca: o passeio dele passa a ser AQUI. Sem isto
           // ele daria meia-volta no quadro seguinte, porque o passeio do
           // selvagem orbita a âncora onde ele nasceu.
@@ -563,6 +632,37 @@ export class Pokemon {
         return;
       }
 
+      // Mandado ficar: ele monta guarda no posto. Passeia um palmo em volta,
+      // como faria qualquer bicho esperando, e olha para você — mas não sai
+      // dali. Sem este ramo, a regra de "fica a 1,1 m do treinador" logo abaixo
+      // desfazia a ordem no quadro seguinte ao da chegada.
+      if (this.posto) {
+        const doPosto = Math.hypot(
+          this.raiz.position.x - this.posto.x,
+          this.raiz.position.z - this.posto.z,
+        );
+        // Empurrado para longe do posto (um golpe, um esbarrão): volta para ele.
+        if (doPosto > 0.5) {
+          this.destino.set(this.posto.x, this.pisoY, this.posto.z);
+          this.impulso(1.7);
+        } else {
+          this.proximoPulo -= dt;
+          if (this.proximoPulo <= 0 && this.noChao) {
+            this.proximoPulo = entre(this.rng, 1.8, 3.6);
+            const angulo = this.rng() * Math.PI * 2;
+            const raio = entre(this.rng, 0.05, 0.28);
+            this.destino.set(
+              this.posto.x + Math.cos(angulo) * raio,
+              this.pisoY,
+              this.posto.z + Math.sin(angulo) * raio,
+            );
+            this.impulso(entre(this.rng, 1.3, 1.9));
+          }
+        }
+        this.olharPara = this.alvo && !this.alvo.desmaiado ? this.alvo.centro : jogador;
+        return;
+      }
+
       // Fica ao lado do jogador, sem colar nele.
       const paraJogador = new THREE.Vector3(
         jogador.x - this.raiz.position.x,
@@ -570,12 +670,12 @@ export class Pokemon {
         jogador.z - this.raiz.position.z,
       );
       const dist = paraJogador.length();
-      if (dist > 1.1) {
+      if (dist > this.folga(1.1, 1.5)) {
         // Anda até um ponto um pouco à frente e ao lado do treinador.
         const lado = new THREE.Vector3(-paraJogador.z, 0, paraJogador.x).normalize();
         this.destino
           .copy(jogador)
-          .addScaledVector(paraJogador.normalize(), -0.75)
+          .addScaledVector(paraJogador.normalize(), -this.folga(0.75, 1.2))
           .addScaledVector(lado, 0.45);
         this.destino.y = this.pisoY;
         this.impulso(1.9);
@@ -596,7 +696,7 @@ export class Pokemon {
     if (this.atracao > 0) {
       // A isca desfaz o medo em vez de acumula-lo, mesmo com voce colado nele.
       this.alarme = Math.max(0, this.alarme - dt * 0.5);
-    } else if (distJogador < 0.85) {
+    } else if (distJogador < this.folga(0.85, 1.1)) {
       this.alarme = Math.min(1, this.alarme + dt * 0.45);
     } else {
       this.alarme = Math.max(0, this.alarme - dt * 0.12);
@@ -606,17 +706,86 @@ export class Pokemon {
       return;
     }
 
+    // De tempos em tempos ele muda de canto. Sem isto a âncora era o berço
+    // para sempre e o bicho orbitava um raio de um palmo pelo resto da vida:
+    // voltar ao quarto meia hora depois encontrava todo mundo exatamente onde
+    // tinha nascido. Agora a âncora anda, e ele anda com ela.
+    //
+    // Parado quando está atento a você: bicho que te encara não sai vagando.
+    this.proximaAndanca -= dt;
+    if (this.proximaAndanca <= 0 && this.noChao && this.estado === 'ocioso' && this.atracao <= 0) {
+      this.proximaAndanca = entre(this.rng, 7, 16);
+      this.escolherNovoCanto();
+    }
+
     this.proximoPulo -= dt;
     if (this.proximoPulo <= 0 && this.noChao) {
       this.proximoPulo = entre(this.rng, 1.4, 3.4) * (this.estado === 'atento' ? 0.6 : 1);
       const angulo = this.rng() * Math.PI * 2;
-      const raio = entre(this.rng, 0.15, Pokemon.RAIO_PASSEIO);
+      const raio = entre(this.rng, 0.15, this.folga(Pokemon.RAIO_PASSEIO, 1.2));
       this.destino.set(
         this.ancora.x + Math.cos(angulo) * raio,
         this.pisoY,
         this.ancora.z + Math.sin(angulo) * raio,
       );
       this.impulso(entre(this.rng, 1.5, 2.4));
+    }
+  }
+
+  /**
+   * Manda a âncora para outro canto do quarto, se houver chão que sirva lá.
+   *
+   * O candidato só vale se o terreno debaixo dele estiver no MESMO nível em
+   * que o bicho está: assim ele caminha pelo chão e contorna a mesa em vez de
+   * escalar o tampo de repente, e não sai andando para dentro do degrau.
+   *
+   * Sem leitura do quarto (Space Setup vazio, sessão sem planos) o candidato
+   * passa direto: é melhor um bicho que perambula às cegas do que um bicho
+   * pregado no lugar, que é de onde estamos vindo.
+   */
+  private escolherNovoCanto() {
+    const LIMITE_DO_BERCO = 6;
+    for (let tentativa = 0; tentativa < 6; tentativa++) {
+      const angulo = this.rng() * Math.PI * 2;
+      const passo = entre(this.rng, 0.9, 2.6);
+      const x = this.ancora.x + Math.cos(angulo) * passo;
+      const z = this.ancora.z + Math.sin(angulo) * passo;
+      if (Math.hypot(x - this.berco.x, z - this.berco.z) > LIMITE_DO_BERCO) continue;
+      if (this.terreno) {
+        const sonda = new THREE.Vector3(x, this.raiz.position.y, z);
+        if (Math.abs(this.terreno.alturaEm(sonda) - this.pisoY) > 0.2) continue;
+      }
+      this.ancora.set(x, this.pisoY, z);
+      this.proximoPulo = 0; // já sai andando para lá
+      return;
+    }
+  }
+
+  /**
+   * Põe o apoio na altura do que estiver debaixo dele AGORA.
+   *
+   * É o que faz o bicho reconhecer o terreno enquanto anda: o chão do quarto,
+   * o degrau, o tapete, o tampo da mesa. Sem isto ele mantinha para sempre o
+   * `pisoY` do ponto onde nasceu e atravessava tudo na horizontal.
+   *
+   * O estado `indo` fica de fora porque ele já tem a própria rampa, que sobe
+   * conforme a distância que falta — subir na mesa por esta função aqui seria
+   * um degrau vertical instantâneo no meio do caminho.
+   *
+   * Descer é mais lento que subir de propósito: um bicho que sai do tampo da
+   * mesa deve cair pela borda (a gravidade cuida disso), não escorregar no ar.
+   */
+  private acompanharTerreno(dt: number) {
+    if (!this.terreno || this.estado === 'indo') return;
+    const alvo = this.terreno.alturaEm(this.raiz.position);
+    const diferenca = alvo - this.pisoY;
+    if (Math.abs(diferenca) < 0.002) return;
+    if (diferenca > 0) {
+      // Subiu: acompanha depressa, senão o pé afunda no obstáculo.
+      this.pisoY += diferenca * Math.min(1, dt * 6);
+    } else if (this.noChao) {
+      this.pisoY += diferenca * Math.min(1, dt * 2.5);
+      this.noChao = false; // deixa a gravidade terminar a descida
     }
   }
 
@@ -647,6 +816,8 @@ export class Pokemon {
 
   private mover(dt: number) {
     if (this.estado === 'preso' || this.estado === 'saindo') return;
+
+    this.acompanharTerreno(dt);
 
     if (this.flutua) {
       // Quem paira anda o tempo todo, sem gravidade e sem pulinho — e sobe ou

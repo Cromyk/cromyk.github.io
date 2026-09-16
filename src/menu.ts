@@ -67,6 +67,7 @@ export type Selecao =
   | { tipo: 'modo'; entrada: Modo }
   | { tipo: 'golpe'; entrada: EntradaGolpe }
   | { tipo: 'engrenagem' }
+  | { tipo: 'pc' }
   | { tipo: 'dificuldade'; entrada: PerfilDificuldade }
   | { tipo: 'interruptor'; entrada: EntradaInterruptor };
 
@@ -85,6 +86,7 @@ const ALTURA_DIF = 0.05;
 const LARGURA_CHAVE = 0.19;
 const ALTURA_CHAVE = 0.042;
 const LADO_ENGRENAGEM = 0.042;
+const LADO_PC = 0.042;
 const ESPACO = 0.012;
 
 /** Como cada categoria de golpe se identifica no card. */
@@ -129,6 +131,8 @@ export class PainelTime {
   private cardsDificuldade: Placa[] = [];
   private cardsChave: Placa[] = [];
   private cardEngrenagem = new Placa(LADO_ENGRENAGEM, LADO_ENGRENAGEM, 128);
+  /** O atalho para o PC: a caixa inteira e a equipe, ver src/pc.ts. */
+  private cardPc = new Placa(LADO_PC, LADO_PC, 128);
   private alvos: THREE.Mesh[] = [];
   private titulo = new Placa(0.3, 0.038, 512);
 
@@ -148,7 +152,7 @@ export class PainelTime {
 
   constructor() {
     this.titulo.malha.position.set(0, ALTURA_CARD * 0.5 + 0.034, 0);
-    this.grupo.add(this.titulo.malha, this.cardEngrenagem.malha);
+    this.grupo.add(this.titulo.malha, this.cardEngrenagem.malha, this.cardPc.malha);
     this.grupo.visible = false;
 
     const geoAlvo = new THREE.PlaneGeometry(1, 1);
@@ -215,6 +219,7 @@ export class PainelTime {
     }
 
     novoAlvo('engrenagem', 0, LADO_ENGRENAGEM, LADO_ENGRENAGEM);
+    novoAlvo('pc', 0, LADO_PC, LADO_PC);
   }
 
   get time(): EntradaTime[] {
@@ -327,6 +332,14 @@ export class PainelTime {
     const alvoEngrenagem = this.alvos[indiceEngrenagem];
     alvoEngrenagem.visible = true;
     alvoEngrenagem.position.set(xEngrenagem, yTitulo, -0.001);
+
+    // O PC fica do lado oposto, encostado na esquerda do título: os dois cantos
+    // da linha de cima são as duas coisas que não são "um bicho do seu time".
+    const xPc = -(0.3 / 2 + LADO_PC / 2 + 0.006);
+    this.cardPc.malha.position.set(xPc, yTitulo, 0);
+    const alvoPc = this.alvos[indiceEngrenagem + 1];
+    alvoPc.visible = true;
+    alvoPc.position.set(xPc, yTitulo, -0.001);
   }
 
   // ------------------------------------------------------------ desenho
@@ -376,6 +389,51 @@ export class PainelTime {
       this.nosAjustes ? COR.bordaAtiva : sobMira ? COR.texto : COR.textoFraco,
     );
     this.cardEngrenagem.marcarSujo();
+  }
+
+  /**
+   * O atalho do PC, do outro lado do título.
+   *
+   * O PC sempre existiu, e sempre abriu no botão Y — o que é o mesmo que não
+   * existir para quem não leu o manual. Ele é a única tela onde se troca um
+   * Pokémon da caixa pelo do time, então precisava estar onde a mão já vai:
+   * no painel do pulso, ao lado da engrenagem.
+   *
+   * O ícone é um monitor com uma bolinha dentro, desenhado em caminho pelo
+   * mesmo motivo da engrenagem — emoji no headset vira retângulo vazio.
+   */
+  private redesenharPc(sobMira: boolean) {
+    const { ctx, canvas } = this.cardPc;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, { sobMira }, RAIO.pequeno);
+
+    const cor = sobMira ? COR.texto : COR.textoFraco;
+    const l = canvas.width * 0.56;
+    const a = l * 0.72;
+    const x = (canvas.width - l) / 2;
+    const y = canvas.height * 0.26;
+
+    ctx.lineWidth = Math.max(2, canvas.width * 0.035);
+    ctx.strokeStyle = cor;
+    ctx.beginPath();
+    ctx.roundRect(x, y, l, a, 5);
+    ctx.stroke();
+
+    // O pé do monitor.
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2, y + a);
+    ctx.lineTo(canvas.width / 2, y + a + canvas.height * 0.1);
+    ctx.moveTo(canvas.width / 2 - l * 0.26, y + a + canvas.height * 0.1);
+    ctx.lineTo(canvas.width / 2 + l * 0.26, y + a + canvas.height * 0.1);
+    ctx.stroke();
+
+    // A pokébola na tela: é ela que diz que o monitor guarda bicho.
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, y + a * 0.5, a * 0.24, 0, Math.PI * 2);
+    ctx.fillStyle = cor;
+    ctx.fill();
+
+    this.cardPc.marcarSujo();
   }
 
   private redesenharTime() {
@@ -700,6 +758,7 @@ export class PainelTime {
 
   private redesenhar(bolaAtivaId: string) {
     this.redesenharEngrenagem(this.destacado?.tipo === 'engrenagem');
+    this.redesenharPc(this.destacado?.tipo === 'pc');
     if (this.nosAjustes) {
       this.redesenharAjustes();
       return;
@@ -719,6 +778,14 @@ export class PainelTime {
     bolaAtivaId: string,
     camera: THREE.Camera,
     resumo: { vistas: number; capturadas: number; total: number },
+    /**
+     * Onde a outra mão está. Ela tem prioridade sobre a mira: se o braço já
+     * chegou perto de uma carta, é ESSA carta que está sendo escolhida, e
+     * continuar destacando o que o raio da mesma mão aponta a três metros
+     * dali acenderia a carta errada bem na hora de fechar a mão.
+     */
+    pontoDaMao: THREE.Vector3 | null = null,
+    alcanceDaMao = 0.09,
   ) {
     const querAbrir = olhandoORelogio(punhoEsquerdo, 'left', camera, this.aberto);
     this.aberto = querAbrir;
@@ -747,7 +814,11 @@ export class PainelTime {
 
     const anterior = this.destacado;
     this.destacado = null;
-    if (mira && this.abertura > 0.6) {
+    if (pontoDaMao && this.abertura > 0.6) {
+      const perto = this.alvoMaisPerto(pontoDaMao, alcanceDaMao);
+      if (perto) this.destacado = perto;
+    }
+    if (!this.destacado && mira && this.abertura > 0.6) {
       this.raycaster.set(mira.origem, mira.direcao);
       const acertos = this.raycaster.intersectObjects(
         this.alvos.filter((a) => a.visible),
@@ -806,6 +877,7 @@ export class PainelTime {
     saltar(this.cardsDificuldade, 'dificuldade', 0.012);
     saltar(this.cardsChave, 'interruptor', 0.01);
     saltar([this.cardEngrenagem], 'engrenagem', 0.012);
+    saltar([this.cardPc], 'pc', 0.012);
   }
 
   /** Traduz um alvo (tipo + índice) no que ele representa. */
@@ -829,6 +901,8 @@ export class PainelTime {
       }
       case 'engrenagem':
         return { tipo: 'engrenagem' };
+      case 'pc':
+        return { tipo: 'pc' };
       case 'dificuldade': {
         const entrada = DIFICULDADES[indice];
         return entrada ? { tipo: 'dificuldade', entrada } : null;
@@ -857,9 +931,17 @@ export class PainelTime {
    * ao seu próprio pulso, a 30 cm do outro braço, e apontar para uma coisa que
    * está encostada em você é mais difícil do que simplesmente pegá-la.
    */
-  alcancado(ponto: THREE.Vector3, alcance = 0.07): Selecao | null {
+  alcancado(ponto: THREE.Vector3, alcance = 0.09): Selecao | null {
     if (this.abertura < 0.6) return null;
+    const melhor = this.alvoMaisPerto(ponto, alcance);
+    return melhor ? this.conteudoDe(melhor.tipo, melhor.indice) : null;
+  }
 
+  /** A carta mais próxima de um ponto, dentro do alcance. */
+  private alvoMaisPerto(
+    ponto: THREE.Vector3,
+    alcance: number,
+  ): { tipo: Selecao['tipo']; indice: number } | null {
     let melhor: { tipo: Selecao['tipo']; indice: number } | null = null;
     let menorDistancia = alcance;
     const centro = new THREE.Vector3();
@@ -873,7 +955,7 @@ export class PainelTime {
         melhor = alvo.userData as { tipo: Selecao['tipo']; indice: number };
       }
     }
-    return melhor ? this.conteudoDe(melhor.tipo, melhor.indice) : null;
+    return melhor;
   }
 
   descartar() {
@@ -886,6 +968,7 @@ export class PainelTime {
       ...this.cardsDificuldade,
       ...this.cardsChave,
       this.cardEngrenagem,
+      this.cardPc,
     ])
       card.descartar();
     for (const d of this.descartaveis) d.dispose();

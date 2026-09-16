@@ -61,7 +61,13 @@ export const dificuldadePorId = (id: string) =>
   DIFICULDADES.find((d) => d.id === id) ?? DIFICULDADES[1];
 
 /** Os interruptores simples da engrenagem: ligado ou desligado. */
-export type ChaveAjuste = 'vozDaDex' | 'contornoDaSala' | 'avisoDeGolpe';
+export type ChaveAjuste =
+  | 'vozDaDex'
+  | 'contornoDaSala'
+  | 'avisoDeGolpe'
+  | 'tamanhoReal'
+  | 'vozDoNome'
+  | 'musicaDeBatalha';
 
 interface Interruptor {
   id: ChaveAjuste;
@@ -71,6 +77,24 @@ interface Interruptor {
 }
 
 export const INTERRUPTORES: readonly Interruptor[] = [
+  {
+    id: 'tamanhoReal',
+    nome: 'Tamanho real',
+    ligadoDiz: 'do tamanho da Pokédex — Onix tem 8,8 m',
+    desligadoDiz: 'encolhidos para caber na sala',
+  },
+  {
+    id: 'vozDoNome',
+    nome: 'Ele fala o nome',
+    ligadoDiz: 'Char! Charmander!',
+    desligadoDiz: 'o grito dos jogos',
+  },
+  {
+    id: 'musicaDeBatalha',
+    nome: 'Música de batalha',
+    ligadoDiz: 'a trilha entra quando a briga começa',
+    desligadoDiz: 'só os sons da sala',
+  },
   {
     id: 'vozDaDex',
     nome: 'Voz da Pokédex',
@@ -99,6 +123,26 @@ export class Ajustes {
   vozDaDex = true;
   avisoDeGolpe = true;
   contornoDaSala = false;
+  /**
+   * Os Pokémon do tamanho que a Pokédex diz, em metros de verdade.
+   *
+   * Ligado por padrão, e é a coisa mais cara deste arquivo: um Onix de 8,8 m
+   * não cabe em quarto nenhum, e é exatamente esse o ponto — ver um bicho que
+   * atravessa a parede da sala é uma coisa que só a realidade misturada faz.
+   * Desligado, vale a curva de compressão antiga (ver `alturaNaSala`, em
+   * src/species.ts).
+   */
+  tamanhoReal = true;
+  /** A voz dizendo o nome, no lugar do grito dos jogos. Ver src/audio.ts. */
+  vozDoNome = true;
+  /**
+   * A trilha enquanto você briga.
+   *
+   * Tem interruptor porque isto é realidade misturada: música em loop por cima
+   * da sala de casa é uma coisa que algumas pessoas querem e outras não
+   * aguentam dez minutos — e quem joga de madrugada não pode nem escolher.
+   */
+  musicaDeBatalha = true;
 
   constructor() {
     this.carregar();
@@ -146,6 +190,9 @@ export class Ajustes {
       if (typeof dados.vozDaDex === 'boolean') this.vozDaDex = dados.vozDaDex;
       if (typeof dados.avisoDeGolpe === 'boolean') this.avisoDeGolpe = dados.avisoDeGolpe;
       if (typeof dados.contornoDaSala === 'boolean') this.contornoDaSala = dados.contornoDaSala;
+      if (typeof dados.tamanhoReal === 'boolean') this.tamanhoReal = dados.tamanhoReal;
+      if (typeof dados.vozDoNome === 'boolean') this.vozDoNome = dados.vozDoNome;
+      if (typeof dados.musicaDeBatalha === 'boolean') this.musicaDeBatalha = dados.musicaDeBatalha;
     } catch {
       // Armazenamento bloqueado: joga com os padrões, que são os bons.
     }
@@ -161,6 +208,9 @@ export class Ajustes {
           vozDaDex: this.vozDaDex,
           avisoDeGolpe: this.avisoDeGolpe,
           contornoDaSala: this.contornoDaSala,
+          tamanhoReal: this.tamanhoReal,
+          vozDoNome: this.vozDoNome,
+          musicaDeBatalha: this.musicaDeBatalha,
         }),
       );
     } catch {

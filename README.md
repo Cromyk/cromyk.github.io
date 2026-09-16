@@ -72,11 +72,11 @@ sem pôr o headset a cada mudança:
 |---|---|
 | Pegar a pokébola | segurar o **GRIP** |
 | Arremessar | **soltar o GRIP** no meio do movimento do braço |
-| Mandar seu Pokémon atacar | **tocar** o GATILHO |
-| Mandar ele andar até um ponto | **segurar** o GATILHO e apontar o chão; ele vai onde você soltar |
+| Mandar seu Pokémon atacar | **apontar para o alvo** e tocar o GATILHO |
+| Mandar ele andar até um ponto | **segurar** o GATILHO e apontar o chão; ele vai onde você soltar — e **fica lá** |
 | Recolher para a bola | apontar para ele e apertar **A** |
-| Chamar para perto | **X** |
-| Ligar o PC (equipe e caixa) | **Y** |
+| Chamar de volta (desfaz o "fica aí") | **X** |
+| Ligar o PC (equipe e caixa) | **Y**, ou o ícone de monitor no painel do pulso |
 | Time, bolas, itens e os quatro golpes | girar o **pulso esquerdo**, como para ver as horas |
 | Modo de jogo, dificuldade e opções | a **engrenagem**, no canto do painel do pulso |
 | Pokédex das 151 | girar o **pulso direito** do mesmo jeito |
@@ -86,12 +86,23 @@ sem pôr o headset a cada mudança:
 | Virar página da Pokédex | **analógico direito**, com a Pokédex aberta |
 | Deixar evoluir / adiar | **A** / **B**, com a pergunta na tela |
 | Fazer carinho | **encostar a mão** na cabeça dele |
-| Pegar a fruta ou o doce na mão | **GRIP** na carta do item, no painel do pulso |
+| Pegar um item na mão | **GRIP** na carta do item, no painel do pulso |
+| Usar o item | **encostar** o item no seu Pokémon |
+| Devolver o que está na mão | levar a mão de volta ao painel e **abrir a mão** |
 | Atrair um selvagem de longe | com a isca na mão, **apontar e segurar** meio segundo |
 
-As mãos são **luvas brancas** articuladas: os dedos fecham conforme o gatilho e
-o grip, e com *hand tracking* ligado elas passam a seguir as suas juntas de
-verdade — fechar o punho faz o papel do GRIP, já que mão nua não tem botão.
+As mãos são o modelo de referência do próprio WebXR (o `generic-hand` do
+[webxr-input-profiles](https://github.com/immersive-web/webxr-input-profiles),
+MIT — o mesmo arquivo que o `XRHandModelFactory` do three.js carrega), baixado
+no build por `npm run maos`. Com controle, os dedos fecham conforme o gatilho e
+o grip: a cadeia de ossos é montada em tempo de execução a partir da pose de
+repouso e o eixo em que cada junta dobra é **medido no arquivo**, não chutado.
+Com *hand tracking* ligado a mesma malha passa a seguir as suas vinte e cinco
+juntas de verdade — fechar o punho faz o papel do GRIP, já que mão nua não tem
+botão. Se o arquivo não estiver lá, a luva montada em código assume o lugar.
+
+`npm run mao` desenha as duas mãos em três poses e três vistas num PNG: é como
+se confere que os dedos dobram para dentro da palma sem pôr o headset.
 
 O arco pontilhado aparece enquanto você move o braço e mostra onde a bola vai
 cair. Ele some quando a mão está parada — mirar é movimento, não apontar.
@@ -146,9 +157,43 @@ E três itens, na fileira de baixo do painel:
   chegando perto) e faz a próxima bola valer quase o dobro.
 - **Doce Raro** — um nível inteiro de uma vez. Quase nunca aparece.
 
+Item não é botão: você **pega o objeto na mão**. Feche o GRIP em cima da carta e
+o frasco (ou a fruta, ou o doce) vem para a sua mão; a partir daí ele é uma
+coisa que se usa **encostando no seu Pokémon**. A fruta e o doce também servem
+de isca à distância — ver [a isca](#a-isca-chamar-de-longe).
+
+Desistiu? Leve a mão de volta ao painel e abra: o item volta para a mochila sem
+ter sido gasto. Vale igual para a pokébola — tirar a bola, olhar e pôr de volta
+no lugar não custa bola nenhuma, porque ela só é gasta quando voa.
+
+Nada disso precisa de mira: com o painel aberto no seu pulso, a carta mais perto
+da sua mão **acende** enquanto o braço chega, e é ela que o GRIP pega.
+
 ## A batalha
 
 ![Os painéis do jogo](folha-paineis.png)
+
+### Quem apanha é quem você aponta
+
+O jogo escolhia sozinho o selvagem mais perto do seu Pokémon, o que tirava do
+jogador a decisão mais básica de uma briga. Agora o braço decide: **aponte para
+o bicho e puxe o gatilho**. Um anel duplo acende no chão aos pés dele, e o alvo
+**trava** — os golpes seguintes continuam nele mesmo que a sua mão saia da
+linha, porque ninguém mantém o braço parado a três metros de um bicho que anda.
+A trava cai sozinha quando ele desmaia, foge ou some da sala; apontar outro
+troca na hora.
+
+Sem ninguém sob a mira, o gatilho continua valendo: ele acerta o ponto da sala
+para onde você está apontando — que é o que dá o que fazer no modo Relaxante.
+
+### Vá ali — e fique
+
+Segurar o gatilho desenha o caminho no chão; soltar manda ele ir. **Chegando,
+ele fica**: passeia um palmo em volta da marca, olha para você e não volta a
+andar ao seu lado até você chamar com **X**, fazer carinho nele, ou mandar ele
+para outro lugar. Antes a ordem durava só a caminhada — ele chegava, caía na
+regra de seguir o treinador e dava meia-volta na frente de quem tinha acabado de
+mandar ele ir.
 
 ### Quatro golpes, os de verdade
 
@@ -221,8 +266,9 @@ O resultado, medido em `npm test`:
 O modo de jogo ocupava uma fileira fixa do painel do pulso, entre o título e o
 time — o lugar mais nobre da tela para uma coisa que se muda uma vez por sessão.
 Agora é uma **engrenagem** no canto do título: um toque abre a página de
-ajustes, outro fecha. Lá dentro: modo de jogo, dificuldade e três interruptores
-(voz da Pokédex, barra de carga, contorno da sala). Tudo fica salvo no headset.
+ajustes, outro fecha. Lá dentro: modo de jogo, dificuldade e cinco interruptores —
+**tamanho real**, **ele fala o nome**, voz da Pokédex, barra de carga e contorno
+da sala. Tudo fica salvo no headset.
 
 A folha de painéis acima sai de `npm run paineis`: os painéis são canvas 2D, e a
 ferramenta troca o `document` por um de mentira para rasterizar o **mesmo código
@@ -353,7 +399,8 @@ traz o bicho completamente manso.
 
 ## O PC
 
-**Y** liga o PC. Ele não é mais um painel de pulso: aparece à sua frente e
+**Y** liga o PC — ou o ícone de monitor no canto esquerdo do painel do pulso,
+que é onde a mão já está quando se pensa em mexer na equipe. Ele não é mais um painel de pulso: aparece à sua frente e
 **fica onde apareceu**, porque reorganizar a coleção é tarefa de dois toques por
 bicho com os dois lados à vista, e fazer isso num painel de vinte centímetros
 pendurado no braço que aponta seria brigar com o próprio painel. Dá para andar
@@ -390,8 +437,21 @@ oito bits de Red/Blue.
 
 Uma coisa que vale dizer sem rodeio: **o grito do jogo não é a voz do desenho**.
 O Charmander dos jogos guincha; quem fala "Charmander" é o dublador do anime, e
-isso não existe em fonte estruturada nenhuma. O que dá para ter de oficial e de
-reprodutível é o grito do jogo.
+isso não existe em fonte estruturada nenhuma — nem poderia ser baixado de uma.
+
+### Ele fala o próprio nome
+
+Por isso as 151 falas são **gravadas** (`npm run vozes`, 2,4 MB de MP3, o mesmo
+TTS da narração da Pokédex): "Char! Charmander!", "Pika! Pika pi!", "Bulba!
+Bulbasaur!". Quem tem jeito consagrado está numa tabela à mão; o resto sai da
+regra — o bicho diz o começo do próprio nome e depois o nome inteiro.
+
+Uma voz só seriam 151 bichos com a mesma garganta, então o **tom** vem do jogo:
+cada espécie ganha uma velocidade de reprodução deduzida do número da Pokédex e
+do peso. Caterpie sai fino e apressado, Snorlax sai grave e arrastado, e os dois
+saem do mesmo arquivo — que é o truque que os jogos antigos faziam com um sample
+só. O interruptor **"Ele fala o nome"** devolve o grito dos jogos a quem
+preferir.
 
 Os gritos sintetizados continuam no código como reserva: eles tocam no primeiro
 encontro de cada espécie, antes de o arquivo chegar, e são o que sobra se o
@@ -532,9 +592,24 @@ apontou os suspeitos; os três que sobraram (Charmander, Charmeleon e Pikachu)
 foram achados com `node tools/folha.mjs --candidatos 25`, que desenha o bicho
 sob oito giros diferentes para você escolher o certo no olho.
 
-Altura dentro da sala: a Pokédex vai de 0,2 m (Diglett) a 8,8 m (Onix), o que
-não cabe num quarto. A curva `0,4 · altura^0,45` comprime tudo para entre 24 cm
-e 1,1 m, preservando a ordem — Charizard continua bem maior que Charmander.
+### Tamanho real
+
+Por padrão os bichos entram na sala **do tamanho que a Pokédex diz**, em metros
+de verdade: Diglett tem 20 cm, Charizard tem 1,70 m e olha na sua cara, e Onix
+tem 8,80 m e **não cabe no seu quarto**. Não caber é o ponto — é a única coisa
+que só a realidade misturada faz, e espremer tudo para dentro do sofá jogava
+justamente isso fora.
+
+Quem quiser o quarto de volta desliga **Tamanho real** na engrenagem: aí vale a
+curva de compressão `0,4 · altura^0,45`, que põe todo mundo entre 24 cm e 1,1 m
+preservando a ordem — Charizard continua bem maior que Charmander. Trocar o
+ajuste com alguém em campo **remonta o corpo na hora**, mantendo vida, nível e
+posição: você vê o bicho crescer.
+
+As distâncias pessoais acompanham o corpo. "Pare a 80 cm do treinador" foi
+escrito para bichos de meio metro; num Onix isso significaria parar com a cabeça
+dentro da parede, então tudo o que é distância no `src/creature.ts` passa por uma
+folga proporcional ao raio.
 
 ## O código
 
@@ -598,6 +673,9 @@ npm run quest      # encaminha a porta para o headset
 npm test           # simula o jogo em Node: dados, batalha, captura, IA
 npm run render     # folha de contato dos 151, para conferir silhueta
 npm run poses      # folha das poses animadas dos iniciais
+npm run mao        # folha das poses da mão, em três vistas
+npm run maos       # baixa o modelo de mão do webxr-input-profiles
+npm run vozes      # grava os 151 dizendo o próprio nome
 npm run narracao   # grava a voz da Pokédex (só o que estiver faltando)
 npm run gritos     # baixa os gritos oficiais (--legacy para os de 8 bits)
 npm run paineis    # folha de contato dos painéis, para conferir a interface
