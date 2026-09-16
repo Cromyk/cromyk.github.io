@@ -28,7 +28,8 @@
     "maos": "node tools/maos.mjs",
     "mao": "esbuild tools/mao.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mao.mjs --log-level=error && node node_modules/.cache/mao.mjs",
     "vozes": "node tools/vozes.mjs",
-    "vozes:anime": "node tools/vozes-anime.mjs"
+    "vozes:anime": "node tools/vozes-anime.mjs",
+    "luva": "node tools/luva.mjs"
   },
   "dependencies": {
     "three": "^0.184.0"
