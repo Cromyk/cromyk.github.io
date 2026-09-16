@@ -462,10 +462,22 @@ export class Sala {
   }
 
   alternarDebug(): boolean {
-    this.mostrarDebug = !this.mostrarDebug;
-    this.grupoDebug.visible = this.mostrarDebug;
-    if (this.mostrarDebug) this.redesenharDebug();
+    this.mostrarContorno(!this.mostrarDebug);
     return this.mostrarDebug;
+  }
+
+  /**
+   * Acende ou apaga o contorno sem passar pelo interruptor da engrenagem.
+   *
+   * É o que o mapeamento de boas-vindas usa: ele precisa mostrar a sala
+   * aparecendo, e no fim devolver o desenho ao que o ajuste do jogador manda —
+   * sem nunca ter mexido no ajuste.
+   */
+  mostrarContorno(ligado: boolean) {
+    if (this.mostrarDebug === ligado) return;
+    this.mostrarDebug = ligado;
+    this.grupoDebug.visible = ligado;
+    if (ligado) this.redesenharDebug();
   }
 
   /** Contorno fino sobre cada superfície reconhecida — só para conferir a leitura. */

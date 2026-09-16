@@ -27,7 +27,7 @@ import { createCanvas, type Canvas } from '@napi-rs/canvas';
 };
 
 const [
-  { BarraVida },
+  { BarraVida, Aviso },
   { PainelTime },
   { PainelPc },
   { PainelDex },
@@ -239,6 +239,53 @@ const secoes: Array<{ titulo: string; pecas: Peca[] }> = [];
     pecas.push({ canvas: (painel.ficha as { canvas: Canvas }).canvas, rotulo: 'ficha' });
   }
   secoes.push({ titulo: 'Pokédex', pecas });
+}
+
+// --- o mapeamento de boas-vindas ---
+//
+// As três telas da abertura, lado a lado. É a conferência que importa aqui:
+// o aviso é a placa mais estreita do jogo, e frase comprida nele não estoura —
+// o canvas ESPREME a linha para caber, que é pior, porque passa despercebido
+// no código e só aparece como texto achatado no headset.
+{
+  const cenaFalsa = { add() {}, remove() {} } as never;
+  const telas: Array<[string, unknown[]]> = [
+    [
+      'sem nada ainda',
+      [
+        { texto: 'Procurando o seu quarto', tamanho: 38, cor: '#cfe6ff' },
+        { texto: 'olhe em volta e dê alguns passos', tamanho: 23, cor: '#9aa5b8', peso: 500 },
+      ],
+    ],
+    [
+      'mapeando',
+      [
+        { texto: 'Mapeando o seu quarto', tamanho: 38, cor: '#cfe6ff' },
+        {
+          texto: 'ande pelo cômodo — o contorno é o que já entrou',
+          tamanho: 22,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+        { texto: '4 superfícies', tamanho: 30, cor: '#7fd6a8', peso: 700 },
+      ],
+    ],
+    [
+      'pronta',
+      [
+        { texto: 'Sala pronta', tamanho: 40, cor: '#7fe7c4' },
+        { texto: '11 superfícies mapeadas', tamanho: 26, cor: '#7fd6a8', peso: 700 },
+        { texto: 'e o mapa cresce enquanto você anda', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+      ],
+    ],
+  ];
+
+  const pecas: Peca[] = telas.map(([rotulo, linhas]) => {
+    const aviso = espiar(new Aviso(cenaFalsa));
+    aviso.fixar(linhas as never);
+    return { canvas: (aviso.placa as { canvas: Canvas }).canvas, rotulo };
+  });
+  secoes.push({ titulo: 'mapeamento da sala', pecas });
 }
 
 // --------------------------------------------------------------- desenho

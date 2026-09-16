@@ -83,6 +83,21 @@ const DISTANCIA_DE_SUMICO = 9;
 /** Só a bola comum recarrega sozinha; as outras vêm de capturas. */
 const RECARGA_BOLA_COMUM = 5;
 const ALCANCE_BATALHA = 4.5;
+
+/**
+ * O mapeamento de boas-vindas, em superfícies e em segundos.
+ *
+ * Seis superfícies é pouco de propósito: quem tem o Space Setup feito entrega
+ * isso no primeiro quadro e passa direto, sem nem ler o aviso — e quem não tem
+ * anda meia dúzia de passos, que é exatamente o que o mapa precisa para deixar
+ * de ser um quadrado em volta de você. O teto de quarenta e cinco segundos
+ * existe para quem está num lugar que o headset não entende: o jogo começa
+ * assim mesmo, com o piso que acompanha o jogador.
+ */
+const SUPERFICIES_PARA_COMECAR = 6;
+const ESCANEAMENTO_MAXIMO = 45;
+/** Piso de tempo, só para o aviso dar tempo de ser lido. */
+const ESCANEAMENTO_MINIMO = 2.5;
 /** Fora de campo, cada Pokémon recupera 1 de HP a cada tanto de segundos. */
 const SEGUNDOS_POR_HP = 2.5;
 /** Perto o bastante para a mão encostar no companheiro e fazer carinho. */
@@ -197,6 +212,11 @@ export class Jogo {
   private marcaDeAlvo = new MarcaDeAlvo();
   private proximoSpawn = 2;
   private tempoLeituraSala = 0;
+  /** O mapeamento de boas-vindas, que roda uma vez no começo da sessão. */
+  private escaneando = true;
+  private tempoEscaneando = 0;
+  /** A última contagem já escrita no aviso, para não reescrever à toa. */
+  private mapeadasNoAviso = -1;
   private acumuladoCura = 0;
   private posicaoJogador = new THREE.Vector3();
 
@@ -2106,18 +2126,14 @@ export class Jogo {
     const agora = performance.now();
     this.camera.getWorldPosition(this.posicaoJogador);
 
-    // Antes de qualquer coisa: sem um parceiro você não batalha, e sem batalhar
-    // capturar é quase impossível. A escolha vem primeiro e segura o resto.
-    if (!this.dex.escolheuInicial) {
-      this.atualizarEscolhaInicial(dt, agora);
-      this.aviso.atualizar(dt, this.camera);
-      return;
-    }
-
     // A sala é remedida enquanto você anda: cada leitura carimba o chão sob os
     // seus pés e soma os planos novos que entraram no campo de visão. A cada um
     // terço de segundo é mais do que suficiente — andando depressa, isso dá uma
     // amostra a cada meio metro, e a célula do mapa tem oitenta centímetros.
+    //
+    // Isto vem antes de tudo, inclusive da escolha do parceiro: o quarto é o
+    // tabuleiro, e medir enquanto você lê a tela é tempo de mapeamento de
+    // graça.
     this.tempoLeituraSala -= dt;
     if (this.tempoLeituraSala <= 0) {
       this.tempoLeituraSala = 0.34;
@@ -2126,6 +2142,22 @@ export class Jogo {
         this.renderer.xr.getReferenceSpace(),
         this.posicaoJogador,
       );
+    }
+
+    // O quarto vem antes do jogo. Enquanto o mapa não tem o bastante, a única
+    // coisa que acontece é você andar e ver a sala se desenhar.
+    if (this.escaneando) {
+      this.atualizarEscaneamento(dt, agora);
+      this.aviso.atualizar(dt, this.camera);
+      return;
+    }
+
+    // Antes de qualquer coisa: sem um parceiro você não batalha, e sem batalhar
+    // capturar é quase impossível. A escolha vem primeiro e segura o resto.
+    if (!this.dex.escolheuInicial) {
+      this.atualizarEscolhaInicial(dt, agora);
+      this.aviso.atualizar(dt, this.camera);
+      return;
     }
 
     if (this.bonusFruta > 0) this.bonusFruta -= dt;
@@ -2184,6 +2216,89 @@ export class Jogo {
   }
 
   /** A vitrine dos iniciais, enquanto você não escolheu. */
+  /**
+   * O mapeamento de boas-vindas: a sala acesa, a contagem subindo e um pedido
+   * para você andar.
+   *
+   * O mapeamento sempre existiu e sempre foi automático — e era invisível, que
+   * é o mesmo que não existir para quem está de headset. Aqui ele só ganha
+   * corpo: o contorno acende sozinho, cada superfície nova dá um clique, e o
+   * número na sua frente é a prova de que andar está servindo para alguma
+   * coisa. Passada a abertura, o contorno volta a obedecer a engrenagem e o
+   * mapa continua crescendo calado, como sempre.
+   */
+  private atualizarEscaneamento(dt: number, agora: number) {
+    if (this.tempoEscaneando === 0) this.sala.mostrarContorno(true);
+    this.tempoEscaneando += dt;
+
+    // Sem isto a mão congela no ar durante a abertura.
+    for (const mao of this.maos) {
+      if (!mao.conectada) continue;
+      mao.amostrar(agora);
+      mao.atualizarLuva(dt);
+    }
+
+    const mapeadas = this.sala.mapeadas;
+    if (mapeadas !== this.mapeadasNoAviso) {
+      if (this.mapeadasNoAviso >= 0) audio.clique();
+      this.mapeadasNoAviso = mapeadas;
+      this.aviso.fixar(
+        mapeadas === 0
+          ? [
+              { texto: 'Procurando o seu quarto', tamanho: 38, cor: '#cfe6ff' },
+              {
+                texto: 'olhe em volta e dê alguns passos',
+                tamanho: 23,
+                cor: '#9aa5b8',
+                peso: 500,
+              },
+            ]
+          : [
+              { texto: 'Mapeando o seu quarto', tamanho: 38, cor: '#cfe6ff' },
+              {
+                texto: 'ande pelo cômodo — o contorno é o que já entrou',
+                tamanho: 22,
+                cor: '#9aa5b8',
+                peso: 500,
+              },
+              {
+                texto: `${mapeadas} ${mapeadas === 1 ? 'superfície' : 'superfícies'}`,
+                tamanho: 30,
+                cor: '#7fd6a8',
+                peso: 700,
+              },
+            ],
+      );
+    }
+
+    const bastante =
+      mapeadas >= SUPERFICIES_PARA_COMECAR && this.tempoEscaneando >= ESCANEAMENTO_MINIMO;
+    // Nada em oito segundos é resposta: o aparelho não está entregando plano
+    // nem chão, e insistir só deixa a pessoa parada olhando um número zerado.
+    const semSensores = mapeadas === 0 && this.tempoEscaneando >= 8;
+    if (!bastante && !semSensores && this.tempoEscaneando < ESCANEAMENTO_MAXIMO) return;
+
+    this.escaneando = false;
+    // O contorno volta a ser o que a engrenagem manda: a abertura tomou ele
+    // emprestado, não mudou a preferência de ninguém.
+    this.sala.mostrarContorno(this.ajustes.contornoDaSala);
+    this.aviso.soltar();
+    audio.sucesso();
+    this.aviso.mostrar(
+      [
+        { texto: 'Sala pronta', tamanho: 40, cor: '#7fe7c4' },
+        { texto: `${mapeadas} superfícies mapeadas`, tamanho: 26, cor: '#7fd6a8', peso: 700 },
+        {
+          texto: 'e o mapa cresce enquanto você anda',
+          tamanho: 21,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      2.6,
+    );
+  }
+
   private atualizarEscolhaInicial(dt: number, agora: number) {
     if (!this.escolha) {
       if (!this.carregandoEscolha) {

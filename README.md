@@ -364,6 +364,22 @@ entrou. Plano é estático no mundo, então o que se viu uma vez se guarda.
 O contador de **superfícies mapeadas** aparece no painel do pulso: é como se vê,
 de dentro do headset, que o mapeamento está funcionando.
 
+### A abertura: a sala antes do jogo
+
+O mapeamento sempre foi automático — e invisível, que para quem está de headset
+é o mesmo que não existir. Então a sessão agora **começa por ele**: o contorno
+acende sozinho, cada superfície nova dá um clique e o número sobe na sua frente,
+com um pedido para você andar pelo cômodo.
+
+Isso acaba assim que a sala tiver **seis superfícies** — quem tem o Space Setup
+feito entrega isso no primeiro quadro e passa direto, sem nem ler o aviso. Quem
+não tem anda meia dúzia de passos, que é exatamente o que o mapa precisa para
+deixar de ser um quadrado em volta de você. Nada em oito segundos encerra também:
+o aparelho não está entregando plano nem chão, e insistir só deixa a pessoa
+parada olhando um zero. Passada a abertura, o contorno volta a obedecer o
+interruptor da engrenagem — ela toma o desenho emprestado, não muda a
+preferência de ninguém.
+
 Duas consequências práticas:
 
 - **Nascer perto de você.** O sorteio do ponto de spawn só considera superfícies

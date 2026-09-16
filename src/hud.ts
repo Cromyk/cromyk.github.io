@@ -109,6 +109,9 @@ export class Aviso {
   readonly placa = new Placa(0.46, 0.22, 640);
   private restante = 0;
   private duracao = 1;
+  /** Aviso fixo: fica até alguém soltar. Ver `fixar`. */
+  private preso = false;
+  private opacidadePresa = 0;
 
   constructor(private readonly cena: THREE.Object3D) {
     this.placa.malha.visible = false;
@@ -122,7 +125,39 @@ export class Aviso {
     this.placa.malha.visible = true;
   }
 
+  /**
+   * Um aviso que FICA, sem contagem regressiva.
+   *
+   * O `mostrar` serve para o que tem hora de acabar; isto é para o que dura o
+   * tempo que durar — o mapeamento da sala, que termina quando o quarto for
+   * conhecido, não quando o relógio bater. Quem fixou é quem solta.
+   *
+   * Reescrever enquanto está fixo troca o texto sem reiniciar a entrada: é o
+   * que deixa a contagem de superfícies subir sem a placa piscar a cada número.
+   */
+  fixar(linhas: LinhaTexto[], opcoes?: Parameters<Placa['escrever']>[1]) {
+    this.placa.escrever(linhas, opcoes);
+    if (!this.preso) this.opacidadePresa = 0;
+    this.preso = true;
+    this.placa.malha.visible = true;
+  }
+
+  soltar() {
+    if (!this.preso) return;
+    this.preso = false;
+    this.restante = 0;
+    this.opacidadePresa = 0;
+    this.placa.malha.visible = false;
+  }
+
   atualizar(dt: number, camera: THREE.Camera) {
+    if (this.preso) {
+      this.acompanhar(dt, camera);
+      this.opacidadePresa = Math.min(1, this.opacidadePresa + dt * 4);
+      this.placa.opacidade = this.opacidadePresa;
+      return;
+    }
+
     if (this.restante <= 0) return;
     this.restante -= dt;
     if (this.restante <= 0) {
@@ -130,12 +165,17 @@ export class Aviso {
       return;
     }
 
-    const alvo = new THREE.Vector3(0, -0.1, -0.9).applyMatrix4(camera.matrixWorld);
-    this.placa.malha.position.lerp(alvo, Math.min(1, dt * 7));
-    this.placa.malha.quaternion.copy(camera.quaternion);
+    this.acompanhar(dt, camera);
 
     const t = this.restante / this.duracao;
     this.placa.opacidade = Math.min(Math.min(1, (1 - t) * 6), Math.min(1, t * 4));
+  }
+
+  /** A placa persegue um ponto à frente do rosto, sem grudar nele. */
+  private acompanhar(dt: number, camera: THREE.Camera) {
+    const alvo = new THREE.Vector3(0, -0.1, -0.9).applyMatrix4(camera.matrixWorld);
+    this.placa.malha.position.lerp(alvo, Math.min(1, dt * 7));
+    this.placa.malha.quaternion.copy(camera.quaternion);
   }
 
   descartar() {
