@@ -335,10 +335,25 @@ um número que parecia bom.
    premia**: um caroço dentro da palma deixa todo ponto da luva pertinho de
    mão. Corrigido com erro simétrico — o sentido mão→luva é o que cobra
    *cobertura*, e uma luva encolhida deixa a mão inteira longe dela.
-3. **A orientação.** Quatro trocas de sinal do PCA não dão ao ICP como
-   consertar um erro de 90°: ele refina, não gira. Corrigido varrendo as 12
-   orientações que levam eixo em eixo, em duas etapas — orientação primeiro com
-   uma pose média, depois a pose fina.
+3. **A orientação — e esta NÃO foi corrigida.** Quatro trocas de sinal do PCA
+   não dão ao ICP como consertar um erro de 90°: ele refina, não gira. Varri as
+   12 orientações que levam eixo em eixo, em duas etapas (orientação primeiro
+   com uma pose média, depois a pose fina). **Não resolveu:** a busca completa
+   converge para exatamente o mesmo resultado de antes — 9,1 mm, mesma pose,
+   mesma imagem errada.
+
+   E o diagnóstico disso é o que encerra a tentativa: o ICP está sendo
+   minimizado por **sobreposição de volume**, não por alinhamento anatômico.
+   Duas mãos de tamanho parecido encaixadas em quase qualquer orientação dão
+   erro parecido, porque as duas são blobs alongados de volume semelhante.
+   Nenhuma quantidade de orientações iniciais conserta um critério que não
+   distingue o certo do errado.
+
+   O que faria diferença é casar **características** — as cinco pontas de dedo,
+   o polegar, a linha do punho — em vez de nuvens de pontos. Só que achar as
+   pontas de dedo na luva é o problema original deste arquivo, aquele que nem
+   fatia nem setor angular resolveram. O caminho fecha em círculo, e é por isso
+   que a saída honesta é o Blender.
 
 ### O que já está certo e medido
 
@@ -349,7 +364,9 @@ um número que parecia bom.
 
 ### O que falta
 
-O alinhamento ainda não fechou, e depois dele faltam as duas últimas etapas,
+O alinhamento **não fechou, e eu parei de tentar** — quatro abordagens, cada
+uma com uma correção fundamentada, e a última mostrou que o critério em si é
+que não serve. Depois dele faltariam as duas últimas etapas,
 que já estão desenhadas no arquivo: transferir os pesos com as duas malhas na
 mesma pose (a objeção original ao vizinho mais próximo deixa de valer aí) e
 **levar a luva à bind pose** — sem isso ela entra no jogo já dobrada e o
@@ -359,5 +376,12 @@ A exportação não vai montar um GLB do zero: abre o `right.glb` e troca só a
 geometria da primitiva, preservando as 25 juntas e as `inverseBindMatrices` do
 arquivo oficial.
 
-**Estado:** `public/maos/*.glb` continuam sendo o `generic-hand`. **A luva não
-entrou no jogo** — e nada do resto do playtest depende dela.
+**Estado: a luva NÃO entrou no jogo.** `public/maos/*.glb` continuam sendo o
+`generic-hand`, e nada do resto do playtest depende dela.
+
+**O caminho curto é o Blender.** O *Armature > With Automatic Weights* resolve
+por heat map o que quatro tentativas de ICP aqui não resolveram, e o MCP já
+está instalado — só precisa do Blender **aberto**. O que este pipeline deixa
+pronto para esse dia: a luva decimada a 3.599 triângulos, a quiralidade
+resolvida (é esquerda), a folga medida (6–9 mm) e uma ferramenta que desenha o
+resultado antes de gravar.

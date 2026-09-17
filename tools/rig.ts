@@ -24,8 +24,37 @@
  * continuam sendo os do arquivo oficial — que é o que garante que o jogo, o
  * rastreamento de mão e tools/mao.ts continuem enxergando a mesma mão.
  *
- *   npm run rig -- --diag     alinha, mede e desenha; não escreve GLB
- *   npm run rig               escreve public/maos/{left,right}.glb
+ *   npm run rig               alinha, mede e desenha folha-rig.png
+ *
+ * ## Onde ISTO parou, e por que não adianta insistir no ICP
+ *
+ * O alinhamento não fechou. Foram quatro tentativas, cada uma corrigindo uma
+ * falha real e medida — manga no PCA, colapso de escala por erro
+ * unidirecional, e a orientação —, e a última é a que encerra o assunto:
+ * varrer as 12 orientações que levam eixo em eixo converge para EXATAMENTE o
+ * mesmo resultado de antes, 9,1 mm, com a luva perpendicular à mão.
+ *
+ * O diagnóstico é do critério, não da busca. O ICP aqui está sendo minimizado
+ * por SOBREPOSIÇÃO DE VOLUME e não por alinhamento anatômico: duas mãos de
+ * tamanho parecido encaixadas em quase qualquer orientação dão erro parecido,
+ * porque as duas são blobs alongados de volume semelhante. Nenhuma quantidade
+ * de orientações iniciais conserta um critério que não distingue o certo do
+ * errado — e foi por isso que parei de acrescentar orientações.
+ *
+ * O que funcionaria é casar CARACTERÍSTICAS — as cinco pontas de dedo, o
+ * polegar, a linha do punho — em vez de nuvens de pontos. Só que achar as
+ * pontas de dedo na luva é o problema original de tools/luva.mjs, o mesmo que
+ * nem fatia nem setor angular resolveram. O caminho fecha em círculo.
+ *
+ * Daí a saída honesta ser o **Blender** (o MCP está instalado; precisa do
+ * Blender aberto): o "Armature > With Automatic Weights" faz transferência de
+ * peso por heat map, que é a ferramenta certa para isto.
+ *
+ * O que fica pronto para esse dia: a luva decimada a 3.599 triângulos, a
+ * quiralidade resolvida (ela é ESQUERDA — e isso entrou na busca porque
+ * quiralidade não se resolve por rotação), a folga medida em 6 a 9 mm, e esta
+ * ferramenta, que DESENHA antes de gravar. As três falhas acima passaram todas
+ * por um número que parecia bom; só a imagem as denunciou.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
