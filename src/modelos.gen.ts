@@ -2451,5 +2451,88 @@ export const MEDIDAS: Record<string, MedidaModelo> = {
   "animacoes": [],
   "temEsqueleto": true,
   "vertices": 2914
+ },
+ "espeon": {
+  "num": 196,
+  "giroX": 0,
+  "giroY": 0,
+  "alturaModelo": 0.62946,
+  "largura": 0.79788,
+  "profundidade": 0.7291,
+  "baseY": -0.00079,
+  "centroX": 0.0733,
+  "centroZ": -0.07142,
+  "temShiny": true,
+  "animacoes": [
+   "Armature|ArmatureAction"
+  ],
+  "temEsqueleto": true,
+  "vertices": 2738
+ },
+ "umbreon": {
+  "num": 197,
+  "giroX": 0,
+  "giroY": 0,
+  "alturaModelo": 0.86202,
+  "largura": 0.52312,
+  "profundidade": 0.98663,
+  "baseY": -0.0024,
+  "centroX": 0.06253,
+  "centroZ": -0.10933,
+  "temShiny": true,
+  "animacoes": [
+   "Armature|ArmatureAction"
+  ],
+  "temEsqueleto": true,
+  "vertices": 4820
+ },
+ "leafeon": {
+  "num": 470,
+  "giroX": 0,
+  "giroY": 0,
+  "alturaModelo": 2.15575,
+  "largura": 0.95075,
+  "profundidade": 1.65799,
+  "baseY": -0.00364,
+  "centroX": -0.03315,
+  "centroZ": 0.02358,
+  "temShiny": false,
+  "animacoes": [
+   "Armature|ArmatureAction"
+  ],
+  "temEsqueleto": true,
+  "vertices": 3743
+ },
+ "glaceon": {
+  "num": 471,
+  "giroX": 0,
+  "giroY": 0,
+  "alturaModelo": 0.91067,
+  "largura": 0.52951,
+  "profundidade": 0.74543,
+  "baseY": -0.00072,
+  "centroX": -0.0816,
+  "centroZ": -0.0023,
+  "temShiny": false,
+  "animacoes": [
+   "Armature|ArmatureAction"
+  ],
+  "temEsqueleto": true,
+  "vertices": 2880
+ },
+ "sylveon": {
+  "num": 700,
+  "giroX": 0,
+  "giroY": 0,
+  "alturaModelo": 2.35786,
+  "largura": 4.3641,
+  "profundidade": 2.76822,
+  "baseY": -0.00196,
+  "centroX": 0,
+  "centroZ": 0.29149,
+  "temShiny": true,
+  "animacoes": [],
+  "temEsqueleto": true,
+  "vertices": 4253
  }
 };

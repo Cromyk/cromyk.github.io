@@ -39,8 +39,10 @@ import {
   evolucaoDaPedra,
   multiplicador,
   nivelPorXp,
+  pesoSpawn,
   porId,
   statsNoNivel,
+  TOTAL_ESPECIES,
   xpParaNivel,
   type Especie,
 } from '../src/species';
@@ -230,7 +232,17 @@ function desvioX(osso: THREE.Bone, repouso: THREE.Quaternion): number {
 // ---------------------------------------------------------------------------
 console.log('1. a Pokédex fecha consigo mesma');
 {
-  checar(ESPECIES.length === 151, `deveria haver 151 espécies, há ${ESPECIES.length}`);
+  // Kanto continua sendo Kanto. As convidadas (as cinco eeveelutions de fora
+  // da gen 1) existem em ESPECIES mas não contam aqui nem em TOTAL_ESPECIES:
+  // "completar a Pokédex" tem de continuar querendo dizer 151.
+  const kanto = ESPECIES.filter((e) => !e.convidada);
+  checar(kanto.length === 151, `deveria haver 151 espécies de Kanto, há ${kanto.length}`);
+  checar(
+    TOTAL_ESPECIES === 151,
+    `a Pokédex devia pedir 151 para fechar, pede ${TOTAL_ESPECIES}`,
+  );
+  const convidadas = ESPECIES.filter((e) => e.convidada);
+  checar(convidadas.length === 5, `deveria haver 5 convidadas, há ${convidadas.length}`);
   checar(INICIAIS.length === 5, `deveria haver 5 iniciais, há ${INICIAIS.length}`);
   // Um inicial sem modelo é uma vitrine com um pedestal vazio, e a tela de
   // escolha não tem como se recuperar disso na frente do jogador.
@@ -1639,16 +1651,39 @@ console.log('29. as pedras de evolução');
   checar(evolucaoDaPedra('pedra-trovao', porId('pikachu')!)?.id === 'raichu', 'a Pedra do Trovão devia virar o Pikachu em Raichu');
   checar(evolucaoDaPedra('pedra-fogo', porId('pikachu')!) === null, 'a Pedra do Fogo não devia fazer nada com o Pikachu');
 
-  // O Eevee é o caso que justifica as pedras existirem: três pedras, três
-  // bichos diferentes, e a escolha é irreversível.
+  // O Eevee é o caso que justifica as pedras existirem: oito pedras, oito
+  // bichos diferentes, e a escolha é irreversível. Cinco desses oito são
+  // convidados de fora de Kanto — ver src/pedras.ts.
   const eevee = porId('eevee')!;
-  const caminhos = ['pedra-agua', 'pedra-trovao', 'pedra-fogo'].map(
-    (p) => evolucaoDaPedra(p, eevee)?.id,
-  );
+  const PEDRAS_DO_EEVEE = [
+    'pedra-agua',
+    'pedra-trovao',
+    'pedra-fogo',
+    'pedra-folha',
+    'pedra-lua',
+    'pedra-sol',
+    'pedra-gelo',
+    'pedra-fada',
+  ];
+  const caminhos = PEDRAS_DO_EEVEE.map((p) => evolucaoDaPedra(p, eevee)?.id);
   checar(
-    new Set(caminhos).size === 3 && !caminhos.includes(undefined),
-    `o Eevee devia ter três destinos distintos, tem ${caminhos.join(', ')}`,
+    new Set(caminhos).size === PEDRAS_DO_EEVEE.length && !caminhos.includes(undefined),
+    `o Eevee devia ter ${PEDRAS_DO_EEVEE.length} destinos distintos, tem ${caminhos.join(', ')}`,
   );
+
+  // Toda pedra tem de servir para alguém, senão é um item que só ocupa espaço
+  // na mochila — e a mochila é do tamanho de um selo no pulso.
+  for (const pedra of PEDRAS) {
+    checar(
+      Object.keys(pedra.evolucoes).length > 0,
+      `${pedra.nome} não evolui ninguém`,
+    );
+  }
+
+  // As convidadas entraram para ser ponta de linha, não para povoar a sala.
+  for (const e of ESPECIES.filter((x) => x.convidada)) {
+    checar(pesoSpawn(e, false, 40) === 0, `${e.nome} é convidada e não devia nascer selvagem`);
+  }
 
   console.log(
     `   ${PEDRAS.length} pedras, ${pares} evoluções · ` +

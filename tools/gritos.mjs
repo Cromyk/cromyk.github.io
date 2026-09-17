@@ -18,19 +18,33 @@
  * baixam o que faltar. Ver .gitignore.
  */
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SAIDA = 'public/gritos';
-const ULTIMO = 151;
+
+/**
+ * Quem baixar sai da Pokédex GERADA, não de um `151` escrito aqui.
+ *
+ * Tinha um, e ele passou despercebido no dia em que as cinco eeveelutions de
+ * fora de Kanto entraram (ver `CONVIDADAS` em tools/pokedex.mjs): a Pokédex
+ * passou a ter 156 espécies e este script continuou baixando 151, deixando
+ * Espeon, Umbreon, Leafeon, Glaceon e Sylveon mudos — falha que não aparece em
+ * teste nenhum, só na hora em que o bicho abre a boca e não sai som.
+ */
+const numerosDaDex = [
+  ...readFileSync(new URL('../src/pokedex.gen.ts', import.meta.url), 'utf8').matchAll(
+    /"num":\s*(\d+)/g,
+  ),
+].map((m) => Number(m[1]));
 const legado = process.argv.includes('--legacy');
 const BASE = `https://raw.githubusercontent.com/PokeAPI/cries/main/cries/pokemon/${
   legado ? 'legacy' : 'latest'
 }`;
 
 const alvos = process.argv.slice(2).filter((a) => /^\d+$/.test(a)).map(Number);
-const numeros = alvos.length
-  ? alvos
-  : Array.from({ length: ULTIMO }, (_, i) => i + 1);
+const numeros = alvos.length ? alvos : [...new Set(numerosDaDex)].sort((a, b) => a - b);
+if (numeros.length === 0) throw new Error('nenhum número lido de src/pokedex.gen.ts');
 
 await mkdir(SAIDA, { recursive: true });
 

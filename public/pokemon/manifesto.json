@@ -1,7 +1,7 @@
 {
  "versao": 7,
  "fonte": "Pokemon-3D-api/assets",
- "gerado": 1789662279878,
+ "gerado": 1789663978139,
  "especies": {
   "bulbasaur": {
    "num": 1,
@@ -3194,6 +3194,108 @@
    "rosto": null,
    "orientadoPor": "padrão",
    "vertices": 2914,
+   "animacoes": [],
+   "temEsqueleto": true
+  },
+  "espeon": {
+   "num": 196,
+   "bytes": 208556,
+   "temShiny": true,
+   "giroX": 0,
+   "giroY": 0,
+   "alturaModelo": 0.62946,
+   "largura": 0.79788,
+   "profundidade": 0.7291,
+   "baseY": -0.00079,
+   "centroX": 0.0733,
+   "centroZ": -0.07142,
+   "rosto": null,
+   "orientadoPor": "padrão",
+   "vertices": 2738,
+   "animacoes": [
+    "Armature|ArmatureAction"
+   ],
+   "temEsqueleto": true
+  },
+  "umbreon": {
+   "num": 197,
+   "bytes": 172224,
+   "temShiny": true,
+   "giroX": 0,
+   "giroY": 0,
+   "alturaModelo": 0.86202,
+   "largura": 0.52312,
+   "profundidade": 0.98663,
+   "baseY": -0.0024,
+   "centroX": 0.06253,
+   "centroZ": -0.10933,
+   "rosto": null,
+   "orientadoPor": "padrão",
+   "vertices": 4820,
+   "animacoes": [
+    "Armature|ArmatureAction"
+   ],
+   "temEsqueleto": true
+  },
+  "leafeon": {
+   "num": 470,
+   "bytes": 247756,
+   "temShiny": false,
+   "giroX": 0,
+   "giroY": 0,
+   "alturaModelo": 2.15575,
+   "largura": 0.95075,
+   "profundidade": 1.65799,
+   "baseY": -0.00364,
+   "centroX": -0.03315,
+   "centroZ": 0.02358,
+   "rosto": null,
+   "orientadoPor": "padrão",
+   "vertices": 3743,
+   "animacoes": [
+    "Armature|ArmatureAction"
+   ],
+   "temEsqueleto": true
+  },
+  "glaceon": {
+   "num": 471,
+   "bytes": 183012,
+   "temShiny": false,
+   "giroX": 0,
+   "giroY": 0,
+   "alturaModelo": 0.91067,
+   "largura": 0.52951,
+   "profundidade": 0.74543,
+   "baseY": -0.00072,
+   "centroX": -0.0816,
+   "centroZ": -0.0023,
+   "rosto": [
+    0.0535,
+    0.0453,
+    0.4165
+   ],
+   "orientadoPor": "olhos",
+   "vertices": 2880,
+   "animacoes": [
+    "Armature|ArmatureAction"
+   ],
+   "temEsqueleto": true
+  },
+  "sylveon": {
+   "num": 700,
+   "bytes": 70172,
+   "temShiny": true,
+   "giroX": 0,
+   "giroY": 0,
+   "alturaModelo": 2.35786,
+   "largura": 4.3641,
+   "profundidade": 2.76822,
+   "baseY": -0.00196,
+   "centroX": 0,
+   "centroZ": 0.29149,
+   "rosto": null,
+   "orientadoPor": "padrão",
+   "vertices": 4253,
    "animacoes": [],
    "temEsqueleto": true
   }

@@ -1,5 +1,20 @@
 /**
- * As pedras de evolução da primeira geração.
+ * As pedras de evolução.
+ *
+ * ## As oito saídas do Eevee
+ *
+ * Cinco delas — Espeon, Umbreon, Leafeon, Glaceon e Sylveon — são de gerações
+ * que este jogo não tem. Elas entraram como CONVIDADAS (ver tools/pokedex.mjs)
+ * porque o Eevee é o único bicho de Kanto cuja graça inteira é a escolha de
+ * para onde ele vai, e com três saídas metade dessa graça não existia.
+ *
+ * No jogo original, três dessas cinco não vêm de pedra nenhuma: Espeon e
+ * Umbreon vêm de amizade com hora do dia, e Sylveon de afeto com golpe de fada.
+ * Aqui todas viram pedra, e é uma decisão, não um descuido. Hora do dia não
+ * existe num jogo que se joga na sala a qualquer hora; amizade medida em
+ * minutos de carinho seria um cronômetro escondido que o jogador não pode ver.
+ * Uma regra só para a família inteira — encoste a pedra, escolha o caminho —
+ * vale mais do que cinco regras fiéis ao original que ninguém guarda de cabeça.
  *
  * Elas existem por uma razão de jogo, não de fidelidade: sem pedra, catorze das
  * 151 espécies evoluíam sozinhas ao chegar num nível qualquer, e isso é o
@@ -83,6 +98,10 @@ export const PEDRAS: readonly Pedra[] = [
       gloom: 'vileplume',
       weepinbell: 'victreebel',
       exeggcute: 'exeggutor',
+      // Canônico desde a oitava geração, onde a Pedra da Folha substituiu a
+      // pedra de musgo. Das cinco saídas novas do Eevee, é a única que não
+      // precisou ser inventada aqui.
+      eevee: 'leafeon',
     },
   },
   {
@@ -95,6 +114,43 @@ export const PEDRAS: readonly Pedra[] = [
       nidorino: 'nidoking',
       clefairy: 'clefable',
       jigglypuff: 'wigglytuff',
+      // Umbreon evolui de noite, por amizade. A noite não existe num jogo que
+      // se joga na sua sala a qualquer hora, e amizade medida em minutos de
+      // carinho seria um cronômetro escondido. A Pedra da Lua é a tradução
+      // honesta: é o objeto que, neste jogo, quer dizer "à noite".
+      eevee: 'umbreon',
+    },
+  },
+  {
+    id: 'pedra-sol',
+    nome: 'Pedra do Sol',
+    curto: 'Sol',
+    cor: 0xffb03a,
+    evolucoes: {
+      // O par da Pedra da Lua, pelo mesmo motivo: Espeon é o Eevee de dia.
+      eevee: 'espeon',
+    },
+  },
+  {
+    id: 'pedra-gelo',
+    nome: 'Pedra do Gelo',
+    curto: 'Gelo',
+    cor: 0x8fd8ff,
+    evolucoes: {
+      eevee: 'glaceon',
+    },
+  },
+  {
+    id: 'pedra-fada',
+    nome: 'Pedra da Fada',
+    curto: 'Fada',
+    cor: 0xff9ecb,
+    evolucoes: {
+      // Sylveon nasce de afeto mais um golpe de fada, que é a condição mais
+      // difícil de traduzir das cinco. Vira pedra como as outras — uma regra só
+      // para a família inteira vale mais do que cinco regras fiéis que ninguém
+      // consegue guardar de cabeça.
+      eevee: 'sylveon',
     },
   },
 ];

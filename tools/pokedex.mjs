@@ -20,6 +20,28 @@ const SAIDA = join(RAIZ, 'src', 'pokedex.gen.ts');
 const API = 'https://pokeapi.co/api/v2';
 const ULTIMO = 151;
 
+/**
+ * As cinco de fora de Kanto que o jogo deixa entrar, e por quê.
+ *
+ * O jogo é a primeira geração, e isso é uma decisão, não uma limitação: 151 é
+ * um número que cabe numa cabeça, e uma Pokédex que vai a 1025 deixa de ser uma
+ * coleção para virar um catálogo.
+ *
+ * A exceção é o Eevee. Ele é o único bicho da gen 1 cuja graça INTEIRA é a
+ * escolha de para onde ele vai — e com só três saídas, metade da piada não
+ * existe. Espeon e Umbreon são de Johto; Leafeon e Glaceon, de Sinnoh; Sylveon,
+ * de Kalos. Entram como CONVIDADAS: não nascem selvagens, não contam na
+ * contagem de 151, e só existem na ponta da linha do Eevee. Quem nunca usar uma
+ * pedra nele joga exatamente o jogo de antes.
+ */
+const CONVIDADAS = [
+  196, // Espeon
+  197, // Umbreon
+  470, // Leafeon
+  471, // Glaceon
+  700, // Sylveon
+];
+
 mkdirSync(CACHE, { recursive: true });
 
 // ---------------------------------------------------------------- rede
@@ -283,13 +305,20 @@ const SABOR = {
   dragonite: 'Dá a volta no mundo em dezesseis horas. Salva gente no mar.',
   mewtwo: 'Foi feito em laboratório para brigar. Aprendeu só isso.',
   mew: 'Tem o DNA de todos. Some quando você olha direto.',
+
+  // As convidadas. Ver CONVIDADAS no topo.
+  espeon: 'Sente o ar se mexer e sabe o que você vai fazer antes de você.',
+  umbreon: 'Os anéis brilham no escuro quando a lua bate. Some no resto do tempo.',
+  leafeon: 'Faz fotossíntese, então quase não come. Cheira a mato cortado.',
+  glaceon: 'Abaixa a própria temperatura e congela o ar em volta em pó de gelo.',
+  sylveon: 'Enrola as fitas no seu braço e você para de conseguir brigar.',
 };
 
 // ---------------------------------------------------------------- geração
 
-console.log('Pokédex: baixando os 151 da PokeAPI…');
+console.log(`Pokédex: baixando os ${ULTIMO} da PokeAPI, mais ${CONVIDADAS.length} convidadas…`);
 
-const ids = Array.from({ length: ULTIMO }, (_, i) => i + 1);
+const ids = [...Array.from({ length: ULTIMO }, (_, i) => i + 1), ...CONVIDADAS];
 const brutos = await emLotes(ids, 8, async (n) => ({
   poke: await buscar(`pokemon/${n}`),
   esp: await buscar(`pokemon-species/${n}`),
@@ -363,6 +392,9 @@ const entradas = brutos.map(({ poke, esp }) => {
     evolui: evo && idsValidos.has(evo.para) ? evo : null,
     genero: generoPt(genero),
     descricao: SABOR[chave] ?? ficha,
+    // Fora dos 151. Ver CONVIDADAS no topo: não nasce selvagem e não conta na
+    // Pokédex principal — só chega pela pedra na mão do Eevee.
+    convidada: poke.id > ULTIMO,
   };
 });
 
@@ -413,6 +445,14 @@ export interface EntradaDex {
   evolui: { para: string; nivel: number } | null;
   genero: string;
   descricao: string;
+  /**
+   * De fora da primeira geração, entrando só como ponta de uma linha evolutiva.
+   *
+   * Hoje são as cinco eeveelutions modernas. Quem é convidada não nasce
+   * selvagem e não entra na contagem de 151 — ver \`CONVIDADAS\` em
+   * tools/pokedex.mjs e \`ESPECIES_KANTO\` em src/species.ts.
+   */
+  convidada: boolean;
 }
 
 export const EFETIVIDADE: Record<Tipo, Partial<Record<Tipo, number>>> = ${JSON.stringify(

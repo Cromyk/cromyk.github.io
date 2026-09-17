@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EFETIVIDADE, POKEDEX, type EntradaDex, type Tipo } from './pokedex.gen';
 import { temModelo, temShiny } from './modelos';
 import { APRENDE, GOLPES_DEX } from './golpes.gen';
-import { EVOLUI_SO_COM_PEDRA, evolucaoPorPedra } from './pedras';
+import { EVOLUI_SO_COM_PEDRA, PEDRAS, evolucaoPorPedra } from './pedras';
 
 export type { Tipo } from './pokedex.gen';
 
@@ -356,6 +356,16 @@ export interface Especie {
   evolui: { para: string; nivel: number } | null;
   temShiny: boolean;
   inicial: boolean;
+  /**
+   * De fora dos 151, presente só como ponta de uma linha evolutiva.
+   *
+   * São as cinco eeveelutions modernas — Espeon, Umbreon, Leafeon, Glaceon e
+   * Sylveon. A Pokédex do jogo continua sendo a de Kanto: convidada não nasce
+   * selvagem (`pesoSpawn` devolve 0) e não entra em `TOTAL_ESPECIES`, então
+   * completar a coleção continua querendo dizer 151. Ver `CONVIDADAS` em
+   * tools/pokedex.mjs.
+   */
+  convidada: boolean;
   genero: string;
   descricao: string;
 }
@@ -491,6 +501,20 @@ export interface Aprendizado {
  * nível 1, um golpe genérico do tipo da espécie é acrescentado ali — e some
  * assim que um de verdade aparece.
  */
+/**
+ * De quem esta espécie vem, quando ela vem de uma pedra.
+ *
+ * As tabelas de pedra (src/pedras.ts) são o único lugar onde a ligação
+ * Eevee → Sylveon existe: a tabela de evolução da PokeAPI dá UMA saída por
+ * espécie, e o Eevee tem oito.
+ */
+function origemPorPedra(id: string): string | null {
+  for (const pedra of PEDRAS) {
+    for (const [de, para] of Object.entries(pedra.evolucoes)) if (para === id) return de;
+  }
+  return null;
+}
+
 function montarAprendizado(entrada: EntradaDex): Aprendizado[] {
   const tipos = entrada.tipos as Tipo[];
   const lista: Aprendizado[] = [];
@@ -500,6 +524,39 @@ function montarAprendizado(entrada: EntradaDex): Aprendizado[] {
     if (!bruto) continue;
     lista.push({ golpe: bruto as Golpe, nivel });
   }
+  // Sem learnset próprio: herda o de quem evolui nele.
+  //
+  // Acontece com as convidadas (ver `convidada`). `tools/golpes.mjs` lê a
+  // tabela de quem-aprende-o-quê de Red/Blue/Yellow, e Espeon, Umbreon,
+  // Leafeon, Glaceon e Sylveon não existiam nesses jogos — chegavam aqui com
+  // UM golpe, o genérico do próprio tipo, o que faz um bicho que só sabe
+  // repetir a mesma coisa a briga inteira.
+  //
+  // Herdar do Eevee é a resposta certa e não só a conveniente: uma eeveelution
+  // É um Eevee que mudou de elemento, então ela sabe o que ele sabia e ganha o
+  // do seu tipo por cima — o físico cedo, o especial quando cresce.
+  //
+  // Exige a ORIGEM, e não só a lista vazia: Abra e Ditto também chegam sem
+  // learnset (a tabela de RBY só lhes dá Teleporte e Transformação, que são
+  // status), e tratá-los como herdeiros lhes dava o golpe genérico do tipo
+  // duas vezes — uma aqui e outra no `temDanoCedo` logo abaixo. Quem não vem
+  // de pedra continua no caminho de antes.
+  const origem = lista.length === 0 ? origemPorPedra(entrada.id) : null;
+  if (origem) {
+    const herdado = APRENDE[origem] ?? [];
+    for (const [chave, nivel] of herdado) {
+      const bruto = GOLPES_DEX[chave];
+      if (bruto) lista.push({ golpe: bruto as Golpe, nivel });
+    }
+    // Só o que não estiver repetido: o Eevee já aprende Mordida, que é o golpe
+    // genérico do tipo sombrio, e sem esta checagem o Umbreon saía para o campo
+    // com Mordida duas vezes nas quatro vagas.
+    const meu = GOLPES[tipos[0]];
+    const jaTem = (g: Golpe) => lista.some((a) => a.golpe.nome === g.nome);
+    if (!jaTem(meu.fisico)) lista.push({ golpe: meu.fisico, nivel: 15 });
+    if (!jaTem(meu.especial)) lista.push({ golpe: meu.especial, nivel: 32 });
+  }
+
   lista.sort((a, b) => a.nivel - b.nivel);
 
   const temDanoCedo = lista.some((a) => a.nivel <= 1 && a.golpe.categoria !== 'status');
@@ -602,6 +659,7 @@ export const ESPECIES: readonly Especie[] = POKEDEX.filter((e) => temModelo(e.id
     evolui: e.evolui,
     temShiny: temShiny(e.id),
     inicial: INICIAIS_IDS.includes(e.id),
+    convidada: e.convidada,
     genero: e.genero,
     descricao: e.descricao,
   };
@@ -623,7 +681,15 @@ const PorId = new Map(ESPECIES.map((e) => [e.id, e]));
 export const porId = (id: string) => PorId.get(id);
 export const porNum = (num: number) => ESPECIES.find((e) => e.num === num);
 export const INICIAIS = INICIAIS_IDS.map((id) => PorId.get(id)!).filter(Boolean);
-export const TOTAL_ESPECIES = ESPECIES.length;
+/**
+ * Quantas a Pokédex pede para completar: as de Kanto, e só elas.
+ *
+ * Não é `ESPECIES.length`. As convidadas estão em `ESPECIES` porque precisam
+ * existir — têm modelo, stats, golpes e ficha —, mas contá-las aqui mudaria o
+ * significado de "completei a Pokédex" para quem já estava jogando, e por um
+ * motivo que não é dele: eu abri uma exceção para o Eevee.
+ */
+export const TOTAL_ESPECIES = ESPECIES.filter((e) => !e.convidada).length;
 
 export const corDe = (especie: Especie) => TIPOS[especie.tipo].cor;
 export const corHexDe = (especie: Especie) =>
@@ -868,6 +934,12 @@ export function chanceCaptura(
  * espera, não caçada.
  */
 export function pesoSpawn(especie: Especie, jaCapturou: boolean, nivelJogador: number): number {
+  // Convidada não nasce no quarto de ninguém. Um Sylveon passeando pela sala
+  // seria a resposta errada para o pedido que o trouxe: ele entrou para ser o
+  // resultado de uma escolha sua com a pedra na mão, e um bicho que você pode
+  // simplesmente encontrar não é resultado de escolha nenhuma.
+  if (especie.convidada) return 0;
+
   const porRaridade: Record<Raridade, number> = {
     comum: 10,
     incomum: 4.5,
