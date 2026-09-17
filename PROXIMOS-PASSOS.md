@@ -1,164 +1,293 @@
-# Próximos passos — jogabilidade e interação
+# Roteiro de desenvolvimento
 
-Escrito depois do playtest de 16–17/09 (ver `PLAYTEST.md`). Não é lista de
-desejos: cada item abaixo sai de uma coisa que o playtest mostrou ou que o
-código confessa quando se olha. Está em ordem de impacto, e o motivo de cada
-prioridade está dito.
+Escrito em 17/09/2026, depois do playtest do dia (ver `PLAYTEST.md`) e da
+rodada de correções que saiu dele. Substitui a lista anterior, de 16–17/09:
+o que ela pedia continua valendo e está aqui dentro, reorganizado por **ordem
+de dependência** em vez de ordem de impacto — porque descobriu-se que metade
+dos itens não pode ser avaliada antes do primeiro.
+
+Não é lista de desejos. Cada item sai de uma coisa que o playtest mostrou ou
+que o código confessa quando se olha, e cada um traz **como saber que
+funcionou** — porque num jogo de VR feito por quem não tem o headset na mão, um
+item sem critério observável é um item que vai ser dado como pronto sem ser.
 
 ---
 
-## 1. Nenhum gesto pode falhar calado
+## Três regras que valem para o roteiro inteiro
 
-**Por que primeiro:** foi a causa do bug que você relatou como *"mandar o
-Pokémon e ele ficar não funciona"*. A lógica estava certa e com teste passando
-— o que faltava era o jogo **dizer** que a condição não estava satisfeita. Você
-repetiu o gesto sem nunca saber que ele estava correto.
+**1. Em VR, a câmera é sagrada.** Screen shake, tilt, pulo de câmera, vinheta
+que fecha — tudo o que um jogo de tela usa para dar impacto — aqui **enjoa**.
+Nada neste roteiro mexe na câmera. O impacto vai para o objeto, para a mão
+(vibração) e para o som. Quem escrever "só um trancinho de câmera" está
+propondo uma regressão.
 
-Isso não foi um caso isolado, foi um padrão. O código tem 12 pontos que recusam
-com voz (`audio.recusa()`) e pelo menos 5 que **retornam em silêncio** no meio
-de um gesto do jogador:
+**2. Silêncio é ambiguidade.** Num jogo de teclado, uma ação que não acontece
+deixa a tela igual e você tenta de novo. Em VR você não tem cursor, não tem
+log, e não tem como distinguir *"o sistema não me ouviu"* de *"o sistema me
+ouviu e recusou"*. As duas coisas precisam de respostas diferentes e audíveis.
+
+**3. O que não é medido não melhora.** Ver a seção 0.
+
+---
+
+## Fase 0 — Saber o que está acontecendo
+
+**Por que primeiro:** hoje o jogo não mede nada. Em 17/09 entraram três coisas
+que custam quadro — o fogo (sprites aditivos por bicho), o feixe de mira (um
+cilindro por mão) e a mochila (onze objetos 3D com onze texturas de canvas) —
+e **ninguém sabe quanto**. `grep -i fps src/` não devolve uma linha. O headset
+desenha a cena duas vezes a 90 Hz; um item da Fase 2 que custe 4 ms passa
+despercebido na tela do PC e derruba a sessão no Quest.
+
+Enquanto isso não existir, toda decisão de performance neste roteiro é chute —
+inclusive as minhas.
+
+### 0.1 Um contador de quadros dentro do jogo
+
+Não no console: **na sala**, num canto do painel de ajustes, ligável. Média,
+pior caso do último segundo, e contagem de draw calls
+(`renderer.info.render.calls`). É o que transforma "achei que ficou pesado" num
+número que se compara entre duas versões.
+
+- **Esforço:** baixo. O `renderer.info` já dá quase tudo.
+- **Como saber que funcionou:** você consegue me dizer um número em vez de uma
+  impressão, e esse número muda quando um Charizard entra em campo.
+
+### 0.2 Um orçamento por sistema
+
+Com o contador de pé, medir uma vez: quadro parado, quadro com 3 selvagens,
+quadro com a mochila aberta, quadro com o fogo. Anotar em `PLAYTEST.md`. É a
+linha de base contra a qual tudo que vier depois se compara.
+
+- **Esforço:** baixo, mas depende de 0.1 e de você com o headset.
+- **Como saber que funcionou:** existe uma tabela, e ela tem números seus.
+
+---
+
+## Fase 1 — O jogo responde
+
+A Fase 1 é sobre o jogo **dizer** o que está acontecendo. É a queixa original
+do playtest (*"mandar o Pokémon e ele ficar não funciona"* — a lógica estava
+certa e com teste passando; o que faltava era o jogo dizer que a condição não
+tinha sido satisfeita).
+
+### 1.1 Nenhum gesto falha calado
+
+O código tem 12 pontos que recusam com voz (`audio.recusa()`) e 33 que vibram,
+contra **151 `return;`** em `src/game.ts`. Nem todos são gestos do jogador —
+mas os que são, hoje, somem sem deixar rastro:
 
 ```
-game.ts:1839   if (!this.companheiro) return;
-game.ts:2891   if (!this.temCompanheiroEmCampo) return;
-game.ts:3428   if (!this.companheiro) return;
-game.ts:3475   if (!this.companheiro) return;
-game.ts:3912   if (!this.temCompanheiroEmCampo) return;
+game.ts   if (!this.companheiro) return;
+game.ts   if (!this.temCompanheiroEmCampo) return;
 ```
-
-Num jogo de tela e teclado, silêncio é ambíguo mas tolerável. Em VR ele é
-cruel: você não tem cursor, não tem log, não tem como saber se o sistema te
-ouviu. Silêncio e "não funciona" são indistinguíveis.
 
 **Proposta:** uma regra de projeto — *todo caminho que interrompe um gesto do
-jogador devolve alguma coisa*: voz, vibração ou frase. Em VR, vibração é a mais
-barata e a mais informativa, porque chega sem ocupar a visão.
+jogador devolve alguma coisa*. Vibração é a mais barata e a mais informativa,
+porque chega sem ocupar a visão. E uma auditoria mecânica: percorrer os
+`return` dos despachantes de gesto e classificar cada um em "não é gesto",
+"já responde" ou "cala".
 
-**Esforço:** baixo. É auditoria mecânica, e o padrão já existe em 12 lugares
-para copiar.
+- **Esforço:** baixo. É auditoria, e o padrão já existe em 12 lugares para
+  copiar.
+- **Como saber que funcionou:** você faz um gesto impossível de propósito — o
+  gatilho sem Pokémon em campo, o grip na mochila fechada — e sente a recusa
+  sem tirar os olhos do que estava olhando.
 
----
+### 1.2 Um vocabulário de vibração, não 33 vibrações soltas
 
-## 2. A armadilha das pokébolas ainda está inteira nos itens
+As 33 chamadas de `mao.vibrar` usam intensidades e durações escolhidas caso a
+caso (`0.3, 35`, `0.7, 70`, `0.45, 60`). Isso é ruído: a mão aprende padrões,
+não valores. Três ou quatro padrões nomeados — *pegou*, *recusado*, *acertou*,
+*levou* — e todo mundo usa esses.
 
-**O que eu verifiquei:** `ganharItem` só é chamado de um lugar —
-`premiarCaptura()`, em `src/state.ts`. Igualzinho às bolas antes da correção:
+- **Esforço:** baixo. É uma tabela e um replace.
+- **Como saber que funcionou:** de olhos fechados, você distingue "peguei" de
+  "fui recusado".
 
-> poção só vem de capturar · capturar com o time machucado é mais difícil ·
-> difícil de capturar significa menos poção
+### 1.3 O cartão de comandos volta quando chamado
 
-Não é o beco sem saída que as bolas eram — dá para capturar sem poção —, mas é
-uma **espiral descendente**, e ela é pior justamente para quem está perdendo.
-Um jogador em dificuldade recebe menos ajuda exatamente quando precisa de mais.
+São 21 comandos. O ensino disso é uma placa de quatro linhas que fica **7
+segundos** na entrada da sessão e some para sempre. Um gesto só — as duas mãos
+abertas, ou um botão — traz o cartão de volta.
 
-**Proposta:** dar à poção uma segunda fonte. Duas opções, e eu prefiro a
-segunda:
+- **Esforço:** trivial, e resolve a maior parte do problema de descoberta.
+- **Como saber que funcionou:** você para de precisar perguntar qual botão faz
+  o quê.
 
-- **recarga por tempo**, como fiz com a Bola Comum. Funciona, mas é mais do
-  mesmo e não acrescenta nada ao jogo.
-- **itens na sala.** O jogo já mapeia a sua casa e já sabe a altura de cada
-  superfície (`sala.alturaEm`). Uma poção que aparece **em cima da mesa de
-  verdade** e que você pega esticando o braço usa o que o jogo tem de mais
-  próprio — e dá um motivo para andar pelo cômodo, que hoje o jogo pede mas não
-  recompensa.
+### 1.4 Ajuda contextual, uma vez por coisa
 
-**Esforço:** baixo para a recarga; médio para os itens na sala, e é o que rende.
+A primeira vez que você segura uma bola, uma linha discreta diz como
+arremessar. Uma vez por coisa, guardada no save.
 
----
-
-## 3. O dedo como ponteiro de tudo
-
-Você pediu o dedo no HUD e ele está lá. Mas a lição é maior que o HUD: o jogo
-tinha os dois pontos de mão (`posicaoMundo` = punho, `pontoDeToque` = ponta do
-indicador) e usava o errado em metade dos lugares.
-
-**Proposta:** o dedo vira o ponteiro **de tudo o que é apontável**, não só das
-cartas:
-
-- apontar para um selvagem mostra nome, nível e tipo sem abrir painel — hoje
-  isso exige a Pokédex, que é um gesto de duas mãos;
-- apontar para o seu Pokémon mostra a vida dele;
-- apontar para uma superfície mapeada mostra que ela é um lugar válido de
-  destino, antes de você soltar o gatilho.
-
-O terceiro item é o mais útil: hoje você segura o gatilho e descobre se o ponto
-vale quando a marca aparece — ou não aparece.
-
-**Esforço:** médio. A infraestrutura de mira e de placas já existe toda.
+- **Esforço:** médio-baixo. Depende de 1.3 estar de pé.
+- **Como saber que funcionou:** alguém que nunca jogou consegue capturar sem
+  você explicar nada.
 
 ---
 
-## 4. Vinte e um comandos, e sete segundos de tutorial
+## Fase 2 — A pancada tem peso
 
-O jogo tem **21 comandos** (contando os `case` do despachante). Grip, gatilho,
-gatilho *segurado*, A, B, X, Y, analógico, girar o pulso esquerdo, girar o
-direito, mão às costas, encostar no bicho, encostar com item na mão…
+Aqui é o *feeling*. Hoje o combate **funciona e não sente**: o golpe sai, o
+dano é calculado, a barra desce. Não há hit-stop, não há recuo, não há flash no
+alvo, não há número de dano — `grep` por qualquer um deles em `src/` não
+devolve nada. É a diferença entre um sistema de combate correto e uma briga.
 
-O ensino disso hoje é uma placa de quatro linhas que fica 7 segundos na entrada
-da sessão e some para sempre.
+Depende da Fase 0: cada item aqui custa quadro, e sem medição não dá para saber
+qual deles não cabe.
 
-**Proposta**, do mais barato ao mais caro:
+### 2.1 O golpe acerta alguém
 
-1. **A placa volta quando pedida** — um gesto só (as duas mãos abertas, ou um
-   botão) traz o cartão de comandos de volta. Hoje não há como revê-lo.
-2. **Ajuda contextual**: a primeira vez que você segura uma bola, uma linha
-   discreta diz como arremessar. Uma vez por coisa, guardada no save.
-3. **Um lugar onde treinar** sem bicho nenhum — o Relaxante já é quase isso.
+Quatro coisas que, juntas, custam pouco e mudam tudo:
 
-**Esforço:** (1) é trivial e resolve a maior parte. Faria só ela primeiro e
-mediria.
+- **Hit-stop** — 60 a 90 ms de congelamento das duas criaturas no instante do
+  acerto. É o truque mais barato de game feel que existe e o mais eficaz: o
+  cérebro lê a pausa como massa.
+- **Flash no alvo** — o material pisca branco por dois quadros. `emissive` já
+  está em todo mundo.
+- **Recuo** — o alvo anda 10–15 cm para trás e volta. Não é knockback de
+  verdade, é o suficiente para o corpo registrar que foi empurrado.
+- **Vibração de acerto** na mão que comandou (ver 1.2).
+
+**Não** entra: screen shake. Ver a regra 1.
+
+- **Esforço:** médio. O hit-stop precisa de um caminho de pausa em
+  `src/creature.ts` que ainda não existe; o resto é pequeno.
+- **Como saber que funcionou:** você consegue dizer, de costas para a barra de
+  vida, se o golpe pegou ou não.
+
+### 2.2 O dano é visível onde ele acontece
+
+Um número que sobe e some, na cor da efetividade, **no corpo do bicho** — não
+na barra. Em VR, informação presa a um painel é informação que você tem de ir
+buscar; presa ao bicho, ela chega.
+
+- **Esforço:** baixo. `Placa` e `Impacto` já existem, e o billboard é o mesmo
+  do fogo.
+- **Como saber que funcionou:** dá para jogar uma briga inteira sem olhar a
+  barra de vida.
+
+### 2.3 A bola tem peso
+
+O arremesso hoje é uma parábola correta. Falta o que faz uma bola parecer uma
+bola: squash no impacto, um quique, o chacoalho da captura com ritmo
+(três balanços com intervalos desiguais, não três iguais), e o estalo quando
+ela abre.
+
+- **Esforço:** médio.
+- **Como saber que funcionou:** errar a captura passa a ser frustrante do jeito
+  bom — você quer tentar de novo na hora.
+
+### 2.4 O som tem lugar no espaço
+
+O áudio hoje sai sem posição. Num jogo onde o bicho está atrás do sofá à sua
+esquerda, o grito dele devia vir de lá. `PositionalAudio` do three resolve, e é
+o único item deste roteiro que melhora **e** ajuda a orientar o jogador.
+
+- **Esforço:** médio. Mexe em `src/audio.ts` inteiro.
+- **Como saber que funcionou:** você vira a cabeça na direção certa antes de
+  ver o bicho.
 
 ---
 
-## 5. Conforto: o jogo assume que você está de pé e com espaço
+## Fase 3 — O quarto vira cenário
+
+O mapeamento da sala é a coisa mais cara que o jogo tem de engenharia e a que
+menos rende hoje: serve para o bicho não atravessar o sofá e para você mandar
+ele subir na mesa. É muito trabalho para um papel pequeno.
+
+### 3.1 Selvagens nascem onde faz sentido
+
+Os de terra no chão, os que voam no alto, os pequenos embaixo dos móveis. O
+jogo já conhece o rótulo semântico de cada superfície (`floor`, `table`,
+`couch`, `bed`) e a altura de cada uma.
+
+- **Esforço:** médio. `pontoDeSpawn` já existe e recebe a sala inteira.
+- **Como saber que funcionou:** o cômodo parece povoado em vez de sorteado — um
+  Zubat no alto do armário e um Diglett no carpete, não os dois no mesmo ponto.
+
+### 3.2 Itens na sala, em cima dos móveis de verdade
+
+Hoje `ganharItem` só é chamado de um lugar: `premiarCaptura()`. Isso é uma
+espiral descendente, e ela é pior para quem está perdendo — poção só vem de
+capturar, capturar com o time machucado é mais difícil, difícil de capturar
+significa menos poção.
+
+Uma poção que aparece **em cima da sua mesa** e que você pega esticando o braço
+usa o que o jogo tem de mais próprio, e dá um motivo para andar pelo cômodo —
+que hoje o jogo pede e não recompensa.
+
+- **Esforço:** médio, e é o que mais rende da fase.
+- **Como saber que funcionou:** você anda pela casa sem eu ter pedido.
+
+### 3.3 Esconderijo
+
+Um bicho assustado corre para **trás de um móvel de verdade** em vez de fugir
+em linha reta.
+
+- **Esforço:** médio-alto (precisa de visibilidade, não só de colisão).
+- **Como saber que funcionou:** procurar um Pokémon vira uma coisa que
+  acontece.
+
+---
+
+## Fase 4 — Cabe em mais gente
 
 Várias distâncias do jogo são absolutas: o painel a 9 cm da mão, o bicho que
-para a 1,1 m de você, o destino limitado a 3 m, a sala que cresce enquanto você
-caminha. Quem joga sentado, num canto, ou com pouco espaço vive outro jogo — e
-esse é o caso mais comum de quem tem um Quest em casa.
+para a 1,1 m de você, o destino limitado a 3 m. Quem joga sentado, num canto,
+ou com pouco espaço vive outro jogo — e esse é o caso mais comum de quem tem um
+Quest em casa.
 
-**Proposta:** um ajuste de **modo sentado** que escale as distâncias de
-aproximação e traga o alcance para perto, em vez de depender de o jogador
-andar. Os ajustes já existem como sistema (`src/ajustes.ts`), então é mais
-calibração do que código.
+A mochila de 17/09 já nasce certa neste ponto (a altura dela sai da cabeça, não
+do chão). O resto do jogo, não.
 
-**Esforço:** baixo-médio. Alto valor para quem não tem uma sala livre.
+### 4.1 Modo sentado
 
----
+Um ajuste que escala as distâncias de aproximação e traz o alcance para perto,
+em vez de depender de o jogador andar. Os ajustes já existem como sistema
+(`src/ajustes.ts`), então é mais calibração do que código.
 
-## 6. A sala mapeada merece mais papel
+- **Esforço:** baixo-médio. Alto valor para quem não tem uma sala livre.
+- **Como saber que funcionou:** dá para jogar uma sessão inteira do sofá.
 
-Hoje o mapeamento serve para o bicho não atravessar o sofá e para você mandar
-ele subir na mesa. É muito trabalho de engenharia para um papel pequeno.
+### 4.2 Alcance que se adapta
 
-**Ideias, em ordem de quanto rendem pelo que custam:**
+O caso geral do 4.1: em vez de um interruptor, o jogo aprende a sua altura e o
+seu alcance nos primeiros minutos e ajusta sozinho.
 
-- selvagens **nascem onde faz sentido**: os de terra no chão, os que voam no
-  alto, os pequenos embaixo dos móveis;
-- esconderijo: um bicho assustado corre para **trás de um móvel de verdade**;
-- os itens do item 2 aparecem em superfícies.
-
-**Esforço:** médio. O primeiro sozinho já muda como o cômodo parece povoado.
+- **Esforço:** médio. Só depois que 4.1 provar que a escala é o eixo certo.
 
 ---
 
-## 7. O rig da luva, quando der
+## O que fica por último, e por quê
 
-Estado em `PLAYTEST.md` e no topo de `tools/rig.ts`. Os cinco dedos **já estão
-segmentados** (conferido em `folha-dedos.png`), que era o problema que travou
-três tentativas. Falta a ordem anatômica ficar confiável, o alinhamento, os
-pesos e a bind pose.
+**O rig da luva.** Estado em `PLAYTEST.md` e no topo de `tools/rig.ts`. Os
+cinco dedos já estão segmentados — o nó que travou três tentativas. Falta a
+ordem anatômica ficar confiável, o alinhamento, os pesos e a bind pose. É o
+item de menor impacto do roteiro: a mão genérica funciona, e **nada aqui
+depende dele**.
 
-É o item de menor impacto da lista: a mão genérica funciona, e nada aqui
-depende da luva. Fica por último de propósito.
+**O fogo do Ponyta e do Magmar.** Os rips deles não têm esqueleto nenhum
+(`node tools/diag-fogo.mjs ponyta` devolve lista vazia), então não há osso onde
+pendurar. A saída é um ponto fixo no corpo, medido com a folha de contato
+aberta — não de memória. Pequeno, mas só vale a pena junto de outra visita ao
+`src/fogo.ts`.
+
+**A cauda do Rapidash.** O rip nomeia as mechas `taila01`…`tailh03` e nenhuma
+bate com os candidatos de cauda do rig. Ensinar o rig a ler esses nomes mexeria
+na animação de cauda de todo mundo para ganhar uma chama — a troca não
+compensa hoje.
 
 ---
 
-## O que eu faria na próxima sessão
+## Se fosse para escolher três
 
-Os itens **1** e **2** juntos, porque são baratos, saem direto do que você
-sentiu jogando, e os dois atacam a mesma coisa: **o jogo não conta ao jogador
-o que está acontecendo com ele.** Um em forma de silêncio nos gestos, o outro
-em forma de recurso que seca sem aviso e sem saída.
+**0.1** (o contador), **1.1** (nenhum gesto calado) e **2.1** (o golpe acerta
+alguém).
 
-Depois o **4.1** (trazer o cartão de comandos de volta), que é quase de graça.
+O primeiro porque tudo depois dele passa a ser decidido com número em vez de
+opinião — inclusive se o fogo e a mochila que acabaram de entrar cabem no
+orçamento. O segundo porque é a queixa original do playtest e é barato. O
+terceiro porque é o item deste roteiro que mais muda a sensação por unidade de
+trabalho, e porque combate sem impacto é o que separa este jogo de um que se
+volta a abrir no dia seguinte.
