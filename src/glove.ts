@@ -236,9 +236,32 @@ export class MaoArticulada {
     this.giro.setFromRotationMatrix(rotacao);
 
     // O punho do jogador não fica no punho do modelo: o grip space nasce dentro
-    // da mão fechada, onde estaria o cabo do controle. O ponto é a palma, um
-    // pouco à frente da linha do pulso.
-    const encaixe = punho.clone().lerp(meioBase, 0.62).addScaledVector(palma, 0.012);
+    // da mão fechada, onde estaria o cabo do controle.
+    //
+    // Este ponto já esteve errado, e errado por uma mão inteira. A conta era
+    // `punho.lerp(meioBase, 0.62)`, e o problema estava no `meioBase`: pela
+    // especificação do WebXR, `middle-finger-metacarpal` NÃO fica no meio da
+    // palma — fica na base do metacarpo, colada no pulso. Medido no arquivo:
+    //
+    //   middle-finger-metacarpal          2,99 cm do pulso
+    //   middle-finger-phalanx-proximal    9,17 cm  (os nós dos dedos)
+    //   middle-finger-tip                17,78 cm
+    //
+    // Então aquele lerp andava 1,86 cm e punha a origem do grip em cima do
+    // PULSO do modelo, com os outros dezesseis centímetros de mão pendurados à
+    // frente da mão de verdade. Em campo isso se sente como segurar a mão do
+    // jogo pelo pulso, que foi o relato que trouxe esta correção.
+    //
+    // O ponto certo é o centro do punho fechado, e ele fica entre o metacarpo e
+    // os nós dos dedos — não entre o pulso e o metacarpo. A fração é medida na
+    // mão que estiver carregada, e não em centímetros fixos: proporção
+    // atravessa tamanhos de mão, centímetro não.
+    const nosDosDedos = onde('middle-finger-phalanx-proximal');
+    // 0,55 do metacarpo para os nós: onde o cabo de um Touch cruza a palma.
+    const eixoDoCabo = meioBase.clone().lerp(nosDosDedos, 0.55);
+    // E meio cabo para o lado da palma: o eixo do controle não encosta na pele,
+    // passa a um raio de distância dela.
+    const encaixe = eixoDoCabo.addScaledVector(palma, 0.018);
 
     const alinhado = new THREE.Group();
     alinhado.quaternion.copy(this.giro);
@@ -291,9 +314,15 @@ export class MaoArticulada {
     const aro = new THREE.Mesh(geoAro, matAro);
     aro.frustumCulled = false;
     this.raiz.add(aro);
-    // Na altura do pulso do modelo, que depois do alinhamento cai por volta de
-    // dois centímetros atrás da origem do grip (medido, não chutado).
-    aro.position.set(0, 0, 0.024);
+    // Na altura do pulso do modelo. Isto já foi o número fixo 0,024 — medido, na
+    // época, contra um encaixe que ficava quase em cima do pulso. Corrigido o
+    // encaixe, o pulso passou a cair bem mais atrás, e um número fixo viraria
+    // um aro flutuando no meio do antebraço. Então em vez de remedir à mão,
+    // pergunta-se ao modelo onde o pulso foi parar depois do alinhamento —
+    // assim ele continua certo se a mão for trocada por outra (a luva, por
+    // exemplo).
+    const pulsoNoGrip = punho.clone().sub(encaixe).applyQuaternion(this.giro);
+    aro.position.copy(pulsoNoGrip);
 
     const ponta = this.juntas.get('index-finger-tip');
     if (ponta) ponta.add(this.pontaDoIndicador);

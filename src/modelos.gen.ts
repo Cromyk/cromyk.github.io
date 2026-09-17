@@ -69,7 +69,10 @@ export const MEDIDAS: Record<string, MedidaModelo> = {
   "centroX": 0.54841,
   "centroZ": -0.52836,
   "temShiny": true,
-  "animacoes": [],
+  "animacoes": [
+   "Run",
+   "Walk"
+  ],
   "temEsqueleto": true,
   "vertices": 3034
  },

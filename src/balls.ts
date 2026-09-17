@@ -15,6 +15,25 @@ export interface TipoBola {
   recompensa: number;
   /** Teto do estoque. */
   maximo: number;
+  /**
+   * Segundos para uma unidade aparecer sozinha, sem você fazer nada.
+   *
+   * Existe por causa de um beco sem saída real: capturar era a ÚNICA fonte de
+   * bolas, e capturar precisa de bola. Quem zerasse o estoque ficava num jogo
+   * que não tinha mais como continuar nem como voltar — e sem nenhuma tela que
+   * explicasse isso, porque do ponto de vista do código estava tudo certo.
+   *
+   * Só a Bola Comum recarrega. É o que a descrição dela sempre prometeu, e é o
+   * bastante: as outras três são raridade, e raridade que se repõe sozinha
+   * deixa de ser raridade.
+   */
+  recarga?: number;
+  /**
+   * Até onde a recarga enche. Fica bem abaixo do `maximo` de propósito: a rede
+   * de segurança te tira do buraco, não te abastece. Encher a mochila continua
+   * sendo coisa de quem caça.
+   */
+  tetoRecarga?: number;
 }
 
 export const BOLAS: readonly TipoBola[] = [
@@ -27,6 +46,11 @@ export const BOLAS: readonly TipoBola[] = [
     descricao: 'A de sempre. Recarrega sozinha.',
     recompensa: 2,
     maximo: 12,
+    // Uma a cada minuto e quinze, até seis. Zerado, você espera pouco mais de
+    // um minuto pela próxima tentativa; deixando o jogo de lado, volta com as
+    // seis — o relógio corre mesmo com o headset na estante.
+    recarga: 75,
+    tetoRecarga: 6,
   },
   {
     id: 'reforcada',

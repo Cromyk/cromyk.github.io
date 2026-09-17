@@ -28,25 +28,63 @@
 //
 // Os passos 1 e 2 estão feitos e conferidos. A decimação sai em 3.599
 // triângulos com 0,36% de erro — orçamento de headset, e os cinco dedos
-// sobrevivem inteiros (conferido de olho, desenhando a malha em três vistas).
-// O `LockBorder` teve de sair: a luva é um tecido ABERTO, com borda em todo o
-// punho e nas costuras, e travar borda prendia a decimação em 8,8 mil.
+// sobrevivem inteiros (conferido de olho: ver `folha-luva.png`, três vistas nos
+// eixos principais). O `LockBorder` teve de sair: a luva é um tecido ABERTO,
+// com borda em todo o punho e nas costuras, e travar borda prendia a decimação
+// em 8,8 mil.
 //
-// Os eixos dos dois, medidos e não chutados:
+// ### Correção de uma medida errada que estava aqui
 //
-//   luva  dedos +Y, normal da palma Z (menor variância: 1365 contra 6782 de Y)
-//   mão   dedos −X (punho em x=+0,056, pontas em x=−0,12), través numa diagonal
-//         de Y e Z, polegar destacado em +Y/−Z
+// Este cabeçalho afirmava que a mão tem os "dedos −X, punho em x=+0,056, pontas
+// em x=−0,12". **Está errado**, e vale registrar para ninguém repetir a conta:
+// aquilo saiu dos VÉRTICES da malha, e o que interessa são as JUNTAS. Medidas as
+// juntas de public/maos/right.glb (a malha está no mesmo espaço delas — o nó
+// r_handMeshNode é identidade, então a confusão não foi de espaço, foi de o que
+// medir):
 //
-// O que falta é o passo 3, e o obstáculo dele é este: as duas estão em leque,
-// mas a luva tem os dedos SEMI-DOBRADOS e a mão de referência os tem retos.
-// Vizinho mais próximo erra feio aí — a ponta dobrada de um dedo da luva cai
-// espacialmente em cima da palma da mão, e ganharia o peso do osso errado.
+//   wrist                [ 0,039  0,056  0,009]
+//   middle-finger-tip    [ 0,030 −0,122  0,017]
 //
-// A saída é não medir distância euclidiana e sim SETOR ANGULAR: no plano da
-// palma, cada dedo ocupa uma fatia de ângulo própria, e dobrar o dedo mexe no
-// eixo perpendicular à palma — não no ângulo. Então (dedo, quanto ao longo
-// dele) se lê do leque e se mapeia na cadeia de ossos correspondente.
+// Os dedos da mão apontam para **−Y**, e o X quase não muda. É o mesmo engano
+// que pôs a origem do grip em cima do pulso em src/glove.ts (ver o comentário
+// do `encaixe` lá): medir a junta errada, ou o vértice no lugar da junta.
+//
+// ### E o plano do setor angular NÃO funciona. Medido.
+//
+// A saída proposta aqui era: não usar distância euclidiana e sim SETOR ANGULAR,
+// porque "no plano da palma cada dedo ocupa uma fatia de ângulo própria, e
+// dobrar o dedo mexe no eixo perpendicular à palma, não no ângulo".
+//
+// A ideia é boa e a medição a derruba. Histograma angular dos vértices da metade
+// das pontas, no plano da palma, com origem no punho: a distribuição é
+// **contínua de −36° a +34°, sem cinco picos**. Os vales entre dedos não descem
+// porque os dedos são grossos (é uma luva acolchoada, com costura), quase se
+// tocam, e a malha da palma preenche o vão entre eles.
+//
+// Fatiar perpendicular ao eixo longitudinal também não serve, e pela razão que
+// se vê no desenho: os dedos estão CURVADOS para dentro. A maior largura
+// lateral fica no MEIO da luva (163 mm) e não nas pontas (97 mm) — uma fatia
+// perpendicular corta ao longo dos dedos, não através deles. Em trinta fatias
+// da malha cheia (90 mil vértices) nunca aparecem mais de dois lóbulos.
+//
+// ### O caminho que resta, e por que ele é melhor
+//
+// Em vez de procurar os dedos na luva, **dobre a MÃO até a pose da luva**. A
+// `MaoArticulada` de src/glove.ts já sabe fechar os dedos por parâmetro
+// (`definirDedos(gatilho, grip)`), e é o mesmo código que o jogo usa:
+//
+//   1. procurar o par (gatilho, grip) que minimiza a distância média entre as
+//      duas malhas — a curvatura da luva vira um número, em vez de um problema;
+//   2. com as duas na MESMA pose, vizinho mais próximo por segmento de osso
+//      volta a valer, que era a objeção original;
+//   3. levar a luva da pose dobrada para a bind pose aplicando a inversa da
+//      transformação de cada osso;
+//   4. exportar.
+//
+// A alternativa honesta é o Blender (há MCP instalado neste ambiente): o
+// "Armature > With Automatic Weights" resolve transferência de peso por heat
+// map melhor do que qualquer coisa escrita à mão aqui, e precisa do Blender
+// ABERTO para funcionar.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';

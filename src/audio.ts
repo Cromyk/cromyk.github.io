@@ -53,6 +53,11 @@ export class Audio {
   private ruido: AudioBuffer | null = null;
   /** Os gritos gravados, por número da Pokédex. null = não existe arquivo. */
   private gritos = new Map<number, AudioBuffer | null>();
+  /**
+   * Quando cada espécie pode voltar a gritar, em ms de `performance.now()`.
+   * Ver o topo de `grito()` para o porquê do intervalo.
+   */
+  private proximoGrito = new Map<string, number>();
   private baixandoGrito = new Set<number>();
   /** As falas — o bicho dizendo o próprio nome. Ver `tocarVozDoNome`. */
   private vozes = new Map<number, AudioBuffer | null>();
@@ -425,7 +430,28 @@ export class Audio {
    * ela é o que toca no primeiro encontro de cada espécie, antes de o arquivo
    * chegar, e porque sem rede nenhuma o jogo precisa continuar tendo voz.
    */
-  grito(id: string, agudo = false, num?: number) {
+  grito(id: string, agudo = false, num?: number, forcar = false) {
+    // Silêncio obrigatório entre um grito e o seguinte.
+    //
+    // Sem isto o bicho gritava a cada gesto — carinho, chamado, colo, recolher —
+    // e dezesseis pontos do jogo disparam esta função. Ouvido de fora, o efeito
+    // não é de um bicho vivo: é de um botão sendo apertado. O intervalo é o que
+    // separa uma voz de um efeito sonoro.
+    //
+    // A espera é SORTEADA a cada grito, e não fixa: um bicho que responde
+    // exatamente a cada dez segundos soa tão mecânico quanto um que responde
+    // sempre. Sete a quinze segundos é largo o bastante para o ouvido não achar
+    // o compasso.
+    //
+    // A conta é por espécie, não global: dois bichos diferentes na sala podem
+    // se responder: o que não pode é o MESMO bicho repetir.
+    if (!forcar) {
+      const agora = performance.now();
+      const liberado = this.proximoGrito.get(id) ?? 0;
+      if (agora < liberado) return;
+      this.proximoGrito.set(id, agora + 7000 + Math.random() * 8000);
+    }
+
     // A dublagem vem antes de todas: onde ela existe, é a voz de verdade — o
     // TTS e o grito dos jogos são as reservas de quem ainda não tem uma.
     if (this.vozDoNome && this.tocarDublagem(id, agudo)) return;

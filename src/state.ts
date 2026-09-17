@@ -62,6 +62,24 @@ export class Dex {
   bolaAtiva = BOLAS[0].id;
   /** Falso até você escolher o inicial. */
   escolheuInicial = false;
+  /**
+   * A partir de quando contar a recarga das bolas, em ms de época.
+   *
+   * É de época (`Date.now()`) e não de `performance.now()` porque o relógio
+   * precisa correr com o jogo FECHADO: voltar no dia seguinte tem de encontrar
+   * o estoque cheio, e não o mesmo zero de ontem.
+   */
+  private recarregadoEm = Date.now();
+  /**
+   * Índice de quem estava EM CAMPO quando o jogo parou, ou -1.
+   *
+   * Existe porque uma sessão de VR não termina, ela CAI: você tira o headset, a
+   * bateria acaba, o passthrough perde o rastreamento. Tudo o mais já
+   * sobrevivia a isso — time, Pokédex, mochila —, mas o companheiro que estava
+   * fora da bola não: ao voltar, a sala estava vazia e era preciso invocar de
+   * novo, como se a sessão anterior não tivesse acontecido.
+   */
+  private emCampo = -1;
 
   constructor() {
     this.carregar();
@@ -82,6 +100,8 @@ export class Dex {
         ativo?: number;
         bolaAtiva?: string;
         escolheuInicial?: boolean;
+        recarregadoEm?: number;
+        emCampo?: number;
       };
 
       for (const [id, reg] of Object.entries(dados.registros ?? {})) {
@@ -123,6 +143,12 @@ export class Dex {
             : -1;
       this.bolaAtiva = dados.bolaAtiva && bolaPorId(dados.bolaAtiva) ? dados.bolaAtiva : BOLAS[0].id;
       this.escolheuInicial = dados.escolheuInicial ?? this.exemplares.length > 0;
+      // Uma gravação antiga não tem este campo, e tratá-la como "nunca
+      // recarregou" daria o teto inteiro de presente na primeira abertura.
+      // Começar de agora é o que preserva a espera para quem já jogava.
+      this.recarregadoEm = dados.recarregadoEm ?? Date.now();
+      const campo = dados.emCampo ?? -1;
+      this.emCampo = campo >= 0 && campo < this.exemplares.length ? campo : -1;
     } catch {
       // Armazenamento bloqueado ou corrompido: começa do zero, sem quebrar o jogo.
       this.comecarDoZero();
@@ -146,6 +172,8 @@ export class Dex {
           ativo: this.ativo,
           bolaAtiva: this.bolaAtiva,
           escolheuInicial: this.escolheuInicial,
+          recarregadoEm: this.recarregadoEm,
+          emCampo: this.emCampo,
         }),
       );
     } catch {
@@ -516,6 +544,63 @@ export class Dex {
     const atual = this.itens.get(id) ?? 0;
     this.itens.set(id, Math.min(tipo.maximo, atual + quantidade));
     this.salvar();
+  }
+
+  // ---- quem ficou em campo ----
+
+  /** Quem estava fora da bola quando o jogo parou, ou null. */
+  get exemplarEmCampoSalvo(): Exemplar | null {
+    return this.exemplares[this.emCampo] ?? null;
+  }
+
+  /** Anota (ou apaga, com null) quem está em campo agora. */
+  marcarEmCampo(exemplar: Exemplar | null) {
+    const indice = exemplar ? this.exemplares.indexOf(exemplar) : -1;
+    if (indice === this.emCampo) return;
+    this.emCampo = indice;
+    this.salvar();
+  }
+
+  /**
+   * O tempo passando vira bola.
+   *
+   * Chamado a cada quadro, mas ele mesmo não faz nada quase sempre: só há o que
+   * fazer quando o relógio cruza um múltiplo da recarga. Devolve quantas
+   * nasceram, para quem chamou poder avisar na tela — uma bola que aparece na
+   * mochila sem ninguém dizer nada é uma bola que você não sabe que tem.
+   *
+   * O resto do tempo é PRESERVADO: o relógio anda para a frente pelo tanto que
+   * foi convertido, e não até agora. Sem isso, quadros de 16 ms jogariam fora
+   * 74,98 s de espera a cada volta e a recarga nunca chegaria.
+   */
+  recarregar(): number {
+    const agora = Date.now();
+    let nasceram = 0;
+
+    for (const tipo of BOLAS) {
+      if (!tipo.recarga) continue;
+      const teto = tipo.tetoRecarga ?? tipo.maximo;
+      const atual = Math.floor(this.estoque.get(tipo.id) ?? 0);
+
+      // Já no teto: o relógio reinicia junto. Guardar tempo acumulado enquanto
+      // a mochila está cheia faria a próxima bola gasta ser reposta na hora.
+      if (atual >= teto) {
+        this.recarregadoEm = agora;
+        continue;
+      }
+
+      const passou = (agora - this.recarregadoEm) / 1000;
+      const quantas = Math.floor(passou / tipo.recarga);
+      if (quantas < 1) continue;
+
+      const cabem = Math.min(quantas, teto - atual);
+      this.recarregadoEm += quantas * tipo.recarga * 1000;
+      if (cabem > 0) {
+        this.ganharBola(tipo.id, cabem);
+        nasceram += cabem;
+      }
+    }
+    return nasceram;
   }
 
   /** Chamado a cada captura: é de onde vêm bolas e itens novos. */

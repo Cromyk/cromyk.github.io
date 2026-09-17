@@ -1,7 +1,7 @@
 {
  "versao": 7,
  "fonte": "Pokemon-3D-api/assets",
- "gerado": 1789525635218,
+ "gerado": 1789612164863,
  "especies": {
   "bulbasaur": {
    "num": 1,
@@ -73,7 +73,7 @@
   },
   "charmander": {
    "num": 4,
-   "bytes": 62508,
+   "bytes": 85928,
    "temShiny": true,
    "giroX": 0,
    "giroY": 0,
@@ -86,7 +86,10 @@
    "rosto": null,
    "orientadoPor": "padrão",
    "vertices": 3034,
-   "animacoes": [],
+   "animacoes": [
+    "Run",
+    "Walk"
+   ],
    "temEsqueleto": true
   },
   "charmeleon": {

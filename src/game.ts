@@ -171,6 +171,8 @@ export class Jogo {
   private companheiro: Pokemon | null = null;
   /** O exemplar da coleção que está em campo — é nele que a XP entra. */
   private exemplarEmCampo: Exemplar | null = null;
+  /** Conta regressiva para a próxima gravação do HP de quem está em campo. */
+  private salvarHpEmCampo = 10;
   private barraCompanheiro: BarraVida | null = null;
   private bolas: Pokebola[] = [];
   private efeitos: Efeito[] = [];
@@ -380,6 +382,34 @@ export class Jogo {
 
   // ------------------------------------------------------------ pokébolas
 
+  /**
+   * O tempo vira bola, e a tela conta.
+   *
+   * Aviso só quando a mochila estava VAZIA: nesse caso a bola que nasce é a
+   * diferença entre poder jogar e não poder, e isso merece uma frase. Uma bola
+   * que cai de três para quatro não merece — seria uma placa piscando a cada
+   * setenta e cinco segundos pelo resto da partida.
+   */
+  private atualizarRecargaDeBolas() {
+    const estavaVazio = this.dex.totalBolas === 0;
+    const nasceram = this.dex.recarregar();
+    if (nasceram <= 0 || !estavaVazio) return;
+
+    audio.tilintar();
+    this.aviso.mostrar(
+      [
+        { texto: 'Chegou uma Bola Comum', tamanho: 32, cor: '#f2f2f5' },
+        {
+          texto: 'elas voltam sozinhas quando você fica sem',
+          tamanho: 20,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      2.6,
+    );
+  }
+
   private get temCompanheiroEmCampo(): boolean {
     return this.companheiro !== null && this.companheiro.viva && !this.companheiro.desmaiado;
   }
@@ -394,10 +424,29 @@ export class Jogo {
    */
   private static readonly ALCANCE_PAINEL = 0.09;
 
+  /**
+   * O ponto da mão que MEXE no HUD.
+   *
+   * É a ponta do indicador, e por um bom tempo não era: o painel e o cinto
+   * mediam a distância a partir do PUNHO. Quem apontava o dedo para uma carta
+   * não via nada acender, porque o jogo estava olhando para um ponto uns dez
+   * centímetros atrás da ponta do dedo — e o gesto natural diante de um painel
+   * do tamanho de um relógio é justamente apontar, não encostar o pulso.
+   *
+   * `pontoDeToque` já era o ponto usado para encostar nos bichos (fazer carinho
+   * com o centro do punho obrigava a enfiar meio braço dentro do Charmander).
+   * O HUD passa a usar o mesmo ponto, e pela mesma razão: é onde a mão de
+   * verdade toca. Com rastreamento de mão ele é o `index-finger-tip`; com
+   * controle, a ponta do indicador da luva.
+   */
+  private pontoDoDedo(mao: Mao): THREE.Vector3 {
+    return mao.pontoDeToque(new THREE.Vector3());
+  }
+
   /** O que a mão está tocando no painel agora, se o painel estiver aberto. */
   private cartaSobAMao(mao: Mao) {
     if (!this.painelTime.aberto) return null;
-    return this.painelTime.alcancado(mao.posicaoMundo(), Jogo.ALCANCE_PAINEL);
+    return this.painelTime.alcancado(this.pontoDoDedo(mao), Jogo.ALCANCE_PAINEL);
   }
 
   /**
@@ -602,7 +651,8 @@ export class Jogo {
 
   private slotSobAMao(mao: Mao) {
     if (mao.lado === 'left' || !this.cintoAnexado) return null;
-    return this.cinto.slotSob(mao.posicaoMundo());
+    // Pelo dedo, como o painel: a bola do cinto se escolhe apontando.
+    return this.cinto.slotSob(this.pontoDoDedo(mao));
   }
 
   private pegarBola(mao: Mao) {
@@ -1276,11 +1326,42 @@ export class Jogo {
    * esperar o dedo subir para confirmar parece atraso, não intenção.
    */
   private gatilhoDesceu(mao: Mao) {
-    if (this.escolha || this.painelTime.aberto || this.painelDex.aberto || this.pc.aberto) {
+    if (this.menuTomaOGatilho()) {
       this.puxarGatilho(mao);
       return;
     }
     this.gatilhoPreso = { mao, desde: performance.now(), comandou: false };
+  }
+
+  /**
+   * Se um menu deve resolver o gatilho agora, em vez de deixá-lo virar comando.
+   *
+   * A pergunta parece a mesma que "tem painel aberto?", e não é — foi por isso
+   * que o comando de mandar o companheiro ir e ficar não funcionava.
+   *
+   * O painel do time abre no pulso ESQUERDO. Com ele aberto, um gatilho puxado
+   * pela mão DIREITA apontando para o chão era engolido pelo menu, mesmo sem
+   * carta nenhuma sob a mira: `gatilhoDesceu` desviava no ato, e o comando —
+   * que precisa do gatilho SEGURADO para existir — nunca chegava a começar.
+   * Nada acontecia e nada explicava, porque o gesto morria antes do primeiro
+   * quadro.
+   *
+   * E o painel fica aberto mais tempo do que se imagina: por causa da histerese
+   * do gesto (ver src/gesto.ts), uma vez aberto ele se mantém com o limiar mais
+   * frouxo e sem exigir a mão erguida. Baixar o braço para apontar não fecha.
+   *
+   * Então a pergunta certa é se o menu tem de fato ALGO sob a mira. Sem alvo,
+   * ele não tem o que resolver, e o gatilho volta a ser do jogo.
+   */
+  private menuTomaOGatilho(): boolean {
+    // A escolha do inicial é modal de verdade: antes dela não há jogo.
+    if (this.escolha) return true;
+    if (this.pc.aberto && this.pc.temAlvo) return true;
+    if (this.painelTime.aberto && this.painelTime.selecao) return true;
+    // A Pokédex responde ao gatilho lendo a ficha em voz alta, e ela não tem
+    // "item sob a mira" para consultar: aberta, o gatilho é dela.
+    if (this.painelDex.aberto) return true;
+    return false;
   }
 
   private gatilhoSubiu(mao: Mao) {
@@ -1311,6 +1392,27 @@ export class Jogo {
       return;
     }
 
+    // Segurou o gatilho, mirou o chão, e ainda assim não virou ordem: o que
+    // falta é o companheiro. Isto era um silêncio completo — o jogador repetia
+    // o gesto sem nunca descobrir que o gesto estava certo e a condição não.
+    if (preso.comandou && this.pontoMarcado && !this.temCompanheiroEmCampo) {
+      this.pontoMarcado = null;
+      audio.recusa();
+      this.aviso.mostrar(
+        [
+          { texto: 'ninguém em campo para mandar', tamanho: 34, cor: '#ff9f9f' },
+          {
+            texto: 'segure o grip para soltar o seu Pokémon primeiro',
+            tamanho: 21,
+            cor: '#9aa5b8',
+            peso: 500,
+          },
+        ],
+        2.2,
+      );
+      return;
+    }
+
     this.pontoMarcado = null;
     this.puxarGatilho(mao);
   }
@@ -1325,7 +1427,10 @@ export class Jogo {
     const preso = this.gatilhoPreso;
     let mostrar = false;
 
-    if (preso && this.temCompanheiroEmCampo) {
+    // Sem companheiro a marca não é desenhada, mas o gesto continua sendo
+    // RECONHECIDO: é isso que permite a `gatilhoSubiu` dizer o que faltou em
+    // vez de engolir o comando calado.
+    if (preso) {
       const segurando = (performance.now() - preso.desde) / 1000;
       if (segurando > 0.28) {
         const { origem, direcao } = this.modoPlano ? this.miraDaCamera() : preso.mao.mira();
@@ -1341,8 +1446,10 @@ export class Jogo {
       }
     }
 
-    const de = mostrar && this.companheiro ? this.companheiro.raiz.position : null;
-    this.marca.atualizar(dt, mostrar, de, this.pontoMarcado, this.sala.pisoY);
+    // A linha sai DELE, então ela só existe se ele existir.
+    const temAlguem = this.temCompanheiroEmCampo;
+    const de = mostrar && temAlguem && this.companheiro ? this.companheiro.raiz.position : null;
+    this.marca.atualizar(dt, mostrar && temAlguem, de, this.pontoMarcado, this.sala.pisoY);
   }
 
   /**
@@ -2308,7 +2415,9 @@ export class Jogo {
     this.evolucaoEmCurso = null;
     this.companheiro?.comemorar();
     audio.sucesso();
-    audio.grito(curso.para.id, curso.exemplar.shiny, curso.para.num);
+    // `forcar`: a primeira voz da forma nova. Este grito É a evolução — engoli-lo
+    // por causa do intervalo tiraria o som do único quadro que o justifica.
+    audio.grito(curso.para.id, curso.exemplar.shiny, curso.para.num, true);
 
     this.aviso.mostrar(
       [
@@ -2434,7 +2543,10 @@ export class Jogo {
       // milhares de encontros e pode nascer atrás de você: o som é, muitas
       // vezes, a única chance de saber que ele está ali.
       if (shiny) audio.brilhante();
-      window.setTimeout(() => audio.grito(especie.id, shiny, especie.num), 300);
+      // Um encontro comum respeita o intervalo; um BRILHANTE não. Ele aparece
+      // uma vez a cada milhares e pode nascer atrás de você — perder essa voz
+      // por causa de um cronômetro custaria caro demais.
+      window.setTimeout(() => audio.grito(especie.id, shiny, especie.num, shiny), 300);
 
       const novidade = !this.dex.jaCapturou(especie.id);
       this.aviso.mostrar(
@@ -2583,6 +2695,7 @@ export class Jogo {
     }
 
     this.regenerarTime(dt);
+    this.atualizarRecargaDeBolas();
     this.atualizarMaos(dt, agora);
     this.atualizarPaineis(dt);
     this.atualizarMarca(dt);
@@ -3107,7 +3220,7 @@ export class Jogo {
     this.cinto.definirEstoque((id) => this.dex.bolas(id));
     // Quem destaca é a mão que VEM PEGAR, e ela é sempre a outra.
     this.cinto.destacar(
-      direita && !this.maoCheia(direita) ? direita.posicaoMundo() : null,
+      direita && !this.maoCheia(direita) ? this.pontoDoDedo(direita) : null,
     );
     this.cinto.atualizar(dt);
 
@@ -3169,7 +3282,7 @@ export class Jogo {
       // A mão direita acende a carta que ela está tocando, antes da mira. É o
       // que torna "vá lá e pegue" um gesto de verdade: a carta certa acende
       // enquanto o braço chega, e o GRIP pega aquela mesma.
-      direita ? direita.posicaoMundo(new THREE.Vector3()) : null,
+      direita ? this.pontoDoDedo(direita) : null,
       Jogo.ALCANCE_PAINEL,
     );
     if (this.painelTime.aberto && !estavaAberto) audio.abrirPainel();
@@ -3320,6 +3433,18 @@ export class Jogo {
     if (!this.evolucaoEmCurso) c.atualizar(dt, this.posicaoJogador, this.sala);
     c.alvo = this.alvoDoCompanheiro();
 
+    // O HP do corpo vivo só era gravado ao recolher ou ao desmaiar. Numa sessão
+    // que CAI não há nem um nem outro: a luta inteira era esquecida, e ele
+    // voltava com a vida de antes dela. Gravar de dez em dez segundos custa uma
+    // escrita e fecha essa janela.
+    this.salvarHpEmCampo -= dt;
+    if (this.salvarHpEmCampo <= 0) {
+      this.salvarHpEmCampo = 10;
+      if (this.exemplarEmCampo && c.viva && !c.desmaiado) {
+        this.dex.definirHp(this.exemplarEmCampo, c.hp);
+      }
+    }
+
     if (this.barraCompanheiro) {
       const nivel = this.exemplarEmCampo ? this.dex.nivelDe(this.exemplarEmCampo) : c.nivel;
       this.barraCompanheiro.atualizar(
@@ -3354,6 +3479,7 @@ export class Jogo {
     this.companheiro.descartar(this.cena);
     // Sem isto, a XP do próximo selvagem iria para quem já voltou à bola.
     this.exemplarEmCampo = null;
+    this.dex.marcarEmCampo(null);
     if (this.barraCompanheiro) {
       this.cena.remove(this.barraCompanheiro.placa.malha);
       this.barraCompanheiro.descartar();
@@ -3425,7 +3551,8 @@ export class Jogo {
       presa.shiny,
     );
     this.dex.premiarCaptura();
-    audio.grito(presa.especie.id, presa.shiny, presa.especie.num);
+    // `forcar`: o bicho acabou de virar seu, e é ele quem assina o momento.
+    audio.grito(presa.especie.id, presa.shiny, presa.especie.num, true);
 
     const primeiraVez = (this.dex.de(presa.especie.id)?.capturados ?? 0) === 1;
     const cheio = novo === null;
@@ -3475,7 +3602,8 @@ export class Jogo {
     bola.soltar(pokemon);
     audio.invocar();
     // A voz dele logo depois do clarao: e o quadro em que o bicho vira seu.
-    window.setTimeout(() => audio.grito(especie.id, exemplar.shiny, especie.num), 260);
+    // `forcar`: a entrada em campo. Sem voz, o clarão fica mudo.
+    window.setTimeout(() => audio.grito(especie.id, exemplar.shiny, especie.num, true), 260);
 
     this.aviso.mostrar(
       [
@@ -3541,6 +3669,8 @@ export class Jogo {
     this.cena.add(pokemon.raiz);
     this.companheiro = pokemon;
     this.exemplarEmCampo = exemplar;
+    // Para a sessão seguinte saber que ele estava fora da bola.
+    this.dex.marcarEmCampo(exemplar);
 
     this.barraCompanheiro = new BarraVida(
       exemplar.shiny ? `✦ ${especie.nome}` : especie.nome,
@@ -3818,8 +3948,56 @@ export class Jogo {
     this.pontoMarcado = null;
   }
 
+  /**
+   * Devolve a campo quem estava lá quando a sessão caiu.
+   *
+   * Sem clarão e sem bola: ele não está sendo invocado agora, ele JÁ ESTAVA
+   * aqui — a cerimônia de invocação contaria uma mentira sobre o que
+   * aconteceu. Aparece ao seu lado, como quem esteve esperando.
+   *
+   * Um bicho desmaiado não volta: ele já tinha voltado para a bola sozinho, e
+   * trazê-lo de volta caído seria ressuscitar um estado que o jogo encerrou.
+   */
+  private async restaurarCampo() {
+    if (this.temCompanheiroEmCampo) return;
+    const exemplar = this.dex.exemplarEmCampoSalvo;
+    if (!exemplar || exemplar.hp <= 0) return;
+    const especie = porId(exemplar.id);
+    if (!especie) return;
+
+    if (!(await garantir(especie.id, exemplar.shiny))) return;
+    // A sessão pode ter avançado enquanto o modelo chegava: se alguém já entrou
+    // em campo nesse meio-tempo, a restauração perdeu o sentido.
+    if (this.temCompanheiroEmCampo) return;
+    const corpo = instanciar(
+      especie.id,
+      this.alturaDe(especie),
+      exemplar.shiny,
+      this.ajustes.tamanhoReal,
+    );
+    if (!corpo) return;
+
+    // Um passo à frente e ao lado, na altura do chão daquele ponto.
+    const onde = this.posicaoJogador.clone();
+    onde.x += 0.55;
+    onde.z -= 0.75;
+    const piso = this.sala.alturaEm(onde);
+    onde.y = piso;
+
+    const pokemon = this.porEmCampo(especie, corpo, exemplar, onde, piso);
+    pokemon.raiz.visible = true;
+    this.aviso.mostrar(
+      [
+        { texto: `${especie.nome} continuava com você`, tamanho: 34, cor: '#9ff0c4' },
+        { texto: 'ele esperou do lado de fora da bola', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+      ],
+      2.6,
+    );
+  }
+
   aoEntrarNaSessao() {
     this.proximoSpawn = 3;
+    void this.restaurarCampo();
 
     // O raio que mede o chão sob os seus pés só pode ser pedido com a sessão
     // aberta. É ele que faz o mapa crescer enquanto você caminha pela casa.
