@@ -259,7 +259,58 @@ export class Mao {
       | undefined;
     atuador?.pulse?.(intensidade, duracaoMs);
   }
+
+  /**
+   * Um dos padrões nomeados de `TATO`. É por aqui que o jogo fala com a mão.
+   *
+   * Prefira isto a `vibrar` com números soltos: a mão aprende padrões, não
+   * valores. Ver o comentário de `TATO`.
+   */
+  sentir(padrao: Tato) {
+    const pulsos = TATO[padrao];
+    let atraso = 0;
+    for (const [forca, ms] of pulsos) {
+      if (atraso === 0) this.vibrar(forca, ms);
+      else setTimeout(() => this.vibrar(forca, ms), atraso);
+      // Um respiro entre os pulsos, senão dois pulsos colados viram um só e o
+      // padrão de duas batidas deixa de ser distinguível do de uma.
+      atraso += ms + 45;
+    }
+  }
 }
+
+export type Tato = keyof typeof TATO;
+
+/**
+ * O vocabulário de vibração do jogo.
+ *
+ * Antes eram 33 chamadas de `vibrar` com intensidade e duração escolhidas caso
+ * a caso — `0.3, 35` aqui, `0.7, 70` ali, `0.45, 60` acolá. Isso é ruído: a mão
+ * não guarda valores, guarda **padrões**, e trinta e três variações levemente
+ * diferentes não formam padrão nenhum.
+ *
+ * São cinco, e a diferença entre eles é de FORMA, não de força — porque força é
+ * o que o runtime do headset mais distorce e o que menos sobrevive a uma luva
+ * ou a um controle diferente:
+ *
+ * - **pegou** — uma batida curta e leve. "Está na sua mão."
+ * - **recusado** — DUAS batidas separadas. É o único padrão de duas, e é de
+ *   propósito: "não" precisa ser inconfundível com qualquer "sim", inclusive de
+ *   olhos fechados, que é o teste do item 1.1 do roteiro.
+ * - **acertou** — uma batida seca e forte. O golpe pegou.
+ * - **levou** — uma batida longa e média, que se arrasta. Você é que tomou.
+ * - **marcou** — a mais leve de todas, para confirmações que não interrompem
+ *   nada: o alvo travou, a marca caiu no chão.
+ *
+ * Cada entrada é uma sequência de `[força 0–1, duração em ms]`.
+ */
+export const TATO = {
+  pegou: [[0.35, 35]],
+  recusado: [[0.5, 60], [0.5, 60]],
+  acertou: [[0.85, 55]],
+  levou: [[0.45, 140]],
+  marcou: [[0.25, 25]],
+} as const satisfies Record<string, ReadonlyArray<readonly [number, number]>>;
 
 /** Raio fino que sai da mão, usado para apontar no painel do time. */
 export class RaioMira {

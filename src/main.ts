@@ -220,6 +220,11 @@ renderer.setAnimationLoop(() => {
   planoAtualiza?.(dt);
   jogo.atualizar(dt);
   renderer.render(jogo.cena, jogo.camera);
+
+  // Depois do render, de propósito: `info.render.calls` só vale para o desenho
+  // que acabou de acontecer, e o `dt` deste quadro é o tempo que o quadro
+  // ANTERIOR levou — render incluído. Medir aqui é medir o custo de verdade.
+  jogo.medir(dt, renderer.info.render.calls);
 });
 
 // ---------------------------------------------------------------- PWA

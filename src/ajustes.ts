@@ -67,7 +67,8 @@ export type ChaveAjuste =
   | 'avisoDeGolpe'
   | 'tamanhoReal'
   | 'vozDoNome'
-  | 'musicaDeBatalha';
+  | 'musicaDeBatalha'
+  | 'contadorDeQuadros';
 
 interface Interruptor {
   id: ChaveAjuste;
@@ -108,6 +109,12 @@ export const INTERRUPTORES: readonly Interruptor[] = [
     desligadoDiz: 'sem contagem no inimigo',
   },
   {
+    id: 'contadorDeQuadros',
+    nome: 'Contador de quadros',
+    ligadoDiz: 'mostra ms, fps e draw calls',
+    desligadoDiz: 'sem medicao na tela',
+  },
+  {
     id: 'contornoDaSala',
     nome: 'Contorno da sala',
     ligadoDiz: 'desenha as superfícies mapeadas',
@@ -143,6 +150,15 @@ export class Ajustes {
    * aguentam dez minutos — e quem joga de madrugada não pode nem escolher.
    */
   musicaDeBatalha = true;
+  /**
+   * O medidor de quadros, preso ao canto da visão. Ver src/medidor.ts.
+   *
+   * Desligado por padrão porque é ferramenta, não jogo — mas mora aqui, e não
+   * atrás de uma flag de código, justamente para poder ser ligado NO headset,
+   * no meio de uma sessão, que é a única hora em que o número vale alguma
+   * coisa.
+   */
+  contadorDeQuadros = false;
 
   constructor() {
     this.carregar();

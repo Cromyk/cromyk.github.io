@@ -84,6 +84,8 @@ function corpoFalso(altura: number): Corpo {
     raio: altura * 0.5,
     mixer: null,
     acoes: new Map(),
+    // Sem GLB não há pose para remedir: a caixa deste corpo já é a certa.
+    renormalizar() {},
     descartar() {
       raiz.removeFromParent();
     },
@@ -1721,6 +1723,55 @@ console.log('29. as pedras de evolução');
   // As convidadas entraram para ser ponta de linha, não para povoar a sala.
   for (const e of ESPECIES.filter((x) => x.convidada)) {
     checar(pesoSpawn(e, false, 40) === 0, `${e.nome} é convidada e não devia nascer selvagem`);
+  }
+
+  // O golpe acerta alguém — item 2.1 do roteiro.
+  //
+  // O hit-stop é a ausência de movimento, e ausência é o tipo de coisa que se
+  // implementa achando que funcionou. Aqui a pausa é afirmada pelo que ela
+  // impede: durante ela, nem a posição nem o relógio interno do bicho andam.
+  {
+    const especie = porId('charmander')!;
+    const parado = new Pokemon(especie, corpoFalso(0.6), new THREE.Vector3(0, 0, -1), 0, 'selvagem', 10);
+    const jogador = new THREE.Vector3(0, 1.6, 0);
+
+    // Fora da pausa ele anda: é o que dá sentido ao teste seguinte.
+    for (let i = 0; i < 90; i++) parado.atualizar(1 / 90, jogador);
+    const antesDaPausa = parado.raiz.position.clone();
+
+    parado.congelar(0.08);
+    const naPausa = parado.raiz.position.clone();
+    for (let i = 0; i < 7; i++) parado.atualizar(1 / 90, jogador);
+    checar(
+      parado.raiz.position.distanceTo(naPausa) < 1e-9,
+      'o hit-stop devia parar o bicho, e ele andou durante a pausa',
+    );
+
+    // E ela ACABA. Uma pausa que não termina é um bicho travado para sempre.
+    for (let i = 0; i < 90; i++) parado.atualizar(1 / 90, jogador);
+    checar(
+      parado.raiz.position.distanceTo(naPausa) > 1e-6 ||
+        antesDaPausa.distanceTo(naPausa) < 1e-9,
+      'o hit-stop não devolveu o controle ao bicho depois do tempo',
+    );
+
+    // O empurrão afasta de quem bateu, no plano do chão, e se gasta sozinho.
+    const levou = new Pokemon(especie, corpoFalso(0.6), new THREE.Vector3(0, 0, -1), 0, 'selvagem', 10);
+    const bateu = new THREE.Vector3(0, 0, 0);
+    const antes = levou.raiz.position.clone();
+    levou.empurrar(bateu, 0.2);
+    for (let i = 0; i < 6; i++) levou.atualizar(1 / 90, jogador);
+    const depois = levou.raiz.position;
+    checar(
+      depois.distanceTo(bateu) > antes.distanceTo(bateu),
+      'o empurrão devia afastar o alvo de quem bateu, e ele ficou mais perto',
+    );
+    checar(Math.abs(depois.y - antes.y) < 1e-6, 'o empurrão não devia levantar o alvo do chão');
+
+    console.log(
+      `   hit-stop segura o bicho por ${(0.08 * 1000).toFixed(0)} ms; ` +
+        `empurrão de 20 cm afasta ${(depois.distanceTo(antes) * 100).toFixed(1)} cm em 6 quadros`,
+    );
   }
 
   // A medição da pose desenhada, que é o que planta o bicho no chão e no eixo.

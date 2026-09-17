@@ -30,6 +30,27 @@ ouviu e recusou"*. As duas coisas precisam de respostas diferentes e audíveis.
 
 ---
 
+## Já feito, em 17/09
+
+Quatro itens saíram no mesmo dia em que este roteiro foi escrito. Ficam aqui em
+vez de sumirem porque o **como saber que funcionou** de cada um continua sendo
+uma pergunta para você, no headset — nenhum deles foi visto rodando por mim.
+
+| Item | O que entrou | Falta você conferir |
+|---|---|---|
+| **0.1** | `src/medidor.ts` — ms, fps, pior caso e draw calls num canto da visão, ligável na engrenagem | se o número aparece, e se ele muda quando um Charizard entra |
+| **1.1** | `recusar()` — o gatilho na recarga, recolher e chamar sem ninguém em campo agora respondem | se dá para sentir a recusa sem tirar os olhos do bicho |
+| **1.2** | `TATO`, em `src/hands.ts` — as 33 vibrações soltas viraram 5 padrões nomeados | se, de olhos fechados, "peguei" e "fui recusado" são distinguíveis |
+| **2.1** | Hit-stop, empurrão e vibração de acerto em `resolverDano` | se dá para dizer, de costas para a barra, que o golpe pegou |
+
+O que **não** entrou do 2.1: o flash branco no alvo. Os materiais vêm do molde
+em cache e são compartilhados por todos os exemplares da espécie — piscar um
+piscaria todo Rattata da sala, e clonar material por golpe vaza memória no
+headset. Fica para junto do 2.2, que já vai precisar desenhar algo no corpo do
+bicho.
+
+---
+
 ## Fase 0 — Saber o que está acontecendo
 
 **Por que primeiro:** hoje o jogo não mede nada. Em 17/09 entraram três coisas
@@ -260,6 +281,14 @@ seu alcance nos primeiros minutos e ajusta sozinho.
 ---
 
 ## O que fica por último, e por quê
+
+**O `tools/` fora da checagem de tipos.** O `tsconfig.json` inclui só `src`,
+então `tools/smoke.ts` — as 29 verificações que seguram este projeto — passa
+pelo `esbuild` sem que ninguém confira os tipos dela. Já cobrou: quando `Corpo`
+ganhou `renormalizar`, o corpo falso do smoke ficou sem o método e nada
+reclamou. Incluir `tools` hoje acende **58 erros**, quase todos por falta de
+`@types/node` nas ferramentas de linha de comando. É uma limpeza de uma sentada
+e não depende de nada — só não é jogo, e por isso não passou na frente.
 
 **O rig da luva.** Estado em `PLAYTEST.md` e no topo de `tools/rig.ts`. Os
 cinco dedos já estão segmentados — o nó que travou três tentativas. Falta a

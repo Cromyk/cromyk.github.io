@@ -158,6 +158,10 @@ export class Pokemon {
   private carinho = 0;
   /** Segundos restantes de atração pela isca. Ver atrairPara. */
   private atracao = 0;
+  /** Segundos de hit-stop restantes. Ver congelar. */
+  private pausa = 0;
+  /** O que falta gastar do empurrão do golpe. Ver empurrar. */
+  private recuo = new THREE.Vector3();
 
   private static readonly RAIO_PASSEIO = 0.85;
 
@@ -363,10 +367,42 @@ export class Pokemon {
     return true;
   }
 
+  /**
+   * Congela o bicho por alguns quadros. O hit-stop — item 2.1 do roteiro.
+   *
+   * É o truque mais barato de game feel que existe, e o mais mal-entendido: não
+   * é uma animação, é a AUSÊNCIA de uma. Sessenta a noventa milissegundos em
+   * que nada se move, e o cérebro lê a pausa como massa — a mesma coisa que faz
+   * um soco parecer pesado num jogo de luta.
+   *
+   * Congela quem bate e quem leva, os dois, senão só metade da briga para e a
+   * pausa lê como travamento em vez de impacto.
+   */
+  congelar(segundos: number) {
+    this.pausa = Math.max(this.pausa, segundos);
+  }
+
+  /**
+   * Empurra para longe de um ponto, no plano do chão. O recuo do golpe.
+   *
+   * Não é knockback: são 10 a 15 cm que voltam sozinhos, porque o passeio do
+   * bicho puxa ele de volta para a âncora. O suficiente para o corpo registrar
+   * que houve empurrão, sem tirar ninguém do lugar — um selvagem arremessado
+   * para trás do sofá a cada golpe seria um problema novo.
+   */
+  empurrar(de: THREE.Vector3, distancia: number) {
+    const fora = new THREE.Vector3(this.raiz.position.x - de.x, 0, this.raiz.position.z - de.z);
+    if (fora.lengthSq() < 1e-6) return;
+    this.recuo.copy(fora.normalize().multiplyScalar(distancia));
+  }
+
   receberDano(quantidade: number) {
     if (this.desmaiado) return;
     this.hp = Math.max(0, this.hp - quantidade);
     this.tremor = 1;
+    // Achatado pelo golpe, como quem leva o baque. O mesmo campo que a queda
+    // usa ao aterrissar — ver `animar`.
+    this.impacto = Math.max(this.impacto, 0.8);
     this.animador.disparar('apanhar');
     if (this.hp <= 0) {
       this.estado = 'desmaiado';
@@ -631,6 +667,25 @@ export class Pokemon {
   atualizar(dt: number, jogador: THREE.Vector3, terreno?: Terreno) {
     if (!this.viva) return;
     if (terreno) this.terreno = terreno;
+
+    // Hit-stop: alguns quadros em que este bicho não avança em nada — nem
+    // estado, nem passo, nem respiração. Ver `congelar`. O `return` vem antes
+    // de tudo de propósito: uma pausa que deixa a animação de ócio rodando por
+    // baixo não é uma pausa, é um bicho parado no lugar mexendo a cabeça.
+    if (this.pausa > 0) {
+      this.pausa -= dt;
+      return;
+    }
+
+    // O recuo do golpe, gasto nos primeiros quadros depois do impacto. Não
+    // mexe na âncora nem no destino, então o passeio do bicho o traz de volta
+    // sozinho — que é o que faz o empurrão parecer um empurrão e não um teleporte.
+    if (this.recuo.lengthSq() > 1e-8) {
+      const passo = Math.min(1, dt * 9);
+      this.raiz.position.addScaledVector(this.recuo, passo);
+      this.recuo.multiplyScalar(1 - passo);
+    }
+
     this.tempo += dt;
     this.cronometroEstado += dt;
     if (this.recarga > 0) this.recarga -= dt;

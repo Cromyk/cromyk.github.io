@@ -41,7 +41,7 @@ import { BOTAO_A, BOTAO_B, FeixeDeAlvo, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, 
 import { Luva } from './glove';
 import { Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
-import { Aviso, BarraVida, PainelPulso, type Carga } from './hud';
+import { Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
 import { Evolucao, PromptEvolucao } from './evolucao';
 import type { GestoDeAtaque } from './anima';
 import { PainelTime, type EntradaGolpe } from './menu';
@@ -60,6 +60,7 @@ import { BONUS_FRUTA, ITENS, SEGUNDOS_FRUTA, itemPorId } from './itens';
 import { ehPedra, pedraPorId, aQuemServe } from './pedras';
 import { ItemNaMao, RastroDeIsca } from './isca';
 import { Mochila } from './mochila';
+import { Medidor } from './medidor';
 import { Aura, Efeito, Impacto } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
 import { PainelPc } from './pc';
@@ -225,6 +226,8 @@ export class Jogo {
   private painelPulso = new PainelPulso();
   /** A mochila aberta no ar, onde os itens são pegos com a mão. Ver src/mochila.ts. */
   private mochila = new Mochila();
+  /** O contador de quadros, preso à câmera. Ver src/medidor.ts. */
+  private medidor = new Medidor();
   private painelTime = new PainelTime();
   private painelDex = new PainelDex();
   /** O PC: a caixa e a edição da equipe. Abre com o botão Y. */
@@ -274,6 +277,9 @@ export class Jogo {
     this.renderer = renderer;
     this.camera = new THREE.PerspectiveCamera(65, 1, 0.05, 60);
     this.camera.position.set(0, 1.6, 0);
+    // A única coisa do jogo presa à cabeça, e de propósito: um medidor que só
+    // se lê virando o pulso não é lido enquanto se joga. Ver src/medidor.ts.
+    this.camera.add(this.medidor.grupo);
 
     this.sala = new Sala(this.cena);
     this.aviso = new Aviso(this.cena);
@@ -538,7 +544,7 @@ export class Jogo {
     }
 
     this.tablet.naMaoDe = mao.indice;
-    mao.vibrar(0.5, 60);
+    mao.sentir('acertou');
     audio.abrirPainel();
     this.aviso.mostrar(
       [
@@ -560,7 +566,7 @@ export class Jogo {
     this.tablet.naMaoDe = null;
     this.tablet.grupo.removeFromParent();
     this.cena.add(this.tablet.grupo);
-    mao.vibrar(0.3, 40);
+    mao.sentir('pegou');
     audio.clique();
     // Guardou no meio de uma ficha falada: a voz para junto.
     calar();
@@ -598,7 +604,7 @@ export class Jogo {
     if (!c.pegarNoColo()) return false;
     this.pokemonNoColo.set(mao.indice, c);
     mao.segurando = true;
-    mao.vibrar(0.6, 80);
+    mao.sentir('acertou');
     audio.carinho();
     audio.grito(c.especie.id, c.shiny, c.especie.num);
     this.aviso.mostrar(
@@ -623,7 +629,7 @@ export class Jogo {
     this.pokemonNoColo.delete(mao.indice);
     mao.segurando = false;
     bicho.soltarDoColo();
-    mao.vibrar(0.25, 35);
+    mao.sentir('marcou');
   }
 
   /**
@@ -717,7 +723,7 @@ export class Jogo {
         caida.recolher();
         this.bolaNaMao.set(mao.indice, caida);
         mao.segurando = true;
-        mao.vibrar(0.5, 55);
+        mao.sentir('acertou');
         audio.clique();
         return;
       }
@@ -735,7 +741,7 @@ export class Jogo {
     if (slotDaVez && !this.maoCheia(mao)) {
       if (this.dex.bolas(slotDaVez.id) <= 0) {
         audio.recusa();
-        mao.vibrar(0.2, 25);
+        mao.sentir('marcou');
         this.aviso.mostrar(
           [
             { texto: `acabou a ${slotDaVez.nome}`, tamanho: 36, cor: '#ff9f9f' },
@@ -746,7 +752,7 @@ export class Jogo {
         return;
       }
       this.escolherBola(slotDaVez.id);
-      mao.vibrar(0.45, 45);
+      mao.sentir('pegou');
       this.tirarBolaDaCinta(mao, slotDaVez.id);
       return;
     }
@@ -758,7 +764,7 @@ export class Jogo {
     if (this.painelTime.aberto) {
       const alcancado = this.cartaSobAMao(mao);
       if (alcancado) {
-        mao.vibrar(0.45, 45);
+        mao.sentir('pegou');
         if (alcancado.tipo === 'item') {
           // Todo item vai PARA A MÃO, inclusive a poção: segurar o frasco e
           // encostar no bicho é o que um treinador faz, e era estranho que a
@@ -834,7 +840,7 @@ export class Jogo {
     if (item) {
       const nome = item.tipo.nome;
       this.guardarIsca(mao);
-      mao.vibrar(0.3, 35);
+      mao.sentir('pegou');
       audio.clique();
       this.aviso.mostrar([{ texto: `${nome} de volta na mochila`, tamanho: 32, cor: '#9aa5b8' }], 1.4);
       return;
@@ -848,7 +854,7 @@ export class Jogo {
     this.largarBolaDaMao(mao);
 
     if (!invocacao && idBola) this.dex.ganharBola(idBola, 1);
-    mao.vibrar(0.3, 35);
+    mao.sentir('pegou');
     audio.clique();
     this.aviso.mostrar(
       [
@@ -981,7 +987,7 @@ export class Jogo {
     // Sem headset a luva mora na camera, e e nela que a isca precisa ficar.
     (this.modoPlano && this.luvaPlana ? this.luvaPlana.grupo : mao.punho).add(isca.grupo);
     this.itemNaMao.set(mao.indice, isca);
-    mao.vibrar(0.3, 35);
+    mao.sentir('pegou');
     audio.tilintar();
 
     this.aviso.mostrar(
@@ -1173,7 +1179,7 @@ export class Jogo {
     if (ehPedra(id) && !alvoDaPedra) {
       const pedra = pedraPorId(id);
       audio.recusa();
-      mao.vibrar(0.2, 30);
+      mao.sentir('marcou');
       this.aviso.mostrar(
         [
           { texto: `${c.especie.nome} não responde a ela`, tamanho: 34, cor: '#ffb1b1' },
@@ -1197,7 +1203,7 @@ export class Jogo {
       return true;
     }
 
-    mao.vibrar(0.6, 80);
+    mao.sentir('acertou');
     const brilho = new Impacto(c.centro, item.tipo.cor);
     this.cena.add(brilho.pontos);
     this.impactos.push(brilho);
@@ -1280,7 +1286,7 @@ export class Jogo {
 
     audio.chamado();
     audio.grito(alvo.especie.id, alvo.shiny, alvo.especie.num);
-    mao.vibrar(0.7, 90);
+    mao.sentir('acertou');
 
     const brilho = new Impacto(alvo.centro, tipo.cor);
     this.cena.add(brilho.pontos);
@@ -1366,7 +1372,7 @@ export class Jogo {
 
     mao.segurando = true;
     mao.limparAmostras();
-    mao.vibrar(0.25, 30);
+    mao.sentir('marcou');
     // Pegou agora: a mão ainda não saiu do painel, então soltar aqui mesmo não
     // devolve nada.
     this.saiuDoPainel.delete(mao.indice);
@@ -1412,7 +1418,7 @@ export class Jogo {
     const velocidade = mao.velocidadeArremesso(performance.now());
     if (velocidade.length() < 0.8) velocidade.set(0, -0.4, 0);
     bola.lancar(velocidade);
-    mao.vibrar(0.5, 50);
+    mao.sentir('acertou');
 
     const exemplar = this.bolaDeInvocacao.get(mao.indice);
     if (exemplar) {
@@ -1483,7 +1489,7 @@ export class Jogo {
       const destino = this.pontoMarcado.clone();
       this.pontoMarcado = null;
       this.companheiro!.irPara(destino);
-      mao.vibrar(0.6, 70);
+      mao.sentir('acertou');
       audio.comando();
       this.aviso.mostrar(
         [
@@ -1546,7 +1552,7 @@ export class Jogo {
         if (ponto) {
           if (!preso.comandou) {
             preso.comandou = true;
-            preso.mao.vibrar(0.25, 25);
+            preso.mao.sentir('marcou');
           }
           this.pontoMarcado = ponto;
           mostrar = true;
@@ -1585,7 +1591,7 @@ export class Jogo {
     if (this.escolha) {
       const especie = this.escolha.confirmar();
       if (especie) {
-        mao.vibrar(0.8, 120);
+        mao.sentir('levou');
         this.receberInicial(especie);
       }
       return;
@@ -1601,7 +1607,7 @@ export class Jogo {
     // Painel aberto: o gatilho escolhe o que estiver sob a mira.
     const selecao = this.painelTime.aberto ? this.painelTime.selecao : null;
     if (selecao) {
-      mao.vibrar(0.4, 40);
+      mao.sentir('pegou');
       if (selecao.tipo === 'criatura') this.escolherDoTime(selecao.entrada.exemplar);
       else if (selecao.tipo === 'bola') this.escolherBola(selecao.entrada.tipo.id);
       else if (selecao.tipo === 'modo') this.escolherModo(selecao.entrada);
@@ -1639,7 +1645,7 @@ export class Jogo {
     const especie = this.painelDex.selecionada;
     if (!especie) return;
 
-    mao.vibrar(0.3, 30);
+    mao.sentir('pegou');
 
     if (!this.ajustes.vozDaDex) {
       this.aviso.mostrar(
@@ -1679,8 +1685,11 @@ export class Jogo {
   /** O gatilho dentro do PC: pega, larga, troca, cura ou fecha. */
   private acionarPc(mao: Mao) {
     const feito = this.pc.acionar();
-    if (!feito) return;
-    mao.vibrar(feito === 'trocou' || feito === 'moveu' ? 0.55 : 0.3, 45);
+    if (!feito) {
+      this.recusar(mao);
+      return;
+    }
+    mao.sentir(feito === 'trocou' || feito === 'moveu' ? 'acertou' : 'pegou');
 
     switch (feito) {
       case 'pegou':
@@ -2020,7 +2029,7 @@ export class Jogo {
 
   private travarAlvo(alvo: Pokemon, mao: Mao) {
     this.alvoTravado = alvo;
-    mao.vibrar(0.3, 30);
+    mao.sentir('pegou');
     audio.clique();
     this.aviso.mostrar(
       [
@@ -2071,7 +2080,12 @@ export class Jogo {
     }
 
     const companheiro = this.companheiro!;
-    if (!companheiro.podeAtacar) return;
+    // Recarregando. Só a mão é avisada: isto acontece dezenas de vezes por
+    // briga, e um cartaz a cada gatilho seria pior do que o silêncio.
+    if (!companheiro.podeAtacar) {
+      this.recusar(mao);
+      return;
+    }
 
     // O golpe armado no painel é o que sai, em qualquer modo. Antes isso era
     // privilégio do modo Batalha e nos outros o jogo escolhia sozinho — o que
@@ -2083,14 +2097,14 @@ export class Jogo {
     this.encarados.add(alvo);
 
     if (golpe.categoria === 'status') {
-      mao.vibrar(0.45, 60);
+      mao.sentir('pegou');
       companheiro.marcarRecarga(this.recargaComVelocidade(companheiro, golpe));
       this.usarStatus(companheiro, alvo, golpe);
       return;
     }
 
     if (companheiro.atacar(alvo, this.recargaComVelocidade(companheiro, golpe), gestoDoGolpe(golpe))) {
-      mao.vibrar(0.7, 70);
+      mao.sentir('acertou');
       this.dispararGolpe(companheiro, alvo, golpe);
     }
   }
@@ -2121,7 +2135,10 @@ export class Jogo {
    */
   private atacarOAmbiente(mao: Mao) {
     const companheiro = this.companheiro!;
-    if (!companheiro.podeAtacar) return;
+    if (!companheiro.podeAtacar) {
+      this.recusar(mao);
+      return;
+    }
 
     const { origem, direcao } = mao.mira();
     const ponto = origem.clone().addScaledVector(direcao, 3);
@@ -2137,7 +2154,7 @@ export class Jogo {
         : (golpesDeDano(arsenal(companheiro))[0] ?? arsenal(companheiro)[0]);
 
     if (!companheiro.atacarPonto(ponto, golpe.recarga, gestoDoGolpe(golpe))) return;
-    mao.vibrar(0.55, 60);
+    mao.sentir('acertou');
 
     const efeito = new Efeito(golpe, companheiro.boca, ponto);
     efeito.adicionarA(this.cena);
@@ -2195,9 +2212,37 @@ export class Jogo {
     }
     defensor.receberDano(dano);
 
+    // O golpe acerta alguém — item 2.1 do roteiro.
+    //
+    // Antes daqui o combate funcionava e não sentia: o golpe saía, o dano era
+    // calculado, a barra descia. Três coisas, na ordem em que o corpo as lê:
+    //
+    // 1. A PAUSA. Hit-stop nos dois, mais longa quando o golpe foi forte — o
+    //    cérebro lê tempo parado como massa. É a que mais rende das três, e a
+    //    única que não custa nada para desenhar.
+    // 2. O EMPURRÃO, na direção em que o golpe viajou. Centímetros, que voltam
+    //    sozinhos.
+    // 3. A MÃO. Ver `TATO`, em src/hands.ts.
+    //
+    // O que NÃO entra: screen shake. Em VR isso enjoa — ver a primeira regra
+    // de PROXIMOS-PASSOS.md. O impacto vai para o objeto, para a mão e para o
+    // som, nunca para a câmera.
+    const forca = THREE.MathUtils.clamp(dano / Math.max(defensor.hpMax, 1), 0.08, 0.5);
+    const congelamento = 0.05 + forca * 0.09 + (critico ? 0.04 : 0);
+    atacante.congelar(congelamento);
+    defensor.congelar(congelamento);
+    defensor.empurrar(atacante.raiz.position, 0.08 + forca * 0.22);
+
     const impacto = new Impacto(defensor.centro, TIPOS[golpe.tipo].cor);
     this.cena.add(impacto.pontos);
     this.impactos.push(impacto);
+
+    // Quem levou é o seu: a mão sente o baque, não o acerto.
+    if (defensor.papel === 'companheiro') {
+      for (const mao of this.maos) mao.sentir('levou');
+    } else {
+      for (const mao of this.maos) mao.sentir(critico ? 'levou' : 'acertou');
+    }
 
     audio.impacto(efetividade);
     if (critico) audio.critico();
@@ -2506,7 +2551,7 @@ export class Jogo {
       trocou: false,
     };
     audio.evoluir();
-    for (const mao of this.maos) mao.vibrar(0.5, 120);
+    for (const mao of this.maos) mao.sentir('levou');
   }
 
   /** Botão B: fica como está, e não se pergunta de novo até o próximo nível. */
@@ -3067,13 +3112,16 @@ export class Jogo {
     if (this.recargaCarinho > 0) {
       this.recargaCarinho -= dt;
       // Vibração fraca e constante enquanto a mão estiver lá: é o ronronar
-      // chegando pelo controle.
+      // chegando pelo controle. É a única que fica fora do vocabulário de
+      // `TATO` de propósito — os padrões de lá nomeiam EVENTOS, e isto é
+      // textura contínua, que precisa ser fraca o bastante para não virar um
+      // deles por acidente.
       if (Math.random() < dt * 6) tocando.vibrar(0.12, 18);
       return;
     }
 
     this.recargaCarinho = 4;
-    tocando.vibrar(0.35, 60);
+    tocando.sentir('pegou');
     audio.carinho();
     audio.grito(c.especie.id, c.shiny, c.especie.num);
     c.curar(Math.max(1, Math.ceil(c.hpMax * 0.04)));
@@ -3168,7 +3216,7 @@ export class Jogo {
    */
   private recolherApontando(mao: Mao) {
     if (!this.temCompanheiroEmCampo) {
-      if (this.dex.exemplarAtivo) audio.recusa();
+      this.recusar(mao, 'nenhum Pokémon em campo', 'não há quem recolher');
       return;
     }
 
@@ -3182,7 +3230,7 @@ export class Jogo {
 
     if (desvio > c.raio + 0.35) {
       audio.recusa();
-      mao.vibrar(0.15, 20);
+      mao.sentir('marcou');
       this.aviso.mostrar(
         [
           { texto: 'aponte para ele', tamanho: 34, cor: '#ffd78a' },
@@ -3209,15 +3257,39 @@ export class Jogo {
     this.cena.add(brilho.pontos);
     this.impactos.push(brilho);
 
-    mao.vibrar(0.6, 80);
+    mao.sentir('acertou');
     audio.grito(c.especie.id, c.shiny, c.especie.num);
     this.recolherCompanheiro();
   }
 
   /** Botão X: ele larga o que está fazendo e vem até você. */
+  /**
+   * A resposta a um gesto que não pôde acontecer — item 1.1 do roteiro.
+   *
+   * A vibração é sempre, e é o essencial: ela chega sem ocupar a visão, e é o
+   * que separa *"o sistema não me ouviu"* de *"o sistema me ouviu e recusou"* —
+   * que em VR, sem cursor e sem log, eram indistinguíveis. O padrão `recusado`
+   * é o único de duas batidas justamente para não ser confundido com nenhum
+   * "sim" de olhos fechados (ver `TATO`, em src/hands.ts).
+   *
+   * Som e cartaz são opcionais porque nem toda recusa merece os três. O gatilho
+   * durante a recarga acontece dezenas de vezes por briga: um cartaz ali vira
+   * poluição e um som vira irritação, mas a mão precisa saber. Já "não há
+   * ninguém em campo" acontece uma vez e vale explicar.
+   */
+  private recusar(mao: Mao, titulo?: string, dica?: string) {
+    mao.sentir('recusado');
+    if (!titulo) return;
+
+    audio.recusa();
+    const linhas: LinhaTexto[] = [{ texto: titulo, tamanho: 34, cor: '#ffd78a' }];
+    if (dica) linhas.push({ texto: dica, tamanho: 22, cor: '#9aa5b8', peso: 500 });
+    this.aviso.mostrar(linhas, 2);
+  }
+
   private chamarParaPerto(mao: Mao) {
     if (!this.temCompanheiroEmCampo) {
-      audio.recusa();
+      this.recusar(mao, 'nenhum Pokémon em campo', 'gire o pulso esquerdo e pegue a bola de um deles');
       return;
     }
     const c = this.companheiro!;
@@ -3226,7 +3298,7 @@ export class Jogo {
     c.acenar();
     audio.comando();
     audio.grito(c.especie.id, c.shiny, c.especie.num);
-    mao.vibrar(0.4, 45);
+    mao.sentir('pegou');
     this.aviso.mostrar(
       [{ texto: `${c.especie.nome} está vindo`, tamanho: 34, cor: '#cfe6ff' }],
       1.4,
@@ -3265,6 +3337,20 @@ export class Jogo {
     const mudou = mao.lerPunhoFechado();
     if (mudou === 'fechou') this.pegarBola(mao);
     else if (mudou === 'abriu') this.arremessarBola(mao);
+  }
+
+  /**
+   * Um quadro para o medidor. Chamado por main.ts DEPOIS do render.
+   *
+   * Fica fora de `atualizar` por causa da ordem: o que interessa é o custo do
+   * quadro inteiro, desenho incluído, e `renderer.info.render.calls` só vale
+   * depois que o desenho aconteceu. Medido de dentro de `atualizar`, o medidor
+   * mediria tudo menos a parte cara.
+   */
+  medir(dt: number, chamadas: number) {
+    this.medidor.definirVisivel(this.ajustes.contadorDeQuadros);
+    if (!this.ajustes.contadorDeQuadros) return;
+    this.medidor.atualizar(dt, chamadas);
   }
 
   /**
@@ -3337,13 +3423,13 @@ export class Jogo {
           if (this.painelDex.aberto) {
             this.painelDex.virarPagina(x > 0 ? 1 : -1);
             audio.clique();
-            mao.vibrar(0.2, 20);
+            mao.sentir('marcou');
           } else {
             const id = this.dex.cicloBola(x > 0 ? 1 : -1);
             const tipo = bolaPorId(id);
             if (tipo) {
               audio.clique();
-              mao.vibrar(0.3, 25);
+              mao.sentir('pegou');
               this.aviso.mostrar(
                 [
                   {
@@ -3865,7 +3951,7 @@ export class Jogo {
         bola.capturar(pokemon, precisao, multiplicador);
         // A fruta valia para uma bola só, e essa bola já foi.
         this.bonusFruta = 0;
-        for (const mao of this.maos) mao.vibrar(0.8, 90);
+        for (const mao of this.maos) mao.sentir('acertou');
         return;
       }
       if (dist <= alcance + 0.28) pokemon.assustar(0.28);
@@ -4204,6 +4290,7 @@ export class Jogo {
     for (const raio of this.raios.values()) raio.descartar();
     for (const feixe of this.feixes.values()) feixe.descartar();
     this.mochila.descartar();
+    this.medidor.descartar();
     for (const rastro of this.rastros.values()) rastro.descartar();
     for (const isca of this.itemNaMao.values()) isca.descartar();
     for (const mao of this.maos) mao.luva?.descartar();
