@@ -29,7 +29,9 @@
     "mao": "esbuild tools/mao.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mao.mjs --log-level=error && node node_modules/.cache/mao.mjs",
     "vozes": "node tools/vozes.mjs",
     "vozes:anime": "node tools/vozes-anime.mjs",
-    "luva": "node tools/luva.mjs"
+    "luva": "node tools/luva.mjs",
+    "rig": "esbuild tools/rig.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rig.mjs --log-level=error --external:./raster.mjs --external:./png.mjs && node --max-old-space-size=4096 node_modules/.cache/rig.mjs",
+    "ver:luva": "node tools/ver-luva.mjs"
   },
   "dependencies": {
     "three": "^0.184.0"

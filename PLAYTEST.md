@@ -304,3 +304,60 @@ curto para uma luva de verdade.
 
 **Estado:** `public/maos/left.glb` e `right.glb` continuam sendo o `generic-hand`
 — a luva não entrou no jogo. Tudo o mais deste playtest funciona sem ela.
+
+---
+
+## 1 (continuação, 17/09) — o rig ganhou um pipeline e três falhas nomeadas
+
+Blender continua fechado (tentei o MCP de novo), então fui pelo caminho
+alternativo: **dobrar a mão até a pose da luva**, em `tools/rig.ts`
+(`npm run rig`). A ideia é usar a `MaoArticulada` do próprio jogo para posar a
+mão de referência e transformar a curvatura da luva em dois números, (gatilho,
+grip), que se procuram por busca.
+
+E `npm run rig` **desenha antes de exportar** (`folha-rig.png`, mão em azul e
+luva em areia). Isso não é conforto: cada uma das três falhas abaixo passou por
+um número que parecia bom.
+
+### As três falhas, todas com número bonito
+
+| falha | o que o número dizia | o que a imagem mostrava |
+|---|---|---|
+| **manga no PCA** | erro 6,1 mm | luva atravessada na palma |
+| **colapso de escala** | erro 5,8 mm | luva encolhida *dentro* do punho |
+| **orientação 90°** | erro 9,1 mm | escala certa, manga para o lado errado |
+
+1. **A manga.** A luva tem 313 mm de ponta a ponta e a mão 178 — a diferença é
+   punho subindo pelo antebraço. Ela domina o eixo principal do PCA e puxa a
+   escala, porque o ICP tenta fazer 313 caber em 178. Corrigido cortando a
+   manga (34% do eixo) antes de alinhar.
+2. **O colapso.** Meu erro era unidirecional (luva→mão), e assim **encolher
+   premia**: um caroço dentro da palma deixa todo ponto da luva pertinho de
+   mão. Corrigido com erro simétrico — o sentido mão→luva é o que cobra
+   *cobertura*, e uma luva encolhida deixa a mão inteira longe dela.
+3. **A orientação.** Quatro trocas de sinal do PCA não dão ao ICP como
+   consertar um erro de 90°: ele refina, não gira. Corrigido varrendo as 12
+   orientações que levam eixo em eixo, em duas etapas — orientação primeiro com
+   uma pose média, depois a pose fina.
+
+### O que já está certo e medido
+
+- a luva é **esquerda** (a quiralidade entrou na busca porque não se resolve
+  por rotação — espelhar e deixar as duas hipóteses competirem);
+- a folga típica luva-sobre-mão fica na casa dos **6 a 9 mm**, que é o que uma
+  luva acolchoada tem mesmo sobre uma mão magra.
+
+### O que falta
+
+O alinhamento ainda não fechou, e depois dele faltam as duas últimas etapas,
+que já estão desenhadas no arquivo: transferir os pesos com as duas malhas na
+mesma pose (a objeção original ao vizinho mais próximo deixa de valer aí) e
+**levar a luva à bind pose** — sem isso ela entra no jogo já dobrada e o
+esqueleto a dobra de novo.
+
+A exportação não vai montar um GLB do zero: abre o `right.glb` e troca só a
+geometria da primitiva, preservando as 25 juntas e as `inverseBindMatrices` do
+arquivo oficial.
+
+**Estado:** `public/maos/*.glb` continuam sendo o `generic-hand`. **A luva não
+entrou no jogo** — e nada do resto do playtest depende dela.
