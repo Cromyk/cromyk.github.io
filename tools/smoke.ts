@@ -47,7 +47,7 @@ import {
   type Especie,
 } from '../src/species';
 import { MEDIDAS } from '../src/modelos.gen';
-import type { Corpo } from '../src/modelos';
+import { caixaDaPose, type Corpo } from '../src/modelos';
 import { BOLAS } from '../src/balls';
 import { PEDRAS, EVOLUI_SO_COM_PEDRA } from '../src/pedras';
 import { ITENS } from '../src/itens';
@@ -1721,6 +1721,77 @@ console.log('29. as pedras de evolução');
   // As convidadas entraram para ser ponta de linha, não para povoar a sala.
   for (const e of ESPECIES.filter((x) => x.convidada)) {
     checar(pesoSpawn(e, false, 40) === 0, `${e.nome} é convidada e não devia nascer selvagem`);
+  }
+
+  // A medição da pose desenhada, que é o que planta o bicho no chão e no eixo.
+  //
+  // Este teste existe porque a falta dele custou caro: `applyBoneTransform` no
+  // three r155+ transforma o vetor que RECEBE — é entrada e saída —, e chamá-lo
+  // com um vetor vazio devolve zero. A caixa colapsava num ponto, a escala
+  // virava `alturaAlvo ÷ 1e-6`, e Pikachu e Eevee viravam paredes gigantes com
+  // o jogador dentro. No headset isso se lê como "o bicho sumiu", e nenhuma
+  // verificação de lógica via nada errado.
+  //
+  // O que se afirma aqui é o contrato: a caixa sai em unidades do MODELO, não
+  // importa a escala em que o bicho esteja no quarto (ele nasce em 0,001 e
+  // cresce), e acompanha o osso quando a pose muda.
+  {
+    const geo = new THREE.BoxGeometry(1, 2, 1, 1, 4, 1);
+    const n = geo.attributes.position.count;
+    geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(n * 4), 4));
+    geo.setAttribute(
+      'skinWeight',
+      new THREE.Float32BufferAttribute(
+        Float32Array.from({ length: n * 4 }, (_, i) => (i % 4 === 0 ? 1 : 0)),
+        4,
+      ),
+    );
+
+    const montar = (escalaDoAjuste: number, escalaDaRaiz: number) => {
+      const osso = new THREE.Bone();
+      const malha = new THREE.SkinnedMesh(geo, new THREE.MeshBasicMaterial());
+      const cena = new THREE.Group();
+      cena.add(osso, malha);
+      cena.updateMatrixWorld(true);
+      malha.bind(new THREE.Skeleton([osso]));
+
+      const giro = new THREE.Group();
+      giro.add(cena);
+      const desloca = new THREE.Group();
+      desloca.position.set(0, -1, 0);
+      desloca.add(giro);
+      const ajuste = new THREE.Group();
+      ajuste.scale.setScalar(escalaDoAjuste);
+      ajuste.add(desloca);
+      const raiz = new THREE.Group();
+      raiz.add(ajuste);
+      raiz.scale.setScalar(escalaDaRaiz);
+      raiz.position.set(3, 1, -2);
+      raiz.updateMatrixWorld(true);
+      return { raiz, desloca, cena, osso };
+    };
+
+    for (const [ajuste, daRaiz] of [[1, 1], [0.2, 1], [0.2, 0.001], [0.001, 0.001]]) {
+      const h = montar(ajuste, daRaiz);
+      const tam = caixaDaPose(h.cena, h.desloca).getSize(new THREE.Vector3());
+      checar(
+        Math.abs(tam.y - 2) < 1e-3 && Math.abs(tam.x - 1) < 1e-3,
+        `a caixa da pose devia ser 1×2×1 em unidades do modelo; com ajuste=${ajuste} e raiz=${daRaiz} deu ` +
+          `${tam.x.toFixed(3)}×${tam.y.toFixed(3)}×${tam.z.toFixed(3)}`,
+      );
+    }
+
+    // E ela SEGUE o osso: é para isso que ela mede o skinning em vez da
+    // geometria crua, que ficaria parada na pose de bind.
+    const movido = montar(0.2, 1);
+    movido.osso.position.set(0, 5, 0);
+    movido.raiz.updateMatrixWorld(true);
+    const caixa = caixaDaPose(movido.cena, movido.desloca);
+    checar(
+      Math.abs(caixa.min.y - 4) < 1e-3 && Math.abs(caixa.max.y - 6) < 1e-3,
+      `com o osso 5 acima, a caixa devia ir de 4 a 6 em Y; foi de ${caixa.min.y.toFixed(2)} a ${caixa.max.y.toFixed(2)}`,
+    );
+    console.log('   caixa da pose: 1×2×1 em qualquer escala, e segue o osso');
   }
 
   // A grade da mochila tem de caber no gesto: dois itens mais perto um do outro

@@ -168,19 +168,36 @@ export interface PontoDeFogo {
   /** Fração da altura do bicho. A chama do Charmander é ~1/5 dele. */
   fracao: number;
   cor?: number;
+  /**
+   * Descer pela cadeia de ossos até o mais distante antes de pendurar.
+   *
+   * Existe porque o rig conhece três vértebras de cauda e os rips têm mais: a
+   * do Charmander tem NOVE ossos (`tail1`…`tail6`, depois `taila01`…`taila03`),
+   * e `cauda3` — o mais fundo que o rig nomeia — é o terceiro de nove, ou seja,
+   * ainda perto do corpo. Pendurar ali põe a chama no meio do rabo, que é onde
+   * ela estava aparecendo.
+   *
+   * Falso na crina do Rapidash: lá o osso mapeado é o pescoço, e o mais
+   * distante dele é a ponta do focinho.
+   */
+  ponta?: boolean;
 }
 
 export const FOGO_POR_ESPECIE: Readonly<Record<string, readonly PontoDeFogo[]>> = {
-  charmander: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.2 }],
-  charmeleon: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.19 }],
-  charizard: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.16 }],
+  charmander: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.16, ponta: true }],
+  charmeleon: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.15, ponta: true }],
+  charizard: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.13, ponta: true }],
   // Só a crina: a cauda do Rapidash é fogo também, mas o rip nomeia as mechas
   // dela `taila01`…`tailh03`, e nenhuma bate com os candidatos de cauda do
   // rig. Ensinar o rig a ler esses nomes mexeria na animação de cauda de todo
   // mundo para ganhar uma chama — a troca não compensa.
   rapidash: [{ ossos: ['pescoco', 'cabeca'], fracao: 0.45, cor: 0xffa02a }],
   // Moltres é uma ave DE fogo: a cauda dele é chama do começo ao fim.
-  moltres: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.5, cor: 0xffb03a }],
+  // Fração menor que a das outras aves de fogo porque a chama dele fica na
+  // BASE da cauda, não na ponta: o rip não liga o osso `tail` ao resto do rabo
+  // (`tools/diag-fogo.mjs` diz SEM CADEIA). Uma chama de meia altura ali vira
+  // uma bola de fogo no meio do corpo.
+  moltres: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.3, cor: 0xffb03a, ponta: true }],
 
   // Ficam de fora, e é bom estar escrito por quê: **Ponyta e Magmar não têm
   // esqueleto nenhum** nestes arquivos (`tools/diag-fogo.mjs ponyta` devolve
@@ -191,3 +208,32 @@ export const FOGO_POR_ESPECIE: Readonly<Record<string, readonly PontoDeFogo[]>> 
 };
 
 export const temFogo = (id: string) => id in FOGO_POR_ESPECIE;
+
+/**
+ * O osso mais distante deste, seguindo só ossos. A ponta da cauda.
+ *
+ * Distância no MUNDO, e não profundidade na árvore, porque as caudas se
+ * ramificam: a do Charizard abre em `endtail7` e `taila01`, e a mais funda em
+ * número de nós nem sempre é a que vai mais longe. O que se quer é o ponto do
+ * esqueleto mais afastado de onde se começou, que é o que uma ponta é.
+ *
+ * Exige `updateMatrixWorld` feito por quem chama — o resultado depende das
+ * matrizes de mundo dos ossos.
+ */
+export function pontaDaCadeia(osso: THREE.Object3D): THREE.Object3D {
+  const origem = osso.getWorldPosition(new THREE.Vector3());
+  let melhor = osso;
+  let maior = 0;
+  const ponto = new THREE.Vector3();
+
+  osso.traverse((no) => {
+    if (no === osso || !(no as THREE.Bone).isBone) return;
+    const d = no.getWorldPosition(ponto).distanceTo(origem);
+    if (d > maior) {
+      maior = d;
+      melhor = no;
+    }
+  });
+
+  return melhor;
+}

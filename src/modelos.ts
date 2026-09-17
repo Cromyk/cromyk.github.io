@@ -86,7 +86,7 @@ export interface Corpo {
  * fazer isso ponto a ponto (em vez de girar a caixa pronta) evita a folga que
  * uma AABB ganha ao ser rotacionada.
  */
-function caixaDaPose(malhas: THREE.Object3D, referencia: THREE.Object3D): THREE.Box3 {
+export function caixaDaPose(malhas: THREE.Object3D, referencia: THREE.Object3D): THREE.Box3 {
   referencia.updateMatrixWorld(true);
   const paraLocal = new THREE.Matrix4().copy(referencia.matrixWorld).invert();
   const caixa = new THREE.Box3().makeEmpty();
@@ -102,8 +102,14 @@ function caixaDaPose(malhas: THREE.Object3D, referencia: THREE.Object3D): THREE.
     const temEsqueleto = comOsso.isSkinnedMesh === true && comOsso.skeleton !== undefined;
     paraEspaco.multiplyMatrices(paraLocal, malha.matrixWorld);
     for (let i = 0; i < posicoes.count; i++) {
+      // `applyBoneTransform` transforma o vetor que RECEBE — ele é entrada e
+      // saída, não só saída. Passar um vetor vazio devolve zero, e passar o
+      // mesmo vetor de novo sem reescrevê-lo realimenta o resultado anterior:
+      // a caixa colapsava num ponto, a escala virava `alvo ÷ 1e-6`, e o bicho
+      // ficava do tamanho de um quarteirão com o jogador dentro dele — que foi
+      // como o Pikachu e o Eevee "sumiram" da tela de escolha.
+      ponto.fromBufferAttribute(posicoes, i);
       if (temEsqueleto) comOsso.applyBoneTransform(i, ponto);
-      else ponto.fromBufferAttribute(posicoes, i);
       caixa.expandByPoint(ponto.applyMatrix4(paraEspaco));
     }
   });
@@ -385,7 +391,11 @@ export function instanciar(
     acoes,
     renormalizar() {
       const caixa = caixaDaPose(cena, desloca);
-      if (caixa.isEmpty()) return;
+      // Caixa achatada num ponto não é uma medida, é um sintoma — e usá-la faz
+      // `alturaAlvo ÷ 1e-6`, que põe um bicho do tamanho de um quarteirão no
+      // quarto com o jogador dentro dele. Nesse caso a medida do manifesto, por
+      // mais errada que esteja para a pose nova, é melhor do que isto.
+      if (caixa.isEmpty() || caixa.getSize(new THREE.Vector3()).length() < 1e-4) return;
       const profundidade = plantar(caixa.min, caixa.max);
       apontarBoca(profundidade);
       pronto.raio = Math.max(maiorHorizontal * escala * 0.5, alturaAlvo * 0.25);

@@ -4,7 +4,7 @@ import type { GestoDeAtaque } from './anima';
 import type { Corpo } from './modelos';
 import { criarRng, entre, type Rng } from './rng';
 import { Animador } from './anima';
-import { Chama, FOGO_POR_ESPECIE } from './fogo';
+import { Chama, FOGO_POR_ESPECIE, pontaDaCadeia } from './fogo';
 
 export type Papel = 'selvagem' | 'companheiro';
 
@@ -33,6 +33,10 @@ export type Estado =
   | 'colo';
 
 const GRAVIDADE = -9.0;
+
+/** Rascunhos do quadro para a escala das chamas. Ver acenderFogo. */
+const _escalaA = new THREE.Vector3();
+const _escalaB = new THREE.Vector3();
 
 /**
  * Um Pokémon vivo no seu quarto. O mesmo corpo serve para o selvagem — que
@@ -228,9 +232,20 @@ export class Pokemon {
     if (!pontos) return;
     this.raiz.updateMatrixWorld(true);
 
+    // A escala do osso medida CONTRA A RAIZ, não contra o mundo.
+    //
+    // Este construtor deixa a raiz em 0,001 — o bicho nasce do tamanho de um
+    // grão e cresce (ver `escalaAlvo`). Medir no mundo aqui pegava esse 0,001,
+    // e como o tamanho da chama é dividido por essa medida, ela nascia mil
+    // vezes maior do que devia; ao vivo isso é uma fogueira do tamanho da sala
+    // grudada no bicho. Dividir uma pela outra cancela a escala transitória da
+    // raiz, e de quebra o squash & stretch, que também escreve ali.
+    const daRaiz = this.raiz.getWorldScale(_escalaA).x;
+    if (daRaiz < 1e-9) return;
+
     for (const ponto of pontos) {
-      // A ponta é o último osso que o rip nomeou: nem todo modelo tem as três
-      // vértebras de cauda, e pendurar na base deixaria a chama no lombo.
+      // O último osso que o rip nomeou: nem todo modelo tem as três vértebras
+      // de cauda, e pendurar na primeira deixaria a chama no lombo.
       let osso: THREE.Object3D | null = null;
       for (const chave of ponto.ossos) {
         osso = this.animador.rig.ossoDe(chave);
@@ -238,10 +253,16 @@ export class Pokemon {
       }
       if (!osso) continue;
 
-      const escalaDoOsso = osso.getWorldScale(new THREE.Vector3()).x;
-      if (escalaDoOsso < 1e-6) continue;
+      // O rig só nomeia três vértebras de cauda, e os rips têm mais — nove no
+      // Charmander. Pendurar no osso mapeado põe a chama no MEIO do rabo; ver
+      // `ponta` em src/fogo.ts. Pendurada no osso da ponta, ela ainda ganha de
+      // graça o balanço da cauda, que é onde uma chama de verdade estaria.
+      if (ponto.ponta) osso = pontaDaCadeia(osso);
 
-      const chama = new Chama((this.corpo.altura * ponto.fracao) / escalaDoOsso, ponto.cor);
+      const doOsso = osso.getWorldScale(_escalaB).x / daRaiz;
+      if (doOsso < 1e-9) continue;
+
+      const chama = new Chama((this.corpo.altura * ponto.fracao) / doOsso, ponto.cor);
       osso.add(chama.grupo);
       this.chamas.push(chama);
     }
