@@ -50,6 +50,8 @@ import { MEDIDAS } from '../src/modelos.gen';
 import type { Corpo } from '../src/modelos';
 import { BOLAS } from '../src/balls';
 import { PEDRAS, EVOLUI_SO_COM_PEDRA } from '../src/pedras';
+import { ITENS } from '../src/itens';
+import { Mochila, disporGrade } from '../src/mochila';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
 import { GOLPES_DEX } from '../src/golpes.gen';
@@ -1683,6 +1685,29 @@ console.log('29. as pedras de evolução');
   // As convidadas entraram para ser ponta de linha, não para povoar a sala.
   for (const e of ESPECIES.filter((x) => x.convidada)) {
     checar(pesoSpawn(e, false, 40) === 0, `${e.nome} é convidada e não devia nascer selvagem`);
+  }
+
+  // A grade da mochila tem de caber no gesto: dois itens mais perto um do outro
+  // do que o alcance da mão disputariam o mesmo GRIP, e o jogador pegaria a
+  // fruta querendo a poção sem entender por quê. Como a mochila cresce com as
+  // pedras que caem, o pior caso é ela cheia.
+  {
+    const lugares = disporGrade(ITENS.length);
+    checar(lugares.length === ITENS.length, 'a grade da mochila perdeu um item pelo caminho');
+    let maisPerto = Infinity;
+    for (let i = 0; i < lugares.length; i++) {
+      for (let j = i + 1; j < lugares.length; j++) {
+        maisPerto = Math.min(maisPerto, lugares[i].distanceTo(lugares[j]));
+      }
+    }
+    checar(
+      maisPerto > Mochila.ALCANCE,
+      `dois itens da mochila ficam a ${maisPerto.toFixed(3)} m, dentro do alcance de ${Mochila.ALCANCE} m`,
+    );
+    console.log(
+      `   mochila: ${ITENS.length} itens, vizinhos a ${maisPerto.toFixed(2)} m, ` +
+        `alcance da mão ${Mochila.ALCANCE} m`,
+    );
   }
 
   console.log(

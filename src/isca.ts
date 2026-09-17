@@ -27,7 +27,16 @@ export class ItemNaMao {
   private luz: THREE.PointLight;
   private tempo = 0;
 
-  constructor(tipo: TipoItem) {
+  /**
+   * `naMao` é falso quando este objeto é uma vitrine, não um item segurado —
+   * hoje, os itens dentro da mochila holográfica (src/mochila.ts).
+   *
+   * Duas coisas mudam: ele nasce na própria origem em vez de à frente dos
+   * dedos, e não traz a luz. A luz é o motivo de o parâmetro existir: uma
+   * `PointLight` por item é barata quando há uma na mão e cara quando há onze
+   * abertas na frente do jogador, e o headset desenha a cena duas vezes.
+   */
+  constructor(tipo: TipoItem, naMao = true) {
     this.tipo = tipo;
 
     const guardar = <T extends THREE.BufferGeometry | THREE.Material>(x: T): T => {
@@ -118,10 +127,11 @@ export class ItemNaMao {
     }
 
     this.luz = new THREE.PointLight(cor, 0.5, 0.45, 2);
-    this.grupo.add(this.luz);
-
-    // Na frente dos dedos, onde um objeto segurado de verdade ficaria.
-    this.grupo.position.set(0, 0.012, -0.075);
+    if (naMao) {
+      this.grupo.add(this.luz);
+      // Na frente dos dedos, onde um objeto segurado de verdade ficaria.
+      this.grupo.position.set(0, 0.012, -0.075);
+    }
   }
 
   /** Um giro lento e um brilho que pulsa: isca parada não chama ninguém. */

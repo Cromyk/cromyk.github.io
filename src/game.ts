@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Pokemon } from './creature';
 import {
   ESPECIES,
+  INICIAIS,
   NIVEL_MAXIMO,
   TIPOS,
   calcularDano,
@@ -58,6 +59,7 @@ import { BOLA_PADRAO, bolaPorId, type TipoBola } from './balls';
 import { BONUS_FRUTA, ITENS, SEGUNDOS_FRUTA, itemPorId } from './itens';
 import { ehPedra, pedraPorId, aQuemServe } from './pedras';
 import { ItemNaMao, RastroDeIsca } from './isca';
+import { Mochila } from './mochila';
 import { Aura, Efeito, Impacto } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
 import { PainelPc } from './pc';
@@ -221,6 +223,8 @@ export class Jogo {
 
   private aviso: Aviso;
   private painelPulso = new PainelPulso();
+  /** A mochila aberta no ar, onde os itens são pegos com a mão. Ver src/mochila.ts. */
+  private mochila = new Mochila();
   private painelTime = new PainelTime();
   private painelDex = new PainelDex();
   /** O PC: a caixa e a edição da equipe. Abre com o botão Y. */
@@ -275,7 +279,7 @@ export class Jogo {
     this.aviso = new Aviso(this.cena);
     this.sala.usarFallback();
 
-    this.cena.add(this.painelTime.grupo, this.pc.grupo);
+    this.cena.add(this.painelTime.grupo, this.pc.grupo, this.mochila.grupo);
     // A Pokédex não entra solta na cena: as placas dela são a TELA do tablet,
     // e é a carcaça que anda pelo mundo.
     this.tablet.tela.add(this.painelDex.grupo);
@@ -673,6 +677,12 @@ export class Jogo {
     // único lugar do corpo onde não há mais nada para agarrar.
     if (this.pegarTablet(mao)) return;
 
+    // A mochila aberta na frente: fechar a mão em volta de um item o tira de
+    // lá. Vem antes do cinto e do chão porque o braço já está estendido DENTRO
+    // do painel — se outra coisa respondesse primeiro, o gesto de pegar a poção
+    // pegaria uma pokébola.
+    if (this.pegarDaMochila(mao)) return;
+
     // Mão com bicho no colo já está cheia — de bicho. Ela não cata bola do chão
     // nem tira nada do cinto: para pegar outra coisa, primeiro ponha ele no
     // chão. Sem isto, fechar a mão de novo com o Charmander nela começava a
@@ -878,6 +888,57 @@ export class Jogo {
     bola.descartar(this.cena);
     const i = this.bolas.indexOf(bola);
     if (i !== -1) this.bolas.splice(i, 1);
+  }
+
+  // ------------------------------------------------------------ mochila
+
+  /**
+   * Abre e fecha a mochila holográfica. Ver src/mochila.ts.
+   *
+   * Ela nasce onde você está olhando e fica ancorada ali: é uma prateleira, não
+   * um capacete. Uma coisa que persegue o seu rosto não pode ser alcançada,
+   * porque recua na mesma medida em que a sua mão avança.
+   */
+  private alternarMochila() {
+    if (this.mochila.estaAberta) {
+      this.mochila.fechar();
+      audio.clique();
+      return;
+    }
+    this.mochila.abrir(this.camera, (id) => this.dex.item(id));
+    audio.abrirPainel();
+    this.aviso.mostrar(
+      [
+        { texto: 'mochila', tamanho: 40, cor: '#cfe6ff' },
+        {
+          texto: 'estenda a mão e feche o GRIP em volta do que quiser · B fecha',
+          tamanho: 22,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      2.6,
+    );
+  }
+
+  /**
+   * O GRIP dentro da mochila: tira de lá o item sob a mão.
+   *
+   * Devolve `true` quando tratou o gesto, para `pegarBola` parar aí — ver a
+   * ordem das perguntas lá.
+   *
+   * A mochila FECHA ao pegar. É o gesto completo: você abriu para buscar uma
+   * coisa, achou, e agora quer as duas mãos livres e a sala à vista. Deixá-la
+   * aberta poria um painel entre você e o Pokémon que a poção vai curar.
+   */
+  private pegarDaMochila(mao: Mao): boolean {
+    if (!this.mochila.estaAberta) return false;
+    const tipo = this.mochila.alcancado(this.pontoDoDedo(mao));
+    if (!tipo) return false;
+
+    this.pegarIsca(mao, tipo.id);
+    this.mochila.fechar();
+    return true;
   }
 
   // ------------------------------------------------------------ isca
@@ -2771,6 +2832,7 @@ export class Jogo {
     this.regenerarTime(dt);
     this.atualizarRecargaDeBolas();
     this.atualizarMaos(dt, agora);
+    this.atualizarMochila(dt);
     this.atualizarPaineis(dt);
     this.atualizarMarca(dt);
     this.atualizarIscas(dt);
@@ -3074,9 +3136,18 @@ export class Jogo {
 
     if (mao.lado === 'right') {
       if (mao.apertou(BOTAO_A)) this.recolherApontando(mao);
-      if (mao.apertou(BOTAO_B) && this.pc.aberto) {
-        this.pc.fechar();
-        audio.clique();
+      // B fecha o PC quando ele está aberto, e abre a mochila quando não está.
+      // O botão já era o "fechar isto" da mão direita; a mochila entra no mesmo
+      // lugar em vez de gastar o único botão que ainda estava livre em outro
+      // jogo — são 21 comandos, e o playtest já mostrou que é mais do que se
+      // guarda de cabeça.
+      if (mao.apertou(BOTAO_B)) {
+        if (this.pc.aberto) {
+          this.pc.fechar();
+          audio.clique();
+        } else {
+          this.alternarMochila();
+        }
       }
       return;
     }
@@ -3194,6 +3265,21 @@ export class Jogo {
     const mudou = mao.lerPunhoFechado();
     if (mudou === 'fechou') this.pegarBola(mao);
     else if (mudou === 'abriu') this.arremessarBola(mao);
+  }
+
+  /**
+   * A mochila, e os pontos de mão que ela usa para saber o que está sob a mão.
+   *
+   * Separada de `atualizarMaos` porque aquele método volta cedo no modo plano,
+   * e a mochila ainda precisa animar o fechamento mesmo sem mão nenhuma em
+   * cena — senão ela fica congelada meio aberta na tela para sempre.
+   */
+  private atualizarMochila(dt: number) {
+    const pontos: THREE.Vector3[] = [];
+    if (!this.modoPlano) {
+      for (const mao of this.maos) if (mao.conectada) pontos.push(this.pontoDoDedo(mao));
+    }
+    this.mochila.atualizar(dt, pontos, (id) => this.dex.item(id));
   }
 
   private atualizarMaos(dt: number, agora: number) {
@@ -4083,19 +4169,20 @@ export class Jogo {
     // único que mexe na cena e precisa ser aplicado à mão.
     if (this.ajustes.contornoDaSala !== this.sala.debugLigado) this.sala.alternarDebug();
 
-    // As narrações dos iniciais são quatro MP3 de ~190 kB. Só dá para baixá-las
+    // As narrações dos iniciais são um MP3 de ~190 kB cada. Só dá para baixá-las
     // agora, e não no construtor: elas são decodificadas no AudioContext, e ele
     // só existe depois do gesto do usuário que abriu a sessão. Adiantar aqui
     // evita o silêncio entre puxar o gatilho na Pokédex e a voz começar — tempo
     // suficiente para achar que não funcionou e puxar de novo.
-    preparar(['bulbasaur', 'charmander', 'squirtle', 'pikachu']);
+    preparar(INICIAIS.map((e) => e.id));
 
     this.aviso.mostrar(
       [
         { texto: 'olhe em volta', tamanho: 42, cor: '#cfe6ff' },
         { texto: 'GRIP segura a pokébola · solte no movimento para arremessar', tamanho: 21, cor: '#9aa5b8', peso: 500 },
         { texto: 'GATILHO toca para atacar · segure para marcar no chão até onde ele vai', tamanho: 21, cor: '#9aa5b8', peso: 500 },
-        { texto: 'A recolhe · X chama · Y liga o PC · gire os pulsos: time e Pokédex', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        { texto: 'A recolhe · B abre a mochila · X chama · Y liga o PC', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        { texto: 'gire os pulsos: time e Pokédex', tamanho: 21, cor: '#9aa5b8', peso: 500 },
       ],
       7,
     );
@@ -4116,6 +4203,7 @@ export class Jogo {
     for (const mira of this.miras.values()) mira.descartar();
     for (const raio of this.raios.values()) raio.descartar();
     for (const feixe of this.feixes.values()) feixe.descartar();
+    this.mochila.descartar();
     for (const rastro of this.rastros.values()) rastro.descartar();
     for (const isca of this.itemNaMao.values()) isca.descartar();
     for (const mao of this.maos) mao.luva?.descartar();
