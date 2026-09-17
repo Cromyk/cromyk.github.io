@@ -1441,8 +1441,44 @@ console.log('26. cada golpe tem o seu gesto');
     'LThigh', 'LLeg', 'LFoot', 'RThigh', 'RLeg', 'RFoot', 'Tail1', 'Tail2', 'Tail3',
   ];
 
-  /** Quanto cada osso girou, no pico do gesto. */
+  /**
+   * Quanto cada osso girou, no pico do gesto.
+   *
+   * ## Terceira armadilha: o acaso do ócio
+   *
+   * A linha de base abaixo conserta a FASE do balanço ocioso, mas não o acaso
+   * dele. `src/anima.ts` sorteia em `Math.random()` a fase inicial e o instante
+   * da próxima variação de ócio — o bicho olha em volta ou acena sozinho de
+   * tempos em tempos, que é o que o faz parecer vivo. Um aceno espontâneo
+   * caindo dentro da janela da BASE infla a base, e a subtração leva junto o
+   * gesto que se queria medir: a chicotada saía de 4° a 21° entre execuções da
+   * mesma versão do código, e foi assim que um deploy caiu sem nada ter
+   * quebrado.
+   *
+   * Então aqui o acaso é preso. Não no jogo — lá ele é o ponto — mas nesta
+   * medição, que precisa dar o mesmo número duas vezes seguidas para poder
+   * dizer alguma coisa. Restaurado logo depois, porque os testes de brilhante e
+   * de spawn contam com aleatoriedade de verdade.
+   */
   const poseDe = (gesto: GestoDeAtaque) => {
+    const sorteioReal = Math.random;
+    // PRNG minúsculo e determinístico (mulberry32), com a mesma semente a cada
+    // chamada: os dois `poseDe` de uma comparação veem exatamente o mesmo ócio.
+    let semente = 0x9e3779b9;
+    Math.random = () => {
+      semente = (semente + 0x6d2b79f5) | 0;
+      let t = Math.imul(semente ^ (semente >>> 15), 1 | semente);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    try {
+      return medirPose(gesto);
+    } finally {
+      Math.random = sorteioReal;
+    }
+  };
+
+  const medirPose = (gesto: GestoDeAtaque) => {
     const { corpo, porNome, repousos } = esqueletoDe(nomes, 0.6);
     const animador = new Animador(corpo);
     const ctx = { velocidade: 0, alarme: 0, vida: 1, encarar: 0, desmaiado: false };
