@@ -8,7 +8,7 @@ Documento vivo, atualizado conforme cada item é fechado.
 
 | # | O que você relatou | Estado |
 |---|---|---|
-| 1 | Rig da luva pela metade | ⚠️ avançou, mas NÃO terminou |
+| 1 | Rig da luva pela metade | 🟡 dedos segmentados; falta vestir |
 | 2 | A mão do jogo fica à frente da mão real | ✅ corrigido (medido) |
 | 3 | Zerei as pokébolas e não há como conseguir mais | ✅ corrigido |
 | 4 | O dedo não interage com o HUD | ✅ corrigido |
@@ -385,3 +385,52 @@ está instalado — só precisa do Blender **aberto**. O que este pipeline deixa
 pronto para esse dia: a luva decimada a 3.599 triângulos, a quiralidade
 resolvida (é esquerda), a folga medida (6–9 mm) e uma ferramenta que desenha o
 resultado antes de gravar.
+
+---
+
+## 1 (continuação, 17/09 tarde) — a geodésica resolveu a segmentação
+
+Sem Blender, e a quarta abordagem é a que funciona. A medida certa não era no
+espaço, era **na superfície**: a distância geodésica corre ao longo do tecido,
+então ela não liga para o dedo estar dobrado. É a invariância que faltava às
+três tentativas anteriores — e a dobra era o obstáculo de todas elas.
+
+**Os cinco dedos estão segmentados**, cada um com o seu pedaço de malha, com a
+palma e a manga de fora. Conferido em `folha-dedos.png` (um dedo de cada cor).
+Era o problema que travou este arquivo por três tentativas.
+
+Duas lições caras, as duas denunciadas pela folha e não pelos números:
+
+**A solda tem de ser mínima — o contrário do que parecia.** A malha só fica
+100% conexa a partir de 0,45 mm, e usar isso é armadilha: os dedos desta luva
+se encostam, e soldar por proximidade **funde dedos vizinhos**. A geodésica
+ganha atalhos de um dedo para o outro e a segmentação sai com um dedo comendo
+o vizinho. A 0,02 mm só as costuras de verdade soldam; a malha fica em 7
+pedaços e o maior tem 94,2% — e trabalhar só nele é melhor do que ter a malha
+inteira com os dedos grudados.
+
+**Dedo se define pela distância até a PONTA, não desde o punho.** Um Dijkstra
+multi-origem particiona a malha toda, e a palma vai para a ponta mais próxima:
+o polegar ficava com 20.792 vértices contra 2.078 do vizinho. Cortando em 95 mm
+(o comprimento de um dedo), a conta fica 4.353 · 4.775 · 2.053 · 1.766 · 5.205
+— cinco dedos de verdade.
+
+Também corrigi um bug meu que custou uma rodada: o filtro de candidatas a ponta
+era `D[i] > max * 0.4`, e **`Infinity` passa nesse teste**. As cinco "pontas"
+eleitas eram vértices inalcançáveis, fora do componente conexo.
+
+### O que falta
+
+1. **A ordem anatômica não está confiável** — e está anotada como tal. O
+   critério atual devolve o "polegar" com 385 mm de geodésica contra 425 do
+   "anelar", e o polegar deveria ser o mais curto dos cinco. A saída provável é
+   medir onde cada dedo **bifurca** do tronco: o polegar se separa muito antes,
+   e isso é topologia, não geometria — não depende da pose.
+2. alinhar por Procrustes ancorado nas cinco pontas mais o punho;
+3. pesos a partir da segmentação;
+4. levar a luva à bind pose;
+5. gravar trocando só a geometria dentro do `right.glb`.
+
+**Estado: a luva continua não entrando no jogo.** `public/maos/*.glb` seguem
+sendo o `generic-hand`. O que mudou é que agora há um caminho que funciona, com
+o passo mais difícil já vencido.

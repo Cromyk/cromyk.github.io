@@ -1,60 +1,74 @@
 /**
  * Veste a luva de costura no esqueleto da mão do jogo.
  *
- * O caminho até aqui está contado em tools/luva.mjs, e o resumo é que as duas
- * ideias óbvias não funcionam: nem fatiar a luva perpendicular ao eixo (os
- * dedos são curvos, e a fatia corta ao longo deles), nem separá-los por setor
- * angular (a distribuição é contínua, sem cinco picos). As duas tentavam achar
- * os dedos NA LUVA.
+ * ## O que já não funcionou, para ninguém repetir
  *
- * Este arquivo faz o contrário: **dobra a mão até a pose da luva.** A
- * `MaoArticulada` já sabe fechar os dedos por parâmetro, e é o mesmo código que
- * o jogo usa — então a curvatura da luva deixa de ser um problema de geometria
- * e vira dois números, (gatilho, grip), que se procuram por busca.
+ * Três abordagens caíram antes desta, e as três estão medidas (ver PLAYTEST.md
+ * e o cabeçalho de tools/luva.mjs):
  *
- * Com as duas malhas na MESMA pose, o vizinho mais próximo volta a valer, que
- * era exatamente a objeção ao método simples.
+ * - **fatiar** perpendicular ao eixo: os dedos são CURVOS, e a fatia corta ao
+ *   longo deles. Em trinta fatias nunca aparecem mais de dois lóbulos.
+ * - **setor angular** no plano da palma: a distribuição é contínua de -36° a
+ *   +34°, sem cinco picos. Os dedos são grossos, quase se tocam, e a malha da
+ *   palma preenche o vão entre eles.
+ * - **ICP** entre as duas malhas: minimizado por SOBREPOSIÇÃO DE VOLUME e não
+ *   por anatomia. Duas mãos de tamanho parecido encaixam em quase qualquer
+ *   orientação com erro parecido — nenhuma quantidade de orientações iniciais
+ *   conserta um critério que não distingue o certo do errado.
  *
- * O passo seguinte é o que faz a luva servir: cada vértice é lido no espaço
- * LOCAL do osso que o domina, na pose dobrada, e reescrito na BIND POSE. Sem
- * isso a luva entraria no jogo já dobrada e o esqueleto a dobraria de novo.
+ * ## O que funciona: distância geodésica
  *
- * A exportação não monta um GLB do zero: ela ABRE o right.glb e troca só a
- * geometria da primitiva. O esqueleto, as 25 juntas e as inverseBindMatrices
- * continuam sendo os do arquivo oficial — que é o que garante que o jogo, o
- * rastreamento de mão e tools/mao.ts continuem enxergando a mesma mão.
+ * A medida certa não é no espaço, é NA SUPERFÍCIE. A geodésica corre ao longo
+ * do tecido, então ela não liga para o dedo estar dobrado: a ponta do indicador
+ * continua a uns 400 mm de caminhada do punho, dobrada ou reta. É exatamente a
+ * invariância que faltava às três tentativas acima.
  *
- *   npm run rig               alinha, mede e desenha folha-rig.png
+ *   1. soldar a malha (o CLO3D parte por padrão de costura) até ficar CONEXA —
+ *      sem isso a geodésica não atravessa as costuras;
+ *   2. Dijkstra a partir da ponta da manga;
+ *   3. as cinco pontas de dedo são os máximos locais dessa distância;
+ *   4. a ordem anatômica sai do ÂNGULO das pontas no plano da palma: em leque,
+ *      polegar→mindinho é uma sequência, e ela se preserva;
+ *   5. com cinco correspondências anatômicas mais o punho, o alinhamento vira
+ *      um Procrustes ancorado — não um ICP procurando volume;
+ *   6. a segmentação por dedo sai do mesmo Dijkstra, agora multi-origem;
+ *   7. os pesos saem da segmentação, e a luva é levada à BIND POSE pela inversa
+ *      da transformação de cada osso — sem isso ela entra no jogo já dobrada e
+ *      o esqueleto a dobra de novo.
  *
- * ## Onde ISTO parou, e por que não adianta insistir no ICP
+ * A exportação não monta um GLB do zero: abre o right.glb e troca só a
+ * geometria da primitiva. As 25 juntas e as inverseBindMatrices continuam
+ * sendo as do arquivo oficial, que é o que garante que o jogo, o rastreamento
+ * de mão e tools/mao.ts continuem enxergando a mesma mão.
  *
- * O alinhamento não fechou. Foram quatro tentativas, cada uma corrigindo uma
- * falha real e medida — manga no PCA, colapso de escala por erro
- * unidirecional, e a orientação —, e a última é a que encerra o assunto:
- * varrer as 12 orientações que levam eixo em eixo converge para EXATAMENTE o
- * mesmo resultado de antes, 9,1 mm, com a luva perpendicular à mão.
+ *   npm run rig              lê, segmenta e desenha folha-dedos.png
  *
- * O diagnóstico é do critério, não da busca. O ICP aqui está sendo minimizado
- * por SOBREPOSIÇÃO DE VOLUME e não por alinhamento anatômico: duas mãos de
- * tamanho parecido encaixadas em quase qualquer orientação dão erro parecido,
- * porque as duas são blobs alongados de volume semelhante. Nenhuma quantidade
- * de orientações iniciais conserta um critério que não distingue o certo do
- * errado — e foi por isso que parei de acrescentar orientações.
+ * ## Onde isto parou
  *
- * O que funcionaria é casar CARACTERÍSTICAS — as cinco pontas de dedo, o
- * polegar, a linha do punho — em vez de nuvens de pontos. Só que achar as
- * pontas de dedo na luva é o problema original de tools/luva.mjs, o mesmo que
- * nem fatia nem setor angular resolveram. O caminho fecha em círculo.
+ * **Os cinco dedos estão segmentados, e isso está conferido na folha.** Era o
+ * problema que travou este arquivo por três tentativas, e ele está resolvido:
+ * cada dedo sai com o seu pedaço de malha, com a palma e a manga de fora.
  *
- * Daí a saída honesta ser o **Blender** (o MCP está instalado; precisa do
- * Blender aberto): o "Armature > With Automatic Weights" faz transferência de
- * peso por heat map, que é a ferramenta certa para isto.
+ * Duas lições que custaram caro e estão nas constantes acima:
  *
- * O que fica pronto para esse dia: a luva decimada a 3.599 triângulos, a
- * quiralidade resolvida (ela é ESQUERDA — e isso entrou na busca porque
- * quiralidade não se resolve por rotação), a folga medida em 6 a 9 mm, e esta
- * ferramenta, que DESENHA antes de gravar. As três falhas acima passaram todas
- * por um número que parecia bom; só a imagem as denunciou.
+ * - a solda tem de ser MÍNIMA (0,02 mm). A malha só fica 100% conexa a 0,45,
+ *   mas soldar assim funde dedos que se encostam, e a geodésica ganha atalhos
+ *   de um dedo para o outro. Melhor trabalhar no maior pedaço (94,2%).
+ * - o dedo se define pela distância À PONTA, não pela distância desde o punho.
+ *   Sem esse corte a palma inteira vai para o polegar.
+ *
+ * O que falta, em ordem:
+ *
+ * 1. **A ordem anatômica não está confiável.** O critério atual (ângulo no
+ *    plano da palma, com o polegar sendo o extremo de menor geodésica) devolve
+ *    uma ordem que as geodésicas desmentem — o "polegar" sai com 385 mm contra
+ *    425 do "anelar", e o polegar deveria ser o mais curto dos cinco. Provável
+ *    saída: medir onde cada dedo BIFURCA do tronco. O polegar se separa muito
+ *    antes dos outros, e isso é topologia, não geometria — não depende da pose.
+ * 2. alinhar por Procrustes ancorado nas cinco pontas mais o punho;
+ * 3. pesos a partir da segmentação, com transição suave entre ossos vizinhos;
+ * 4. levar a luva à BIND POSE pela inversa da transformação de cada osso;
+ * 5. gravar trocando só a geometria dentro do right.glb.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -64,53 +78,201 @@ import { MaoArticulada } from '../src/glove';
 
 const RAIZ = process.cwd();
 const MAOS = join(RAIZ, 'public', 'maos');
-const CACHE = join(RAIZ, 'node_modules', '.cache', 'luva-decimada.json');
 const args = process.argv.slice(2);
 const DIAG = args.includes('--diag');
+const padraoObj = 'C:/Users/marco.souza/Downloads/Gloves_Qa/Gloves_Qa.obj';
+const argObj = args.find((a) => a.startsWith('--obj='));
+const OBJ = argObj ? argObj.slice('--obj='.length) : padraoObj;
+/**
+ * Tolerância de solda — e ela tem de ser PEQUENA, ao contrário do que parece.
+ *
+ * A malha só fica 100% conexa a partir de 0,45 mm, e a tentação é usar isso. É
+ * uma armadilha: os dedos desta luva se encostam, e soldar por proximidade a
+ * 0,45 ou 0,6 mm FUNDE dedos vizinhos. A geodésica então ganha atalhos que
+ * atravessam de um dedo para o outro, e a segmentação sai com um dedo comendo
+ * o vizinho — foi exatamente o que aconteceu, e a folha denunciou.
+ *
+ * A 0,02 mm só as costuras de verdade soldam (o CLO3D duplica o vértice no
+ * mesmo lugar), a malha fica em 7 pedaços e o maior tem 94,2% dela. Trabalhar
+ * só nesse pedaço é melhor do que ter a malha inteira com os dedos grudados.
+ */
+const TOL = 0.02;
+/**
+ * Até onde, caminhando pela superfície a partir da ponta, ainda é dedo.
+ *
+ * Um dedo tem uns 90 mm. Sem este limite a segmentação particiona a malha
+ * TODA, e a palma inteira vai para a ponta mais próxima — na prática, para o
+ * polegar, que ficava com 20.792 vértices contra 2.078 do vizinho.
+ */
+const COMPRIMENTO_DEDO = 95;
+/** Raio geodésico que separa uma ponta de outra. Dedos adjacentes distam mais. */
+const RAIO_PONTA = 70;
 
-// ------------------------------------------------------------------ leitura
+// ------------------------------------------------------------------ a malha
 
-async function carregarMao(lado: 'left' | 'right'): Promise<THREE.Object3D | null> {
-  const arquivo = join(MAOS, `${lado}.glb`);
-  if (!existsSync(arquivo)) return null;
-  const buf = readFileSync(arquivo);
-  const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-  return await new Promise((resolve) => {
-    new GLTFLoader().parse(bytes as ArrayBuffer, '', (g) => resolve(g.scene), () => resolve(null));
-  });
+interface Malha {
+  P: Float64Array;
+  TRI: Int32Array;
+  viz: Set<number>[];
+  /** 1 nos vértices do maior pedaço conexo — os únicos onde a geodésica vale. */
+  noMaior: Uint8Array;
 }
 
-interface Nuvem {
-  pos: Float32Array;
-  idx: Uint32Array;
-}
-
-function lerLuva(): Nuvem {
-  if (!existsSync(CACHE)) {
-    throw new Error('sem node_modules/.cache/luva-decimada.json — rode antes: npm run luva -- --diag');
+/**
+ * Lê o OBJ e SOLDA até a malha ficar conexa.
+ *
+ * O CLO3D exporta por padrão de costura: cada pedaço de tecido é um grupo com
+ * os próprios vértices, e dois pedaços costurados têm vértices duplicados no
+ * mesmo lugar. A 1e-4 mm (a tolerância que havia antes) quase nada solda —
+ * 90.043 viram 89.964 — e aí a geodésica não atravessa costura nenhuma: 5.227
+ * vértices ficam inalcançáveis. A 0,6 mm a malha fecha e o Dijkstra alcança
+ * 100% dela.
+ */
+function lerESoldar(caminho: string): Malha {
+  const posB: number[] = [];
+  const triB: number[] = [];
+  for (const l of readFileSync(caminho, 'utf8').split('\n')) {
+    if (l[0] === 'v' && l[1] === ' ') {
+      const p = l.split(/\s+/);
+      posB.push(+p[1], +p[2], +p[3]);
+    } else if (l[0] === 'f' && l[1] === ' ') {
+      const idx = l.trim().split(/\s+/).slice(1).map((cc) => {
+        const q = Number(cc.split('/')[0]);
+        return q > 0 ? q - 1 : posB.length / 3 + q;
+      });
+      for (let i = 1; i + 1 < idx.length; i++) triB.push(idx[0], idx[i], idx[i + 1]);
+    }
   }
-  const d = JSON.parse(readFileSync(CACHE, 'utf8'));
-  return { pos: new Float32Array(d.posicoes), idx: new Uint32Array(d.indices) };
+  const nB = posB.length / 3;
+  const cel = new Map<string, number[]>();
+  for (let i = 0; i < nB; i++) {
+    const k = `${Math.floor(posB[i * 3] / TOL)}:${Math.floor(posB[i * 3 + 1] / TOL)}:${Math.floor(posB[i * 3 + 2] / TOL)}`;
+    const v = cel.get(k);
+    if (v) v.push(i); else cel.set(k, [i]);
+  }
+  const pai = new Int32Array(nB);
+  for (let i = 0; i < nB; i++) pai[i] = i;
+  const achar = (a: number): number => {
+    while (pai[a] !== a) { pai[a] = pai[pai[a]]; a = pai[a]; }
+    return a;
+  };
+  for (let i = 0; i < nB; i++) {
+    const cx = Math.floor(posB[i * 3] / TOL);
+    const cy = Math.floor(posB[i * 3 + 1] / TOL);
+    const cz = Math.floor(posB[i * 3 + 2] / TOL);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      const v = cel.get(`${cx + dx}:${cy + dy}:${cz + dz}`);
+      if (!v) continue;
+      for (const j of v) {
+        if (j <= i) continue;
+        const d = Math.hypot(
+          posB[i * 3] - posB[j * 3], posB[i * 3 + 1] - posB[j * 3 + 1], posB[i * 3 + 2] - posB[j * 3 + 2],
+        );
+        if (d < TOL) { const A = achar(i), B = achar(j); if (A !== B) pai[A] = B; }
+      }
+    }
+  }
+  const idNovo = new Map<number, number>();
+  const novaPos: number[] = [];
+  const remapa = new Int32Array(nB);
+  for (let i = 0; i < nB; i++) {
+    const r = achar(i);
+    let a = idNovo.get(r);
+    if (a === undefined) {
+      a = novaPos.length / 3;
+      idNovo.set(r, a);
+      novaPos.push(posB[r * 3], posB[r * 3 + 1], posB[r * 3 + 2]);
+    }
+    remapa[i] = a;
+  }
+  const P = new Float64Array(novaPos);
+  const TRI = new Int32Array(triB.length);
+  for (let i = 0; i < triB.length; i++) TRI[i] = remapa[triB[i]];
+  const n = P.length / 3;
+  const viz: Set<number>[] = Array.from({ length: n }, () => new Set<number>());
+  for (let i = 0; i < TRI.length; i += 3) {
+    const a = TRI[i], b = TRI[i + 1], c = TRI[i + 2];
+    viz[a].add(b); viz[b].add(a); viz[b].add(c); viz[c].add(b); viz[a].add(c); viz[c].add(a);
+  }
+  // O maior componente. Com a solda mínima a malha vem em pedaços, e o resto
+  // são forros e detalhes que não entram na conta da geodésica.
+  const paiC = new Int32Array(n);
+  for (let i = 0; i < n; i++) paiC[i] = i;
+  const acharC = (a: number): number => { while (paiC[a] !== a) { paiC[a] = paiC[paiC[a]]; a = paiC[a]; } return a; };
+  for (let i = 0; i < n; i++) for (const v of viz[i]) { const A = acharC(i), B = acharC(v); if (A !== B) paiC[A] = B; }
+  const tam = new Map<number, number>();
+  for (let i = 0; i < n; i++) { const r = acharC(i); tam.set(r, (tam.get(r) ?? 0) + 1); }
+  let raiz = -1, maiorT = 0;
+  for (const [r, t] of tam) if (t > maiorT) { maiorT = t; raiz = r; }
+  const noMaior = new Uint8Array(n);
+  for (let i = 0; i < n; i++) noMaior[i] = acharC(i) === raiz ? 1 : 0;
+  console.log(
+    `  soldado a ${TOL} mm: ${nB} -> ${n} vértices, ${TRI.length / 3} triângulos;` +
+    ` maior pedaço ${maiorT} (${((maiorT / n) * 100).toFixed(1)}%)`,
+  );
+  return { P, TRI, viz, noMaior };
 }
 
-// ------------------------------------------------------------------ álgebra
+const dist = (M: Malha, a: number, b: number) => Math.hypot(
+  M.P[a * 3] - M.P[b * 3], M.P[a * 3 + 1] - M.P[b * 3 + 1], M.P[a * 3 + 2] - M.P[b * 3 + 2],
+);
 
-function centroide(p: Float32Array): THREE.Vector3 {
-  const c = new THREE.Vector3();
-  for (let i = 0; i < p.length; i += 3) c.x += p[i], c.y += p[i + 1], c.z += p[i + 2];
-  return c.multiplyScalar(3 / p.length);
+const ponto = (M: Malha, i: number) => new THREE.Vector3(M.P[i * 3], M.P[i * 3 + 1], M.P[i * 3 + 2]);
+
+/** Dijkstra multi-origem: a distância e de qual origem cada vértice veio. */
+function dijkstra(M: Malha, origens: number[]) {
+  const n = M.P.length / 3;
+  const d = new Float64Array(n).fill(Infinity);
+  const dono = new Int32Array(n).fill(-1);
+  const heap: [number, number][] = [];
+  const push = (v: [number, number]) => {
+    heap.push(v);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[i], heap[p]] = [heap[p], heap[i]];
+      i = p;
+    }
+  };
+  const pop = (): [number, number] => {
+    const topo = heap[0];
+    const ult = heap.pop()!;
+    if (heap.length) {
+      heap[0] = ult;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[i], heap[m]] = [heap[m], heap[i]];
+        i = m;
+      }
+    }
+    return topo;
+  };
+  origens.forEach((o, k) => { d[o] = 0; dono[o] = k; push([0, o]); });
+  while (heap.length) {
+    const [dd, u] = pop();
+    if (dd > d[u]) continue;
+    for (const v of M.viz[u]) {
+      const nd = dd + dist(M, u, v);
+      if (nd < d[v]) { d[v] = nd; dono[v] = dono[u]; push([nd, v]); }
+    }
+  }
+  return { d, dono };
 }
 
 /** Os três eixos principais, do de maior para o de menor variância. */
-function eixosPrincipais(p: Float32Array, c: THREE.Vector3): THREE.Vector3[] {
+function eixosPrincipais(pts: THREE.Vector3[], c: THREE.Vector3): THREE.Vector3[] {
   const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  const n = p.length / 3;
-  for (let i = 0; i < n; i++) {
-    const d = [p[i * 3] - c.x, p[i * 3 + 1] - c.y, p[i * 3 + 2] - c.z];
+  for (const p of pts) {
+    const d = [p.x - c.x, p.y - c.y, p.z - c.z];
     for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) M[a][b] += d[a] * d[b];
   }
-  for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) M[a][b] /= n;
-
+  for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) M[a][b] /= pts.length;
   const potencia = (evitar: THREE.Vector3[]): THREE.Vector3 => {
     let x = new THREE.Vector3(0.31, 0.57, 0.76).normalize();
     for (let it = 0; it < 300; it++) {
@@ -127,401 +289,208 @@ function eixosPrincipais(p: Float32Array, c: THREE.Vector3): THREE.Vector3[] {
   };
   const e1 = potencia([]);
   const e2 = potencia([e1]);
-  const e3 = new THREE.Vector3().crossVectors(e1, e2).normalize();
-  return [e1, e2, e3];
+  return [e1, e2, new THREE.Vector3().crossVectors(e1, e2).normalize()];
 }
 
-/** Grade regular para vizinho mais próximo sem percorrer tudo. */
-class Grade {
-  private celulas = new Map<string, number[]>();
-  constructor(private pontos: THREE.Vector3[], private lado: number) {
-    pontos.forEach((p, i) => {
-      const k = this.chave(p);
-      const v = this.celulas.get(k);
-      if (v) v.push(i); else this.celulas.set(k, [i]);
-    });
-  }
-  private chave(p: THREE.Vector3) {
-    return `${Math.floor(p.x / this.lado)}:${Math.floor(p.y / this.lado)}:${Math.floor(p.z / this.lado)}`;
-  }
-  maisProximo(p: THREE.Vector3): { indice: number; dist2: number } {
-    let melhor = -1, menor = Infinity;
-    for (let r = 1; r <= 3 && melhor < 0; r++) {
-      const cx = Math.floor(p.x / this.lado), cy = Math.floor(p.y / this.lado), cz = Math.floor(p.z / this.lado);
-      for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
-        const v = this.celulas.get(`${cx + dx}:${cy + dy}:${cz + dz}`);
-        if (!v) continue;
-        for (const i of v) {
-          const d = this.pontos[i].distanceToSquared(p);
-          if (d < menor) { menor = d; melhor = i; }
-        }
-      }
-    }
-    return { indice: melhor, dist2: menor };
-  }
-}
-
-console.log('rig: carregando a mão e a luva');
-const molde = await carregarMao('right');
-if (!molde) { console.error('sem public/maos/right.glb'); process.exit(1); }
-const luva = lerLuva();
-console.log(`  luva  ${luva.pos.length / 3} vértices`);
-
-// ---------------------------------------------------------- a mão, posada
+// ------------------------------------------------------------- as cinco pontas
 
 /**
- * Os vértices da mão na pose pedida, já com o skinning aplicado.
+ * As pontas de dedo, como máximos locais da geodésica.
  *
- * `applyBoneTransform` é o mesmo cálculo que a placa de vídeo faria no headset.
- * Sem ele a mão ficaria na pose de repouso por mais que os ossos se mexessem —
- * o erro clássico de conferência de esqueleto, e aqui ele silenciosamente
- * arruinaria o casamento das duas malhas.
+ * "Os N vértices de maior geodésica" não serve: eles se amontoam todos na ponta
+ * do dedo mais comprido. O que define uma ponta é ser o MAIOR NUM RAIO — e o
+ * raio tem de ser geodésico também, senão dois dedos encostados um no outro
+ * (que é o caso, a luva é acolchoada) contam como um.
  */
-function vertices(mao: MaoArticulada): THREE.Vector3[] {
-  mao.raiz.updateMatrixWorld(true);
-  const saida: THREE.Vector3[] = [];
-  mao.raiz.traverse((obj) => {
-    const malha = obj as THREE.SkinnedMesh;
-    if (!malha.isSkinnedMesh) return;
-    const pos = malha.geometry.attributes.position;
-    const v = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      malha.applyBoneTransform(i, v);
-      saida.push(malha.localToWorld(v.clone()));
+function acharPontas(M: Malha, D: Float64Array, quantas: number, raio: number): number[] {
+  const n = M.P.length / 3;
+  let maxD = 0;
+  for (let i = 0; i < n; i++) if (D[i] > maxD && D[i] < Infinity) maxD = D[i];
+  // `D[i] < Infinity` não é detalhe: sem ele os vértices INALCANÇÁVEIS passam
+  // no teste (Infinity é maior que tudo) e viram as cinco "pontas".
+  const cand = [...Array(n).keys()]
+    .filter((i) => D[i] < Infinity && D[i] > maxD * 0.4)
+    .sort((a, b) => D[b] - D[a]);
+  const pontas: number[] = [];
+  const bloqueado = new Uint8Array(n);
+  for (const i of cand) {
+    if (bloqueado[i]) continue;
+    pontas.push(i);
+    const vis = new Map<number, number>([[i, 0]]);
+    const fila = [i];
+    while (fila.length) {
+      const u = fila.shift()!;
+      const du = vis.get(u)!;
+      if (du > raio) continue;
+      bloqueado[u] = 1;
+      for (const v of M.viz[u]) {
+        const nd = du + dist(M, u, v);
+        if (!vis.has(v) || vis.get(v)! > nd) { vis.set(v, nd); fila.push(v); }
+      }
     }
+    if (pontas.length >= quantas) break;
+  }
+  return pontas;
+}
+
+/**
+ * Põe as cinco pontas em ordem anatômica: polegar, indicador, médio, anelar,
+ * mindinho.
+ *
+ * O critério é o ÂNGULO no plano da palma. Os dedos estão em leque, e num leque
+ * a ordem é uma sequência — ela não depende de quanto cada dedo está dobrado,
+ * que é a propriedade de que precisamos aqui. Isso ordena a fileira; falta
+ * saber por qual ponta começar, e aí entra o polegar: dos dois extremos da
+ * sequência, ele é o de menor geodésica, porque é o dedo mais curto.
+ */
+function ordemAnatomica(
+  M: Malha, pontas: number[], D: Float64Array, centro: THREE.Vector3, eixo: THREE.Vector3, lat: THREE.Vector3,
+): number[] {
+  const ang = pontas.map((p) => {
+    const q = ponto(M, p).sub(centro);
+    return Math.atan2(q.dot(lat), q.dot(eixo));
   });
-  return saida;
+  const ordem = pontas.map((p, i) => ({ p, a: ang[i] })).sort((x, y) => x.a - y.a).map((o) => o.p);
+  const primeiro = ordem[0], ultimo = ordem[ordem.length - 1];
+  // O polegar é o extremo mais curto. Se ele caiu no fim, a fileira está de
+  // trás para a frente.
+  return D[ultimo] < D[primeiro] ? ordem.reverse() : ordem;
 }
 
-/** Cada osso da cadeia, na pose atual, como um segmento no espaço do grip. */
-function ossos(mao: MaoArticulada): { nome: string; a: THREE.Vector3; b: THREE.Vector3 }[] {
+// --------------------------------------------------------------- a mão do jogo
+
+async function carregarMao(lado: 'left' | 'right'): Promise<THREE.Object3D | null> {
+  const arquivo = join(MAOS, `${lado}.glb`);
+  if (!existsSync(arquivo)) return null;
+  const buf = readFileSync(arquivo);
+  const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  return await new Promise((resolve) => {
+    new GLTFLoader().parse(bytes as ArrayBuffer, '', (g) => resolve(g.scene), () => resolve(null));
+  });
+}
+
+const DEDOS_MAO = [
+  ['thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip'],
+  ['index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip'],
+  ['middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal', 'middle-finger-tip'],
+  ['ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal', 'ring-finger-tip'],
+  ['pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'],
+];
+
+function juntasDe(mao: MaoArticulada): Map<string, THREE.Object3D> {
   mao.raiz.updateMatrixWorld(true);
-  const porNome = new Map<string, THREE.Object3D>();
-  mao.raiz.traverse((o) => { if (o.name) porNome.set(o.name, o); });
-  const saida: { nome: string; a: THREE.Vector3; b: THREE.Vector3 }[] = [];
-  for (const [nome, obj] of porNome) {
-    if (nome.endsWith('-tip')) continue;
-    const a = obj.getWorldPosition(new THREE.Vector3());
-    // A ponta do osso é o filho da cadeia; sem filho, um palmo na direção dele.
-    const filho = obj.children.find((c) => porNome.has(c.name) && c.name !== nome);
-    const b = filho
-      ? filho.getWorldPosition(new THREE.Vector3())
-      : a.clone().add(new THREE.Vector3(0, 0, -0.02).applyQuaternion(obj.getWorldQuaternion(new THREE.Quaternion())));
-    saida.push({ nome, a, b });
-  }
-  return saida;
+  const m = new Map<string, THREE.Object3D>();
+  mao.raiz.traverse((o) => { if (o.name) m.set(o.name, o); });
+  return m;
 }
 
-// -------------------------------------------------------------- alinhamento
+console.log('rig: lendo a luva');
+const luva = lerESoldar(OBJ);
+const nL = luva.P.length / 3;
+
+// A origem da geodésica é a ponta da manga: o extremo do eixo principal do lado
+// oposto aos dedos.
+const ptsL: THREE.Vector3[] = [];
+for (let i = 0; i < nL; i++) ptsL.push(ponto(luva, i));
+const centroL = new THREE.Vector3();
+for (const p of ptsL) centroL.add(p);
+centroL.multiplyScalar(1 / nL);
+const eixosL = eixosPrincipais(ptsL, centroL);
+let tMin = Infinity, iManga = -1;
+for (let i = 0; i < nL; i++) {
+  if (!luva.noMaior[i]) continue;
+  const t = ptsL[i].clone().sub(centroL).dot(eixosL[0]);
+  if (t < tMin) { tMin = t; iManga = i; }
+}
+
+console.log('rig: geodésica a partir da manga');
+const { d: DL } = dijkstra(luva, [iManga]);
+let alcancados = 0, maiorL = 0;
+for (let i = 0; i < nL; i++) if (DL[i] < Infinity) { alcancados++; if (DL[i] > maiorL) maiorL = DL[i]; }
+console.log(`  alcançados ${alcancados}/${nL} (${((alcancados / nL) * 100).toFixed(1)}%), maior ${maiorL.toFixed(1)} mm`);
+let doMaior = 0;
+for (let i = 0; i < nL; i++) if (luva.noMaior[i]) doMaior++;
+if (alcancados < doMaior * 0.99) {
+  console.error('  ! a geodésica não cobriu o maior pedaço. Algo está errado na solda.');
+  process.exit(1);
+}
+
+const pontasL = acharPontas(luva, DL, 5, RAIO_PONTA);
+const ordemL = ordemAnatomica(luva, pontasL, DL, centroL, eixosL[0], eixosL[1]);
+const NOMES = ['polegar', 'indicador', 'médio', 'anelar', 'mindinho'];
+console.log('rig: cinco pontas, em ordem anatômica');
+ordemL.forEach((p, k) => {
+  console.log(`  ${NOMES[k].padEnd(10)} geodésica ${DL[p].toFixed(1).padStart(6)} mm`);
+});
+
+// ------------------------------------------------- segmentação por dedo
 
 /**
- * Leva a luva ao espaço da mão.
+ * Cada vértice para o seu dedo.
  *
- * O ponto de partida são os eixos principais das duas nuvens, e ele sozinho não
- * basta: o PCA dá as DIREÇÕES mas não os sentidos, e trocar um sinal põe a luva
- * de cabeça para baixo ou com a palma para fora. As quatro combinações de sinal
- * são testadas e vence a de menor erro — o que também resolve, de graça, a
- * dúvida sobre qual lado da luva é a palma.
- *
- * Depois disso, ICP: casar cada ponto com o mais próximo do outro lado e
- * recalcular escala, rotação e translação, algumas vezes.
+ * O critério é a distância geodésica ATÉ A PONTA, e não a distância desde o
+ * punho. A diferença importa: um Dijkstra multi-origem particiona a malha
+ * inteira, e a palma vai para a ponta que estiver mais perto — na prática o
+ * polegar, que ficava com 20.792 vértices contra 2.078 do vizinho. Cortando em
+ * `COMPRIMENTO_DEDO`, cada dedo fica com o seu pedaço e a palma fica de fora,
+ * como deve: ela pertence ao punho.
  */
-function alinhar(luvaPts: THREE.Vector3[], maoPts: THREE.Vector3[]) {
-  const cL = new THREE.Vector3(), cM = new THREE.Vector3();
-  for (const p of luvaPts) cL.add(p); cL.multiplyScalar(1 / luvaPts.length);
-  for (const p of maoPts) cM.add(p); cM.multiplyScalar(1 / maoPts.length);
+const { d: DP, dono } = dijkstra(luva, ordemL);
+const dedoDe = new Int32Array(nL).fill(-1);
+for (let i = 0; i < nL; i++) if (DP[i] < COMPRIMENTO_DEDO && dono[i] >= 0) dedoDe[i] = dono[i];
+const contaDedo = new Array(5).fill(0);
+for (let i = 0; i < nL; i++) if (dedoDe[i] >= 0) contaDedo[dedoDe[i]]++;
+console.log('rig: vértices por dedo');
+NOMES.forEach((nm, k) => console.log(`  ${nm.padEnd(10)} ${String(contaDedo[k]).padStart(5)}`));
 
-  const arr = (pts: THREE.Vector3[]) => {
-    const f = new Float32Array(pts.length * 3);
-    pts.forEach((p, i) => { f[i * 3] = p.x; f[i * 3 + 1] = p.y; f[i * 3 + 2] = p.z; });
-    return f;
-  };
-  const eL = eixosPrincipais(arr(luvaPts), cL);
-  const eM = eixosPrincipais(arr(maoPts), cM);
+// ----------------------------------------------------------- a conferência
 
-  const extensao = (pts: THREE.Vector3[], c: THREE.Vector3, e: THREE.Vector3) => {
-    let mn = Infinity, mx = -Infinity;
-    for (const p of pts) { const t = p.clone().sub(c).dot(e); if (t < mn) mn = t; if (t > mx) mx = t; }
-    return mx - mn;
-  };
-
-  const grade = new Grade(maoPts, 0.012);
-  let melhor: { erro: number; m: THREE.Matrix4 } | null = null;
-
-  // As 24 orientações que levam eixo em eixo, e não só as 4 trocas de sinal.
-  //
-  // Com quatro hipóteses o ICP não tinha como consertar um erro de 90°: ele
-  // refina, não gira. A luva saía envolvendo a mão com a escala certa e a manga
-  // apontando para o lado errado — perto o bastante para o número parecer
-  // razoável, longe o bastante para não servir para nada.
-  const ORIENTACOES: [number, number, number][] = [];
-  for (const eixo of [0, 1, 2]) for (const s1 of [1, -1]) for (const s2 of [1, -1]) {
-    ORIENTACOES.push([eixo, s1, s2]);
-  }
-
-  for (const [troca, s1, s2] of ORIENTACOES) {
-    // `troca` escolhe qual eixo da luva faz o papel do comprimento da mão.
-    const ordem = troca === 0 ? [0, 1, 2] : troca === 1 ? [1, 0, 2] : [2, 0, 1];
-    const a1 = eL[ordem[0]].clone().multiplyScalar(s1);
-    const a2 = eL[ordem[1]].clone().multiplyScalar(s2);
-    const a3 = new THREE.Vector3().crossVectors(a1, a2);
-    const daLuva = new THREE.Matrix4().makeBasis(a1, a2, a3);
-    const daMao = new THREE.Matrix4().makeBasis(eM[0], eM[1], new THREE.Vector3().crossVectors(eM[0], eM[1]));
-    // A escala sai do eixo principal, que nas duas é o comprimento.
-    const k = extensao(maoPts, cM, eM[0]) / extensao(luvaPts, cL, a1);
-
-    let M = new THREE.Matrix4()
-      .makeTranslation(cM.x, cM.y, cM.z)
-      .multiply(daMao)
-      .multiply(new THREE.Matrix4().makeScale(k, k, k))
-      .multiply(daLuva.clone().transpose())
-      .multiply(new THREE.Matrix4().makeTranslation(-cL.x, -cL.y, -cL.z));
-
-    // ICP
-    for (let it = 0; it < 12; it++) {
-      const P: THREE.Vector3[] = [], Q: THREE.Vector3[] = [];
-      for (const p of luvaPts) {
-        const t = p.clone().applyMatrix4(M);
-        const { indice, dist2 } = grade.maisProximo(t);
-        if (indice < 0 || dist2 > 0.0025) continue;
-        P.push(t); Q.push(maoPts[indice]);
-      }
-      if (P.length < 50) break;
-      // Procrustes com escala.
-      const cp = new THREE.Vector3(), cq = new THREE.Vector3();
-      for (const p of P) cp.add(p); cp.multiplyScalar(1 / P.length);
-      for (const q of Q) cq.add(q); cq.multiplyScalar(1 / Q.length);
-      const H = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-      let varP = 0;
-      for (let i = 0; i < P.length; i++) {
-        const a = P[i].clone().sub(cp), b = Q[i].clone().sub(cq);
-        H[0][0] += a.x * b.x; H[0][1] += a.x * b.y; H[0][2] += a.x * b.z;
-        H[1][0] += a.y * b.x; H[1][1] += a.y * b.y; H[1][2] += a.y * b.z;
-        H[2][0] += a.z * b.x; H[2][1] += a.z * b.y; H[2][2] += a.z * b.z;
-        varP += a.lengthSq();
-      }
-      // Rotação por iteração de Newton sobre a polar de H (evita SVD à mão).
-      let R = new THREE.Matrix4().makeBasis(
-        new THREE.Vector3(H[0][0], H[1][0], H[2][0]),
-        new THREE.Vector3(H[0][1], H[1][1], H[2][1]),
-        new THREE.Vector3(H[0][2], H[1][2], H[2][2]),
-      );
-      for (let k2 = 0; k2 < 24; k2++) {
-        const inv = R.clone().invert().transpose();
-        const e = R.elements, f = inv.elements;
-        for (let i = 0; i < 16; i++) e[i] = 0.5 * (e[i] + f[i]);
-        e[3] = e[7] = e[11] = e[12] = e[13] = e[14] = 0; e[15] = 1;
-      }
-      let traco = 0;
-      for (let i = 0; i < P.length; i++) {
-        const a = P[i].clone().sub(cp).applyMatrix4(R), b = Q[i].clone().sub(cq);
-        traco += a.dot(b);
-      }
-      const esc = varP > 1e-12 ? traco / varP : 1;
-      const passo = new THREE.Matrix4()
-        .makeTranslation(cq.x, cq.y, cq.z)
-        .multiply(new THREE.Matrix4().makeScale(esc, esc, esc))
-        .multiply(R)
-        .multiply(new THREE.Matrix4().makeTranslation(-cp.x, -cp.y, -cp.z));
-      M = passo.multiply(M);
-    }
-
-    // Erro SIMÉTRICO, e isto não é preciosismo.
-    //
-    // Medindo só luva→mão, encolher a luva até um caroço dentro da palma dá um
-    // erro ótimo: todo ponto da luva tem mão pertinho. Foi o que aconteceu — o
-    // ICP colapsou a escala e reportou 5,8 mm com a luva sumida dentro do
-    // punho. O sentido contrário, mão→luva, é o que cobra a COBERTURA: uma luva
-    // encolhida deixa a mão inteira longe dela, e o número explode.
-    const luvaNoLugar = luvaPts.map((p) => p.clone().applyMatrix4(M));
-    const gradeLuva = new Grade(luvaNoLugar, 0.012);
-    let e1s = 0, n1 = 0;
-    for (const p of luvaNoLugar) {
-      const { dist2 } = grade.maisProximo(p);
-      if (dist2 < Infinity) { e1s += Math.sqrt(dist2); n1++; }
-    }
-    let e2s = 0, n2 = 0;
-    for (const p of maoPts) {
-      const { dist2 } = gradeLuva.maisProximo(p);
-      if (dist2 < Infinity) { e2s += Math.sqrt(dist2); n2++; }
-    }
-    // Quem não achou vizinho nenhum conta como falha, não como ausência.
-    const falhas = (luvaPts.length - n1) + (maoPts.length - n2);
-    const erro = n1 && n2
-      ? (e1s / n1 + e2s / n2) / 2 + (falhas / (luvaPts.length + maoPts.length)) * 0.05
-      : Infinity;
-    if (!melhor || erro < melhor.erro) melhor = { erro, m: M };
-  }
-  return melhor!;
-}
-
-// ------------------------------------------------------- busca da pose certa
-
-const luvaToda: THREE.Vector3[] = [];
-for (let i = 0; i < luva.pos.length; i += 3) {
-  luvaToda.push(new THREE.Vector3(luva.pos[i], luva.pos[i + 1], luva.pos[i + 2]));
-}
-
-/**
- * A manga fora do alinhamento.
- *
- * A luva tem 313 mm de ponta a ponta e a mão tem 178: a diferença é punho, e
- * ele sobe pelo antebraço. Deixar essa manga na conta estraga tudo duas vezes —
- * ela domina o eixo principal do PCA (é o trecho mais longo e mais reto) e puxa
- * a escala para baixo, porque o ICP tenta fazer 313 caber em 178.
- *
- * O resultado foi uma luva atravessada na palma com um erro que PARECIA bom:
- * 6,1 mm. Um mínimo local com número bonito — a razão de esta ferramenta
- * desenhar antes de exportar.
- */
-function semManga(pts: THREE.Vector3[], corte: number): THREE.Vector3[] {
-  const c = new THREE.Vector3();
-  for (const p of pts) c.add(p);
-  c.multiplyScalar(1 / pts.length);
-  const f = new Float32Array(pts.length * 3);
-  pts.forEach((p, i) => { f[i * 3] = p.x; f[i * 3 + 1] = p.y; f[i * 3 + 2] = p.z; });
-  const e = eixosPrincipais(f, c)[0];
-  const t = pts.map((p) => p.clone().sub(c).dot(e));
-  let mn = Infinity, mx = -Infinity;
-  for (const x of t) { if (x < mn) mn = x; if (x > mx) mx = x; }
-  // Os dedos ficam no extremo +e — conferido em folha-luva.png.
-  const limite = mn + (mx - mn) * corte;
-  return pts.filter((_, i) => t[i] >= limite);
-}
-
-const CORTE = Number((args.find((a) => a.startsWith('--corte=')) ?? '--corte=0.34').split('=')[1]);
-const luvaBruta = semManga(luvaToda, CORTE);
-console.log(`  manga cortada em ${(CORTE * 100).toFixed(0)}%: ${luvaToda.length} -> ${luvaBruta.length} vértices`);
-
-/**
- * Procura a pose da mão que melhor casa com a luva, e a quiralidade da luva.
- *
- * A quiralidade entra na busca porque ela NÃO se resolve por rotação: uma luva
- * esquerda nunca vira direita por mais que se gire, e um alinhamento que
- * ignorasse isso encaixaria a luva do avesso sem nunca acusar o erro. Espelhar
- * em X e deixar as duas hipóteses competirem pelo mesmo critério é mais barato
- * do que tentar adivinhar do arquivo.
- */
-function procurarPose() {
-  let melhor: {
-    erro: number; g: number; gr: number; espelhar: boolean; m: THREE.Matrix4;
-  } | null = null;
-
-  // Em DUAS etapas, porque orientação e curvatura são perguntas independentes e
-  // multiplicá-las daria centenas de ICPs. Primeiro a orientação, com a mão
-  // numa pose média — ela é grosseira o bastante para não depender da
-  // curvatura exata. Depois, fixada a orientação, a pose fina.
-  const POSES: [number, number][] = [];
-  for (const g of [0, 0.25, 0.5, 0.75, 1]) for (const gr of [0, 0.25, 0.5, 0.75, 1]) POSES.push([g, gr]);
-  const ETAPA1: [number, number][] = [[0.5, 0.5]];
-
-  for (const etapa of [1, 2]) {
-    const lista = etapa === 1 ? ETAPA1 : POSES;
-    const quiralidades = etapa === 1 ? [false, true] : [melhor!.espelhar];
-    for (const espelhar of quiralidades) {
-      const pts = espelhar
-        ? luvaBruta.map((p) => new THREE.Vector3(-p.x, p.y, p.z))
-        : luvaBruta;
-      for (const [g, gr] of lista) {
-        const mao = new MaoArticulada(molde!, 'right', 0xffffff);
-        mao.definirDedos(g, gr, 10);
-        const r = alinhar(pts, vertices(mao));
-        if (!melhor || r.erro < melhor.erro) {
-          melhor = { erro: r.erro, g, gr, espelhar, m: r.m };
-        }
-      }
-    }
-    if (etapa === 1) {
-      console.log(
-        `  etapa 1 (orientação): ${melhor!.espelhar ? 'ESPELHADA' : 'como veio'}` +
-        ` · erro ${(melhor!.erro * 1000).toFixed(1)} mm`,
-      );
-      // A etapa 2 refina a pose; o erro da etapa 1 não deve vencê-la por ter
-      // sido medido com outra pose.
-      melhor = { ...melhor!, erro: Infinity };
-    }
-  }
-  return melhor!;
-}
-
-console.log('rig: procurando orientação e pose (12 orientações x 2 etapas)');
-const pose = procurarPose();
-console.log(
-  `  melhor: gatilho ${pose.g} · grip ${pose.gr} · ${pose.espelhar ? 'ESPELHADA' : 'como veio'}` +
-  ` · erro médio ${(pose.erro * 1000).toFixed(1)} mm`,
-);
-
-// ------------------------------------------------------------- conferência
-
-/** Desenha a luva alinhada POR CIMA da mão posada, em três vistas. */
-async function desenharSobreposicao(mao: MaoArticulada, M: THREE.Matrix4, espelhar: boolean) {
+/** Desenha a luva com um dedo de cada cor. É a prova de que a segmentação vale. */
+async function desenharDedos() {
   const { desenharCelula } = await import('./raster.mjs');
   const { codificarPng } = await import('./png.mjs');
-
-  const tris: { a: number[]; b: number[]; c: number[]; cor: number[] }[] = [];
-  // A mão, em cinza-azulado.
-  mao.raiz.updateMatrixWorld(true);
-  mao.raiz.traverse((obj) => {
-    const malha = obj as THREE.SkinnedMesh;
-    if (!malha.isSkinnedMesh) return;
-    const pos = malha.geometry.attributes.position;
-    const idx = malha.geometry.index!;
-    const v = new THREE.Vector3();
-    const p: number[][] = [];
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      malha.applyBoneTransform(i, v);
-      const w = malha.localToWorld(v.clone());
-      p.push([w.x, w.y, w.z]);
-    }
-    for (let i = 0; i < idx.count; i += 3) {
-      tris.push({ a: p[idx.getX(i)], b: p[idx.getX(i + 1)], c: p[idx.getX(i + 2)], cor: [0.30, 0.45, 0.70] });
-    }
-  });
-  // A luva alinhada, em areia.
-  const pl: number[][] = [];
-  for (let i = 0; i < luva.pos.length; i += 3) {
-    const v = new THREE.Vector3(luva.pos[i], luva.pos[i + 1], luva.pos[i + 2]);
-    if (espelhar) v.x = -v.x;
-    v.applyMatrix4(M);
-    pl.push([v.x, v.y, v.z]);
-  }
-  for (let i = 0; i < luva.idx.length; i += 3) {
-    tris.push({ a: pl[luva.idx[i]], b: pl[luva.idx[i + 1]], c: pl[luva.idx[i + 2]], cor: [0.85, 0.72, 0.45] });
-  }
-
-  const CEL = 420, FUNDO = [20, 24, 34];
-  const VISTAS: ((p: number[]) => [number, number, number])[] = [
-    (p) => [p[0], p[1], -p[2]],
-    (p) => [p[0], -p[2], -p[1]],
-    (p) => [-p[2], p[1], p[0]],
+  const CORES = [
+    [0.95, 0.30, 0.28], [0.97, 0.68, 0.20], [0.40, 0.85, 0.42],
+    [0.32, 0.62, 0.96], [0.78, 0.45, 0.94],
   ];
-  const larg = CEL * 3, alt = CEL;
+  const pts: number[][] = [];
+  for (let i = 0; i < nL; i++) {
+    const q = ponto(luva, i).sub(centroL);
+    pts.push([q.dot(eixosL[1]), q.dot(eixosL[0]), q.dot(eixosL[2])]);
+  }
+  const tris = [];
+  for (let i = 0; i < luva.TRI.length; i += 3) {
+    const a = luva.TRI[i];
+    tris.push({
+      a: pts[luva.TRI[i]], b: pts[luva.TRI[i + 1]], c: pts[luva.TRI[i + 2]],
+      cor: dedoDe[a] >= 0 ? CORES[dedoDe[a]] : [0.55, 0.57, 0.62],
+    });
+  }
+  const CEL = 430, larg = CEL * 3, alt = CEL;
   const rgba = new Uint8Array(larg * alt * 4);
-  for (let i = 0; i < larg * alt; i++) {
-    rgba[i * 4] = FUNDO[0]; rgba[i * 4 + 1] = FUNDO[1]; rgba[i * 4 + 2] = FUNDO[2]; rgba[i * 4 + 3] = 255;
-  }
+  for (let i = 0; i < larg * alt; i++) { rgba[i*4]=20; rgba[i*4+1]=24; rgba[i*4+2]=34; rgba[i*4+3]=255; }
   const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
-  for (const t of tris) for (const q of [t.a, t.b, t.c]) for (let k = 0; k < 3; k++) {
-    if (q[k] < mn[k]) mn[k] = q[k]; if (q[k] > mx[k]) mx[k] = q[k];
-  }
-  const centro = mn.map((v, i) => (v + mx[i]) / 2);
+  for (const p of pts) for (let k = 0; k < 3; k++) { if (p[k] < mn[k]) mn[k] = p[k]; if (p[k] > mx[k]) mx[k] = p[k]; }
   const span = Math.max(...mx.map((v, i) => v - mn[i]));
-  VISTAS.forEach((f, k) => {
-    const esc = (CEL * 0.8) / span;
+  const VIS = [
+    (p: number[]) => [p[0], p[1], -p[2]],
+    (p: number[]) => [p[2], p[1], p[0]],
+    (p: number[]) => [p[0], p[2], -p[1]],
+  ];
+  VIS.forEach((f, k) => {
+    const esc = (CEL * 0.82) / span;
     desenharCelula({
       rgba, largura: larg, ox: k * CEL, oy: 0, celula: CEL, tris,
-      naTela: (p: number[]) => {
-        const [x, y, z] = f([p[0] - centro[0], p[1] - centro[1], p[2] - centro[2]]);
-        return [k * CEL + CEL / 2 + x * esc, CEL / 2 - y * esc, z];
-      },
+      naTela: (p: number[]) => { const [x, y, z] = f(p); return [k * CEL + CEL / 2 + x * esc, CEL / 2 - y * esc, z]; },
     });
   });
-  writeFileSync('folha-rig.png', codificarPng(larg, alt, rgba));
-  console.log('  -> folha-rig.png (mão em azul, luva em areia)');
+  writeFileSync('folha-dedos.png', codificarPng(larg, alt, rgba));
+  console.log('  -> folha-dedos.png (um dedo de cada cor; cinza é palma e manga)');
 }
+await desenharDedos();
 
-const maoFinal = new MaoArticulada(molde!, 'right', 0xffffff);
-maoFinal.definirDedos(pose.g, pose.gr, 10);
-await desenharSobreposicao(maoFinal, pose.m, pose.espelhar);
+console.log('');
+console.log('rig: PAROU AQUI. Os dedos estão segmentados; falta vesti-los.');
+console.log('     Ver "Onde isto parou" no topo do arquivo.');
+
+export { luva, DL, DP, dono, dedoDe, ordemL, iManga, centroL, eixosL, carregarMao, dijkstra, juntasDe, DEDOS_MAO, ponto, dist, DIAG };
