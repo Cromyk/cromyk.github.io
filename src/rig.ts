@@ -226,6 +226,19 @@ export class Rig {
     return this.nos.has(chave);
   }
 
+  /**
+   * O osso em si, para pendurar coisas nele.
+   *
+   * Quem usa é a chama dos Pokémon de fogo (src/fogo.ts): pendurada no osso da
+   * cauda, ela acompanha a animação sem uma linha de código por quadro. A
+   * alternativa — copiar a posição do osso todo quadro — chega sempre um quadro
+   * atrasada, e uma chama atrasada em relação à cauda é uma chama que persegue
+   * o bicho.
+   */
+  ossoDe(chave: Chave): THREE.Object3D | null {
+    return this.nos.get(chave)?.osso ?? null;
+  }
+
   /** A posição no mundo de um osso — é assim que a mão encontra a cabeça. */
   pontoDe(chave: Chave, alvo = new THREE.Vector3()): THREE.Vector3 | null {
     const no = this.nos.get(chave);

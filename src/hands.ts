@@ -291,6 +291,94 @@ export class RaioMira {
 }
 
 /**
+ * O feixe que diz em quem o seu Pokémon vai bater.
+ *
+ * Existe porque a mira de combate era invisível: o jogo escolhia um alvo a cada
+ * gatilho e só avisava DEPOIS, num cartaz com o nome de quem levou. Com dois
+ * selvagens perto um do outro, a única forma de descobrir para onde o braço
+ * estava apontando era atacar e ver quem gritou.
+ *
+ * É um cilindro e não uma `THREE.Line` de propósito: a linha do WebGL tem um
+ * pixel de largura em qualquer plataforma, e um pixel a dois metros de
+ * distância, num passthrough colorido, some. O cilindro tem espessura de
+ * verdade, some na ponta com um degradê e custa uma malha por mão.
+ *
+ * A cor vem de fora — é a do tipo de quem está sob a mira —, então o feixe
+ * responde ao alvo antes mesmo de o nome dele aparecer.
+ */
+export class FeixeDeAlvo {
+  readonly grupo = new THREE.Group();
+  private haste: THREE.Mesh;
+  private ponta: THREE.Mesh;
+  private matHaste: THREE.MeshBasicMaterial;
+  private matPonta: THREE.MeshBasicMaterial;
+  private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
+  private forca = 0;
+
+  constructor() {
+    // Cilindro de comprimento 1 deitado sobre −Z, que é para onde a mão aponta;
+    // o comprimento vira escala em `atualizar`. Sem tampas: elas nunca são
+    // vistas e são dois triângulos por quadro a troco de nada.
+    const geoHaste = new THREE.CylinderGeometry(0.0045, 0.0018, 1, 6, 1, true);
+    geoHaste.translate(0, -0.5, 0);
+    geoHaste.rotateX(-Math.PI / 2);
+    this.matHaste = new THREE.MeshBasicMaterial({
+      color: 0xff6b5c,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      // Aditivo para o feixe brilhar por cima do passthrough em vez de ficar um
+      // canudo fosco boiando na sala.
+      blending: THREE.AdditiveBlending,
+    });
+    this.haste = new THREE.Mesh(geoHaste, this.matHaste);
+    this.haste.frustumCulled = false;
+
+    const geoPonta = new THREE.SphereGeometry(0.018, 10, 8);
+    this.matPonta = new THREE.MeshBasicMaterial({
+      color: 0xff6b5c,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.ponta = new THREE.Mesh(geoPonta, this.matPonta);
+    this.ponta.frustumCulled = false;
+
+    this.descartaveis.push(geoHaste, this.matHaste, geoPonta, this.matPonta);
+    this.grupo.add(this.haste, this.ponta);
+    this.grupo.visible = false;
+  }
+
+  /**
+   * `comprimento` é a distância até o alvo, em metros. `cor` é a do tipo dele.
+   *
+   * O pulso da ponta é lento de propósito: em VR, qualquer coisa que pisque
+   * rápido no centro do campo de visão cansa em minutos.
+   */
+  atualizar(dt: number, mostrar: boolean, comprimento: number, cor: number, agora: number) {
+    this.forca += ((mostrar ? 1 : 0) - this.forca) * Math.min(1, dt * 14);
+    this.grupo.visible = this.forca > 0.02;
+    if (!this.grupo.visible) return;
+
+    this.matHaste.color.setHex(cor);
+    this.matPonta.color.setHex(cor);
+    this.matHaste.opacity = this.forca * 0.55;
+    const pulso = 0.8 + Math.sin(agora * 5) * 0.2;
+    this.matPonta.opacity = this.forca * 0.85 * pulso;
+
+    this.haste.scale.z = comprimento;
+    this.ponta.position.z = -comprimento;
+    this.ponta.scale.setScalar(pulso);
+  }
+
+  descartar() {
+    this.grupo.removeFromParent();
+    for (const d of this.descartaveis) d.dispose();
+  }
+}
+
+/**
  * Arco pontilhado que mostra para onde a pokébola vai cair com a velocidade
  * atual do braço. Só aparece quando a mão está de fato em movimento.
  */

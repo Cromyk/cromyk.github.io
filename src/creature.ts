@@ -4,6 +4,7 @@ import type { GestoDeAtaque } from './anima';
 import type { Corpo } from './modelos';
 import { criarRng, entre, type Rng } from './rng';
 import { Animador } from './anima';
+import { Chama, FOGO_POR_ESPECIE } from './fogo';
 
 export type Papel = 'selvagem' | 'companheiro';
 
@@ -54,6 +55,8 @@ export class Pokemon {
   readonly hpMax: number;
   /** Quem faz os ossos se mexerem. Ver src/anima.ts. */
   readonly animador: Animador;
+  /** O fogo de quem é de fogo. Vazio para os outros 144. Ver src/fogo.ts. */
+  private chamas: Chama[] = [];
   /**
    * A que altura acima do apoio ele paira, em metros. Zero = anda no chão.
    *
@@ -206,6 +209,42 @@ export class Pokemon {
     // trouxe, quando trouxe, e a animação procedural por osso para o resto —
     // que é a maioria. Ver src/anima.ts.
     this.animador = new Animador(corpo);
+    this.acenderFogo();
+  }
+
+  /**
+   * Põe fogo de verdade em quem deveria estar pegando fogo.
+   *
+   * O modelo traz a chama como malha pintada e parada — ver src/fogo.ts. Aqui
+   * ela ganha uma chama viva por cima, pendurada NO OSSO, que é o que a faz
+   * acompanhar a cauda sem custo por quadro além do próprio desenho.
+   *
+   * A compensação de escala é o detalhe que não pode faltar: o osso vive dentro
+   * do nó que encolhe o modelo inteiro de 2 unidades para 30 centímetros, e uma
+   * chama de 6 cm pendurada ali sem compensar sairia do tamanho de uma casa.
+   */
+  private acenderFogo() {
+    const pontos = FOGO_POR_ESPECIE[this.especie.id];
+    if (!pontos) return;
+    this.raiz.updateMatrixWorld(true);
+
+    for (const ponto of pontos) {
+      // A ponta é o último osso que o rip nomeou: nem todo modelo tem as três
+      // vértebras de cauda, e pendurar na base deixaria a chama no lombo.
+      let osso: THREE.Object3D | null = null;
+      for (const chave of ponto.ossos) {
+        osso = this.animador.rig.ossoDe(chave);
+        if (osso) break;
+      }
+      if (!osso) continue;
+
+      const escalaDoOsso = osso.getWorldScale(new THREE.Vector3()).x;
+      if (escalaDoOsso < 1e-6) continue;
+
+      const chama = new Chama((this.corpo.altura * ponto.fracao) / escalaDoOsso, ponto.cor);
+      osso.add(chama.grupo);
+      this.chamas.push(chama);
+    }
   }
 
   get altura(): number {
@@ -957,6 +996,12 @@ export class Pokemon {
     const g = this.corpo.corpo;
     const nervoso = this.alarme;
 
+    // A chama vive por conta própria: ela não depende de pose nenhuma, só do
+    // tempo. Fica aqui porque `animar` é o único ponto por onde TODOS os
+    // estados passam — inclusive o desmaiado, e a chama de um Charmander
+    // desmaiado continua queimando.
+    for (const chama of this.chamas) chama.atualizar(dt);
+
     // Os ossos primeiro (clipe assado e pose procedural), o corpo inteiro
     // depois. A ordem importa: o squash abaixo escreve em `corpo.scale`, que
     // é o pai de tudo o que o esqueleto acabou de posicionar.
@@ -1029,6 +1074,8 @@ export class Pokemon {
 
   descartar(cena: THREE.Object3D) {
     cena.remove(this.raiz);
+    for (const chama of this.chamas) chama.descartar();
+    this.chamas.length = 0;
     this.corpo.descartar();
     this.viva = false;
   }

@@ -360,8 +360,15 @@ export interface Especie {
   descricao: string;
 }
 
-/** Quem você pode escolher no começo. Os três clássicos, mais o rato. */
-const INICIAIS_IDS = ['bulbasaur', 'charmander', 'squirtle', 'pikachu'];
+/**
+ * Quem você pode escolher no começo. Os três clássicos, o rato e a raposa.
+ *
+ * O Eevee está aqui por ser a única escolha inicial que continua sendo uma
+ * escolha depois: os outros quatro têm uma linha de evolução só, e ele tem
+ * oito. Quem começa com ele decide de novo, lá na frente, com a pedra na mão.
+ * Ver src/pedras.ts.
+ */
+const INICIAIS_IDS = ['bulbasaur', 'charmander', 'squirtle', 'pikachu', 'eevee'];
 
 /**
  * Altura dentro do quarto.

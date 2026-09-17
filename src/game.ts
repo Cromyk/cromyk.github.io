@@ -5,6 +5,7 @@ import {
   NIVEL_MAXIMO,
   TIPOS,
   calcularDano,
+  corDe,
   corHexDe,
   corHexDeTipo,
   LIMITE_ESTAGIO,
@@ -35,7 +36,7 @@ import {
 import { garantir, instanciar, type Corpo } from './modelos';
 import { Pokebola } from './orb';
 import { Sala } from './room';
-import { BOTAO_A, BOTAO_B, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, RaioMira } from './hands';
+import { BOTAO_A, BOTAO_B, FeixeDeAlvo, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, RaioMira } from './hands';
 import { Luva } from './glove';
 import { Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
@@ -76,6 +77,9 @@ const golpeDe = (s: { golpe: Golpe | null }): GestoDeAtaque =>
 const gestoDoGolpe = (golpe: Golpe): GestoDeAtaque =>
   (golpe.animacao as GestoDeAtaque | undefined) ??
   (golpe.categoria === 'status' ? 'aura' : golpe.categoria === 'especial' ? 'sopro' : 'investida');
+
+/** Rascunho do quadro para a origem do feixe — ver atualizarFeixe. */
+const _feixeOrigem = new THREE.Vector3();
 
 const MAX_SELVAGENS = 3;
 /**
@@ -183,6 +187,8 @@ export class Jogo {
   private maos: Mao[] = [];
   private miras = new Map<number, Mira>();
   private raios = new Map<number, RaioMira>();
+  /** O laser de combate, um por mão. Ver FeixeDeAlvo. */
+  private feixes = new Map<number, FeixeDeAlvo>();
   private bolaNaMao = new Map<number, Pokebola>();
   /** Linha e anel do comando "vá até ali". */
   private marca = new MarcaDeDestino();
@@ -328,6 +334,13 @@ export class Jogo {
       const raio = new RaioMira();
       mao.alvo.add(raio.linha);
       this.raios.set(i, raio);
+
+      // O feixe mora no espaço da mão: assim ele aponta para onde `mao.mira()`
+      // aponta por construção, sem uma segunda conta de direção para divergir
+      // da primeira.
+      const feixe = new FeixeDeAlvo();
+      mao.alvo.add(feixe.grupo);
+      this.feixes.set(i, feixe);
 
       const rastro = new RastroDeIsca();
       this.cena.add(rastro.pontos);
@@ -953,10 +966,37 @@ export class Jogo {
    * Serve à isca e ao ataque: os dois gestos são o mesmo — estender o braço na
    * direção de um bicho — e só mudam no que fazem depois de acertar quem é.
    */
+  /**
+   * Quem está sob a mira — com o corpo valendo mais do que o perdão.
+   *
+   * A versão anterior media todo mundo pela MESMA régua relativa: `desvio /
+   * tolerância`, com a tolerância crescendo 16 cm por metro de distância. Isso
+   * tem uma consequência que só aparece com dois bichos em cena: a três metros
+   * um selvagem carregava 68 cm de perdão em volta do corpo, e um perdão largo
+   * dá uma fração pequena. Um bicho grande e longe vencia um pequeno e perto
+   * **que o raio estava atravessando** — que é exatamente a queixa de mandar
+   * bater num e o golpe sair no outro.
+   *
+   * Agora são duas perguntas em ordem, não uma conta só:
+   *
+   * 1. **O raio atravessa alguém?** Se atravessa, é esse, e entre dois na linha
+   *    vale o da FRENTE — o que o seu braço está tapando. Aqui não há régua
+   *    relativa nenhuma: apontar para o corpo de um bicho é uma resposta
+   *    exata, e nenhuma tolerância deveria ter o direito de contradizê-la.
+   * 2. **Ninguém?** Só então o perdão entra, e medindo o quanto se passou POR
+   *    FORA do corpo, não uma fração de si mesmo.
+   *
+   * O cone também encolheu — de 20 cm + 16 cm/m para 12 cm + 7 cm/m —, o que
+   * antes seria cruel e agora não é: com o feixe visível (`FeixeDeAlvo`), o
+   * jogador vê onde está apontando enquanto aponta, e a mira generosa deixou de
+   * ser a única forma de acertar.
+   */
   private selvagemNaMira(mao: Mao, alcance: number): Pokemon | null {
     const { origem, direcao } = this.modoPlano ? this.miraDaCamera() : mao.mira();
-    let melhor: Pokemon | null = null;
-    let menorDesvio = Infinity;
+    let atravessado: Pokemon | null = null;
+    let distanciaDele = Infinity;
+    let perdoado: Pokemon | null = null;
+    let menorSobra = Infinity;
 
     for (const { pokemon } of this.selvagens) {
       if (!pokemon.viva || pokemon.desmaiado) continue;
@@ -967,17 +1007,24 @@ export class Jogo {
       if (aoLongo <= 0.15 || aoLongo > alcance) continue;
 
       const desvio = paraEle.addScaledVector(direcao, -aoLongo).length();
-      const tolerancia = pokemon.raio + 0.2 + aoLongo * 0.16;
-      if (desvio > tolerancia) continue;
 
-      // Entre dois na mira, o mais centrado ganha — não o mais perto.
-      const relativo = desvio / tolerancia;
-      if (relativo < menorDesvio) {
-        menorDesvio = relativo;
-        melhor = pokemon;
+      if (desvio <= pokemon.raio) {
+        if (aoLongo < distanciaDele) {
+          distanciaDele = aoLongo;
+          atravessado = pokemon;
+        }
+        continue;
+      }
+
+      const sobra = desvio - pokemon.raio;
+      if (sobra > 0.12 + aoLongo * 0.07) continue;
+      if (sobra < menorSobra) {
+        menorSobra = sobra;
+        perdoado = pokemon;
       }
     }
-    return melhor;
+
+    return atravessado ?? perdoado;
   }
 
   /**
@@ -1881,6 +1928,33 @@ export class Jogo {
     this.alvoTravado = null;
 
     return this.alvoDoCompanheiro();
+  }
+
+  /**
+   * O laser, um por mão, mostrando em quem o gatilho vai bater AGORA.
+   *
+   * Ele responde à mira e não ao alvo travado, de propósito. A trava existe
+   * porque ninguém segura o braço parado a três metros de um bicho que anda
+   * (ver `alvoEscolhido`), mas o que o jogador precisa ver enquanto move o
+   * braço é a pergunta que o gatilho vai fazer, não a resposta da vez passada —
+   * senão o feixe apontaria para um lado e a mão para outro.
+   *
+   * Só aparece com alguém em campo: sem companheiro não há golpe para sair, e
+   * um laser que não faz nada é pior do que nenhum.
+   */
+  private atualizarFeixe(mao: Mao, dt: number, agora: number) {
+    const feixe = this.feixes.get(mao.indice);
+    if (!feixe) return;
+
+    const podeAtacar = this.temCompanheiroEmCampo && !this.escaneando && !this.escolha;
+    const alvo = podeAtacar && mao.conectada ? this.selvagemNaMira(mao, ALCANCE_BATALHA + 2) : null;
+    if (!alvo) {
+      feixe.atualizar(dt, false, 1, 0xff6b5c, agora / 1000);
+      return;
+    }
+
+    const origem = mao.alvo.getWorldPosition(_feixeOrigem);
+    feixe.atualizar(dt, true, origem.distanceTo(alvo.centro), corDe(alvo.especie), agora / 1000);
   }
 
   private travarAlvo(alvo: Pokemon, mao: Mao) {
@@ -3165,6 +3239,8 @@ export class Jogo {
         raio.atualizar(dt, apontandoTime || apontandoDex, 0.6);
       }
 
+      this.atualizarFeixe(mao, dt, agora);
+
       // Analógico da direita: vira página da Pokédex quando ela está aberta, e
       // troca de bola quando não está. Um passo por inclinada — só volta a valer
       // depois que o stick passa pelo centro.
@@ -4039,6 +4115,7 @@ export class Jogo {
     for (const aura of this.auras) aura.descartar(this.cena);
     for (const mira of this.miras.values()) mira.descartar();
     for (const raio of this.raios.values()) raio.descartar();
+    for (const feixe of this.feixes.values()) feixe.descartar();
     for (const rastro of this.rastros.values()) rastro.descartar();
     for (const isca of this.itemNaMao.values()) isca.descartar();
     for (const mao of this.maos) mao.luva?.descartar();

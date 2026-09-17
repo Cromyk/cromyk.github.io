@@ -39,9 +39,24 @@ export class EscolhaInicial {
   private ultimoDestaque = -1;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
 
+  /** Ângulo de cada um, acumulado. Ver `atualizar`. */
+  private giros: number[] = [];
+
   private static readonly ESPACO = 0.34;
-  private static readonly DISTANCIA = 1.15;
   private static readonly ALTURA = 1.15;
+
+  /**
+   * A vitrine recua conforme ganha gente, para caber no campo de visão.
+   *
+   * Com quatro ela ficava a 1,15 m e ocupava pouco mais de um metro. O Eevee
+   * fez o quinto, e a essa distância os das pontas saíam da vista de quem olha
+   * para o meio — em VR isso quer dizer que o jogador nunca descobre que eles
+   * existem. Recuar mantém o mesmo ângulo de abertura.
+   */
+  private static distancia(quantos: number) {
+    const abertura = Math.max(quantos - 1, 1) * EscolhaInicial.ESPACO;
+    return Math.max(1.15, abertura * 1.15);
+  }
 
   constructor() {
     this.titulo.escrever(
@@ -137,7 +152,7 @@ export class EscolhaInicial {
 
     this.grupo.position
       .copy(posicao)
-      .addScaledVector(direcao, EscolhaInicial.DISTANCIA);
+      .addScaledVector(direcao, EscolhaInicial.distancia(INICIAIS.length));
     this.grupo.position.y = EscolhaInicial.ALTURA;
     this.grupo.lookAt(posicao.x, EscolhaInicial.ALTURA, posicao.z);
     this.grupo.visible = true;
@@ -162,7 +177,11 @@ export class EscolhaInicial {
       const destacado = i === this.destacado;
       const flutua = Math.sin(this.tempo * 1.6 + i * 1.3) * 0.012;
       bicho.raiz.position.set(x, -0.06 + flutua + (destacado ? 0.03 : 0), 0);
-      bicho.raiz.rotation.set(0, this.tempo * (destacado ? 0.9 : 0.45) + i, 0);
+      // O ângulo se acumula em vez de sair de `tempo × velocidade`: com a conta
+      // direta, apontar para um deles dobrava a velocidade e o ângulo SALTAVA
+      // no mesmo quadro, como se o bicho tivesse levado um tranco ao ser olhado.
+      this.giros[i] = (this.giros[i] ?? i) + dt * (destacado ? 0.9 : 0.45);
+      bicho.raiz.rotation.set(0, this.giros[i], 0);
       const escala = (0.85 + this.entrada * 0.15) * (destacado ? 1.18 : 1);
       bicho.raiz.scale.setScalar(escala);
     });

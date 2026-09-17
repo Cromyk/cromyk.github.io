@@ -231,7 +231,10 @@ function desvioX(osso: THREE.Bone, repouso: THREE.Quaternion): number {
 console.log('1. a Pokédex fecha consigo mesma');
 {
   checar(ESPECIES.length === 151, `deveria haver 151 espécies, há ${ESPECIES.length}`);
-  checar(INICIAIS.length === 4, `deveria haver 4 iniciais, há ${INICIAIS.length}`);
+  checar(INICIAIS.length === 5, `deveria haver 5 iniciais, há ${INICIAIS.length}`);
+  // Um inicial sem modelo é uma vitrine com um pedestal vazio, e a tela de
+  // escolha não tem como se recuperar disso na frente do jogador.
+  for (const e of INICIAIS) checar(e.id in MEDIDAS, `o inicial ${e.nome} não tem modelo`);
 
   let semModelo = 0;
   let evolucaoQuebrada = 0;

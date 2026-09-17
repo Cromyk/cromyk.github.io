@@ -59,7 +59,56 @@ export interface Corpo {
   mixer: THREE.AnimationMixer | null;
   /** Clipes assados que vieram no arquivo, pelo nome. Poucos modelos têm. */
   acoes: Map<string, THREE.AnimationAction>;
+  /**
+   * Refaz a centralização e a escala medindo a pose que está DESENHADA agora.
+   *
+   * Quem chama é `Anima`, depois de trocar a pose de descanso por um quadro
+   * emprestado de um clipe (ver `emprestarPose`). O manifesto mediu o arquivo
+   * na pose de bind; quando essa pose é substituída, a medida deixa de
+   * descrever o bicho — e o Pikachu, que chega deitado e só fica de pé pelo
+   * quadro emprestado, ficava centrado pelo salsichão horizontal que ele era
+   * antes. Girando no lugar, ele orbitava um eixo fora do corpo.
+   */
+  renormalizar(): void;
   descartar(): void;
+}
+
+/**
+ * Caixa envolvente da pose desenhada, no espaço onde `desloca` trabalha.
+ *
+ * Tem de ser vértice a vértice, e com `applyBoneTransform`: a geometria de uma
+ * malha com esqueleto guarda a pose de bind, e a pose que a GPU desenha só
+ * existe depois do skinning. Medir a geometria crua aqui daria exatamente a
+ * medida errada que se está tentando corrigir.
+ *
+ * `referencia.matrixWorld⁻¹` leva do mundo para o espaço dos filhos de
+ * `referencia` — o mesmo em que `centroX`/`baseY`/`centroZ` foram gravados —, e
+ * fazer isso ponto a ponto (em vez de girar a caixa pronta) evita a folga que
+ * uma AABB ganha ao ser rotacionada.
+ */
+function caixaDaPose(malhas: THREE.Object3D, referencia: THREE.Object3D): THREE.Box3 {
+  referencia.updateMatrixWorld(true);
+  const paraLocal = new THREE.Matrix4().copy(referencia.matrixWorld).invert();
+  const caixa = new THREE.Box3().makeEmpty();
+  const ponto = new THREE.Vector3();
+  const paraEspaco = new THREE.Matrix4();
+
+  malhas.traverse((obj) => {
+    const malha = obj as THREE.Mesh;
+    if (!malha.isMesh) return;
+    const posicoes = malha.geometry.getAttribute('position');
+    if (!posicoes) return;
+    const comOsso = malha as THREE.SkinnedMesh;
+    const temEsqueleto = comOsso.isSkinnedMesh === true && comOsso.skeleton !== undefined;
+    paraEspaco.multiplyMatrices(paraLocal, malha.matrixWorld);
+    for (let i = 0; i < posicoes.count; i++) {
+      if (temEsqueleto) comOsso.applyBoneTransform(i, ponto);
+      else ponto.fromBufferAttribute(posicoes, i);
+      caixa.expandByPoint(ponto.applyMatrix4(paraEspaco));
+    }
+  });
+
+  return caixa;
 }
 
 /**
@@ -236,12 +285,6 @@ export function instanciar(
 
   const cena = clonarComEsqueleto(gltf.scene) as THREE.Object3D;
 
-  const maiorHorizontal = Math.max(medida.largura, medida.profundidade);
-  const referencia = alturaExata
-    ? Math.max(medida.alturaModelo, 1e-6)
-    : Math.max(medida.alturaModelo, maiorHorizontal / 2, 1e-6);
-  const escala = alturaAlvo / referencia;
-
   // Três nós, nesta ordem, porque a ordem é o que faz a conta fechar. O
   // manifesto mediu a caixa DEPOIS do giro, então centralizar tem de acontecer
   // no espaço já girado — e escalar, por último, sobre tudo:
@@ -252,12 +295,48 @@ export function instanciar(
   giro.add(cena);
 
   const desloca = new THREE.Group();
-  desloca.position.set(-medida.centroX, -medida.baseY, -medida.centroZ);
   desloca.add(giro);
 
   const ajuste = new THREE.Group();
-  ajuste.scale.setScalar(escala);
   ajuste.add(desloca);
+
+  let maiorHorizontal = Math.max(medida.largura, medida.profundidade);
+  let escala = 1;
+
+  /**
+   * Planta o bicho: centro no eixo, pés no chão, altura pedida.
+   *
+   * Recebe a caixa em unidades do modelo, no espaço em que `desloca` escreve.
+   * De saída vem do manifesto; depois de uma troca de pose vem de
+   * `caixaDaPose`, medida no que está desenhado. É a MESMA conta nos dois
+   * casos, de propósito — duas contas parecidas em lugares diferentes é como
+   * o Pikachu ficou torto sem ninguém notar.
+   */
+  const plantar = (min: THREE.Vector3, max: THREE.Vector3) => {
+    const largura = max.x - min.x;
+    const altura = max.y - min.y;
+    const profundidade = max.z - min.z;
+    maiorHorizontal = Math.max(largura, profundidade);
+    const referencia = alturaExata
+      ? Math.max(altura, 1e-6)
+      : Math.max(altura, maiorHorizontal / 2, 1e-6);
+    escala = alturaAlvo / referencia;
+
+    desloca.position.set(-(min.x + max.x) / 2, -min.y, -(min.z + max.z) / 2);
+    ajuste.scale.setScalar(escala);
+    return profundidade;
+  };
+
+  const meia = new THREE.Vector3(medida.largura, medida.alturaModelo, medida.profundidade).multiplyScalar(0.5);
+  const centroDoManifesto = new THREE.Vector3(
+    medida.centroX,
+    medida.baseY + medida.alturaModelo / 2,
+    medida.centroZ,
+  );
+  plantar(
+    centroDoManifesto.clone().sub(meia),
+    centroDoManifesto.clone().add(meia),
+  );
 
   let sombras = 0;
   cena.traverse((obj) => {
@@ -283,7 +362,10 @@ export function instanciar(
   raiz.add(corpo);
 
   const boca = new THREE.Object3D();
-  boca.position.set(0, alturaAlvo * 0.74, Math.min(medida.profundidade * escala * 0.5, alturaAlvo * 0.5));
+  const apontarBoca = (profundidade: number) => {
+    boca.position.set(0, alturaAlvo * 0.74, Math.min(profundidade * escala * 0.5, alturaAlvo * 0.5));
+  };
+  apontarBoca(medida.profundidade);
   corpo.add(boca);
 
   let mixer: THREE.AnimationMixer | null = null;
@@ -293,7 +375,7 @@ export function instanciar(
     for (const clipe of gltf.animations) acoes.set(clipe.name, mixer.clipAction(clipe));
   }
 
-  return {
+  const pronto: Corpo = {
     raiz,
     corpo,
     boca,
@@ -301,6 +383,13 @@ export function instanciar(
     raio: Math.max(maiorHorizontal * escala * 0.5, alturaAlvo * 0.25),
     mixer,
     acoes,
+    renormalizar() {
+      const caixa = caixaDaPose(cena, desloca);
+      if (caixa.isEmpty()) return;
+      const profundidade = plantar(caixa.min, caixa.max);
+      apontarBoca(profundidade);
+      pronto.raio = Math.max(maiorHorizontal * escala * 0.5, alturaAlvo * 0.25);
+    },
     descartar() {
       mixer?.stopAllAction();
       raiz.removeFromParent();
@@ -311,4 +400,6 @@ export function instanciar(
       for (const m of proprios) m.dispose();
     },
   };
+
+  return pronto;
 }

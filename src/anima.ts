@@ -188,7 +188,7 @@ export class Animador {
     this.mapearClipes(corpo);
     // A pose emprestada primeiro: medir a T-pose antes dela mediria a pose de
     // bind, que e justamente a que se esta trocando.
-    this.emprestarPose(corpo.corpo);
+    this.emprestarPose(corpo);
     this.medirTPose();
   }
 
@@ -253,7 +253,7 @@ export class Animador {
    *
    * Acontece uma vez, no primeiro quadro de vida do bicho.
    */
-  private emprestarPose(corpo: THREE.Object3D) {
+  private emprestarPose(corpo: Corpo) {
     const acao = this.emprestada;
     this.emprestada = null;
     if (!acao || !this.mixer) return;
@@ -263,7 +263,12 @@ export class Animador {
     // Um passo mínimo só para o mixer escrever nos ossos: sem `update` nada é
     // aplicado, e a pose emprestada continuaria sendo a de bind.
     this.mixer.update(1e-4);
-    this.rig.recapturarRepouso(corpo);
+    this.rig.recapturarRepouso(corpo.corpo);
+    // E agora que o bicho está em pé, remede: as medidas do manifesto descrevem
+    // a pose que acabou de ser jogada fora. Sem isto o Pikachu fica centrado
+    // pelo salsichão deitado que ele era, e girar no lugar vira orbitar um
+    // eixo que não é o dele.
+    corpo.renormalizar();
   }
 
   /**
