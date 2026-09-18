@@ -93,9 +93,10 @@ export class Mao {
    * Põe a luva no estado do quadro: dedos fechando conforme os botões, ou as
    * juntas de verdade quando a mão está nua. Devolve se a mão está rastreada.
    */
-  atualizarLuva(dt: number): boolean {
+  atualizarLuva(dt: number, recuo = 0): boolean {
     const luva = this.luva;
     if (!luva) return false;
+    luva.recuar(recuo);
     const comJuntas =
       this.semControle &&
       luva.usarJuntas(this.rastreada as unknown as THREE.Object3D & { joints?: Record<string, THREE.Object3D> });

@@ -3,7 +3,7 @@ import { montarCorpoDeBola } from './orb';
 import { BOLAS, type TipoBola } from './balls';
 
 /**
- * O cinto de pokébolas, preso ao antebraço esquerdo.
+ * O cinto de pokébolas, um em cada antebraço.
  *
  * Antes as bolas eram CARDS no painel do pulso: você girava o pulso para abrir
  * o painel, mirava a mão numa carta e apertava o grip. Funcionava, mas era um
@@ -18,7 +18,15 @@ import { BOLAS, type TipoBola } from './balls';
  * "na cintura" ficaria presa a uma altura adivinhada a partir da cabeça, e
  * mudaria de lugar toda vez que você se abaixasse. O antebraço é rastreado de
  * verdade, está sempre no campo de visão quando você olha para ele, e a mão
- * direita já sabe chegar lá — é o mesmo alcance de quem coça o braço.
+ * outra mão já sabe chegar lá — é o mesmo alcance de quem coça o braço.
+ *
+ * ## Um em cada braço, desde 18/09
+ *
+ * A mão que CARREGA o cinto não alcança o próprio antebraço, então um cinto só,
+ * no braço esquerdo, queria dizer que apenas a mão direita podia tirar uma bola
+ * — e quem prefere arremessar com a esquerda não tinha de onde pegar. Com um em
+ * cada braço, qualquer mão pega do braço oposto. O estoque é o mesmo nos dois:
+ * é uma mochila, não duas.
  *
  * ## O que é um slot
  *
@@ -35,10 +43,23 @@ import { BOLAS, type TipoBola } from './balls';
 
 /** Raio da miniatura. A bola de verdade tem 4,5 cm; esta é pouco mais da metade. */
 const RAIO = 0.026;
-/** Distância entre um slot e o próximo, ao longo do antebraço. */
-const PASSO = 0.058;
+/**
+ * Distância entre um slot e o próximo, ao longo do antebraço.
+ *
+ * Subiu de 5,8 para 6,6 cm depois do playtest de 18/09, e o motivo é a conta
+ * abaixo: com 5,8 de passo e 7 de alcance, os campos de dois slots vizinhos se
+ * sobrepunham em mais de um centímetro de cada lado. `slotSob` escolhe o mais
+ * perto e nunca erra feio, mas na zona de sobreposição a mão precisa de menos
+ * de 3 cm de precisão para pegar a bola que você QUER — e 3 cm é menos do que
+ * um braço no ar entrega, ainda mais com a outra mão tapando o alvo.
+ *
+ * Quatro slots a 6,6 cm, começando 7,5 cm atrás do punho, terminam a 27 cm —
+ * o comprimento de um antebraço adulto. Mais do que isto e o último slot sai
+ * para fora do cotovelo.
+ */
+export const PASSO_SLOT = 0.066;
 /** Onde o primeiro slot começa, medido para trás a partir do punho. */
-const INICIO_Z = 0.075;
+export const INICIO_SLOT = 0.075;
 
 /**
  * Quão perto a mão precisa chegar para o slot contar como alcançado.
@@ -46,8 +67,13 @@ const INICIO_Z = 0.075;
  * Generoso de propósito: a mão que vem pegar tapa o slot no meio do caminho, e
  * exigir precisão de milímetro num alvo que você não está vendo é o tipo de
  * coisa que faz alguém fechar o grip três vezes até funcionar.
+ *
+ * Quem mede a distância é o CENTRO DA MÃO FECHADA e não a ponta do dedo — ver
+ * `slotSobAMao`, em src/game.ts. Esse era o defeito principal: a ponta do
+ * indicador vai uns seis centímetros à frente da palma, então a mão chegava ao
+ * slot já tendo passado por ele.
  */
-export const ALCANCE_SLOT = 0.07;
+export const ALCANCE_SLOT = 0.075;
 
 interface Slot {
   tipo: TipoBola;
@@ -88,7 +114,7 @@ export class Cinto {
       const tipo = BOLAS[i];
 
       const base = new THREE.Group();
-      base.position.set(ladoDoDorso * 0.022, 0.012, INICIO_Z + i * PASSO);
+      base.position.set(ladoDoDorso * 0.022, 0.012, INICIO_SLOT + i * PASSO_SLOT);
 
       // O berço: um anel raso, como o encaixe de um cinto de verdade. Ele é o
       // que continua ali quando a bola está na sua mão.

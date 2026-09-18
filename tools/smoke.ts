@@ -50,6 +50,7 @@ import { MEDIDAS } from '../src/modelos.gen';
 import { caixaDaPose, type Corpo } from '../src/modelos';
 import { BOLAS } from '../src/balls';
 import { PEDRAS, EVOLUI_SO_COM_PEDRA } from '../src/pedras';
+import { ALCANCE_SLOT, INICIO_SLOT, PASSO_SLOT } from '../src/cinto';
 import { ITENS } from '../src/itens';
 import { Mochila, disporGrade } from '../src/mochila';
 import { Rig, type Chave } from '../src/rig';
@@ -1843,6 +1844,29 @@ console.log('29. as pedras de evolução');
       `com o osso 5 acima, a caixa devia ir de 4 a 6 em Y; foi de ${caixa.min.y.toFixed(2)} a ${caixa.max.y.toFixed(2)}`,
     );
     console.log('   caixa da pose: 1×2×1 em qualquer escala, e segue o osso');
+  }
+
+  // O cinto: quanta precisão a mão precisa ter para pegar a bola CERTA.
+  //
+  // Dois slots vizinhos disputam a faixa em que os campos de alcance se
+  // sobrepõem. `slotSob` resolve escolhendo o mais perto, então nunca há erro
+  // grosseiro — mas dentro dessa faixa a mão precisa acertar metade da
+  // distância entre os dois, e essa metade é a precisão real exigida do
+  // jogador. Com o passo de 5,8 cm de antes ela era de 2,9 cm, com a outra mão
+  // tapando o alvo. É disso que vinha o "complicado de pegar" do playtest.
+  {
+    const precisao = PASSO_SLOT / 2;
+    checar(
+      precisao >= 0.03,
+      `o cinto exige ${(precisao * 100).toFixed(1)} cm de precisão, e menos de 3 cm é mais do que um braço no ar entrega`,
+    );
+    // E o cinto inteiro tem de caber num antebraço: 4 slots a partir do punho.
+    const fim = INICIO_SLOT + 3 * PASSO_SLOT;
+    checar(fim <= 0.28, `o último slot fica a ${(fim * 100).toFixed(0)} cm do punho, além do cotovelo`);
+    console.log(
+      `   cinto: 4 bolas a cada ${(PASSO_SLOT * 100).toFixed(1)} cm, alcance ${(ALCANCE_SLOT * 100).toFixed(1)} cm, ` +
+        `precisão exigida ${(precisao * 100).toFixed(1)} cm, última a ${(fim * 100).toFixed(0)} cm do punho`,
+    );
   }
 
   // A grade da mochila tem de caber no gesto: dois itens mais perto um do outro

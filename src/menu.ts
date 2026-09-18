@@ -71,14 +71,46 @@ export type Selecao =
   | { tipo: 'dificuldade'; entrada: PerfilDificuldade }
   | { tipo: 'interruptor'; entrada: EntradaInterruptor };
 
-const LARGURA_CARD = 0.1;
-const ALTURA_CARD = 0.13;
-const LARGURA_BOLA = 0.076;
-const ALTURA_BOLA = 0.066;
-const LARGURA_ITEM = 0.076;
-const ALTURA_ITEM = 0.058;
-const LARGURA_GOLPE = 0.104;
-const ALTURA_GOLPE = 0.056;
+/**
+ * As medidas do painel, depois do playtest de 18/09.
+ *
+ * ## O que estava errado
+ *
+ * As seis cartas do time ficavam numa FILEIRA só: seis vezes dez centímetros
+ * mais os vãos dão **sessenta e seis centímetros** de painel, pendurados a
+ * catorze centímetros acima do punho. Da ponta esquerda à direita era mais que
+ * a envergadura confortável de um braço — as cartas das pontas ficavam longe do
+ * braço que as carrega, e o conjunto lia como coisa espalhada em vez de um
+ * painel.
+ *
+ * E ele crescia para BAIXO: título em cima, time no meio, bolas, itens e golpes
+ * descendo até vinte e um centímetros abaixo do centro — ou seja, abaixo do
+ * próprio antebraço, no vazio à frente do corpo.
+ *
+ * ## O que mudou
+ *
+ * As cartas encolheram um pouco e o time virou uma **grade de três por duas**:
+ * a mesma informação em 0,30 m de largura em vez de 0,66 m. Todas as fileiras
+ * passaram a ter a mesma largura útil de ~0,30 m, o que dá ao painel uma borda
+ * reta dos dois lados em vez de um contorno serrilhado.
+ *
+ * E ele passou a ser montado **de baixo para cima**, com a base logo acima do
+ * punho — ver `reposicionar`. Nada mais fica abaixo do braço.
+ *
+ * As cartas não encolheram mais do que isto de propósito: a largura mínima aqui
+ * não é a de ler, é a de ACERTAR com a mão no ar, e abaixo de uns oito
+ * centímetros escolher a carta certa vira sorte.
+ */
+const LARGURA_CARD = 0.092;
+const ALTURA_CARD = 0.114;
+const LARGURA_BOLA = 0.069;
+const ALTURA_BOLA = 0.06;
+const LARGURA_ITEM = 0.05;
+const ALTURA_ITEM = 0.046;
+const LARGURA_GOLPE = 0.143;
+const ALTURA_GOLPE = 0.05;
+/** Largura útil do painel. Toda fileira se centra dentro dela. */
+const LARGURA_PAINEL = 0.296;
 const LARGURA_MODO = 0.122;
 const ALTURA_MODO = 0.056;
 const LARGURA_DIF = 0.122;
@@ -147,11 +179,13 @@ export class PainelTime {
   private destacado: { tipo: Selecao['tipo']; indice: number } | null = null;
   private assinatura = '';
   private abertura = 0;
+  /** Onde o conteúdo da página principal termina, para cima. Ver reposicionar. */
+  private topoDaPagina = 0.2;
   private raycaster = new THREE.Raycaster();
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
 
   constructor() {
-    this.titulo.malha.position.set(0, ALTURA_CARD * 0.5 + 0.034, 0);
+    this.titulo.malha.position.set(0, this.topoDaPagina, 0);
     this.grupo.add(this.titulo.malha, this.cardEngrenagem.malha, this.cardPc.malha);
     this.grupo.visible = false;
 
@@ -253,6 +287,13 @@ export class PainelTime {
     return this.nosAjustes;
   }
 
+  /**
+   * Uma fileira só, ou quebrada em `porLinha` quando não cabe.
+   *
+   * É a `grade` abaixo com o número de colunas aberto — as duas eram a mesma
+   * conta escrita duas vezes, e a versão de fileira única não sabia quebrar, o
+   * que punha carta para fora do painel assim que uma categoria crescia.
+   */
   private fileira(
     cards: Placa[],
     indiceAlvoBase: number,
@@ -260,18 +301,9 @@ export class PainelTime {
     largura: number,
     y: number,
     visivelNaPagina: boolean,
+    porLinha = quantos || 1,
   ) {
-    const total = quantos * largura + Math.max(0, quantos - 1) * ESPACO;
-    for (let i = 0; i < cards.length; i++) {
-      const visivel = visivelNaPagina && i < quantos;
-      cards[i].malha.visible = visivel;
-      const alvo = this.alvos[indiceAlvoBase + i];
-      alvo.visible = visivel;
-      if (!visivel) continue;
-      const x = -total / 2 + largura / 2 + i * (largura + ESPACO);
-      cards[i].malha.position.set(x, y, cards[i].malha.position.z);
-      alvo.position.set(x, y, -0.001);
-    }
+    this.grade(cards, indiceAlvoBase, quantos, largura, 0, y, visivelNaPagina, porLinha, 1);
   }
 
   /**
@@ -300,6 +332,14 @@ export class PainelTime {
     // e, de quebra, deixam os três itens básicos exatamente onde sempre
     // estiveram: a mochila de quem ainda não achou pedra nenhuma não muda.
     porLinha = 3,
+    /**
+     * `1` empilha para baixo a partir de `yTopo`; `-1` empilha para cima.
+     *
+     * A página principal usa −1 desde 18/09, porque o painel inteiro passou a
+     * crescer a partir do pulso em vez de pender dele. A página de ajustes
+     * continua com 1: ela é uma lista que se lê de cima para baixo.
+     */
+    sentido: 1 | -1 = 1,
   ): number {
     const linhas = Math.max(1, Math.ceil(quantos / porLinha));
     for (let i = 0; i < cards.length; i++) {
@@ -314,7 +354,7 @@ export class PainelTime {
       const total = nestaLinha * largura + Math.max(0, nestaLinha - 1) * ESPACO;
       const coluna = i % porLinha;
       const x = -total / 2 + largura / 2 + coluna * (largura + ESPACO);
-      const y = yTopo - linha * (altura + ESPACO * 0.7);
+      const y = yTopo - sentido * linha * (altura + ESPACO * 0.7);
       cards[i].malha.position.set(x, y, cards[i].malha.position.z);
       alvo.position.set(x, y, -0.001);
     }
@@ -332,13 +372,29 @@ export class PainelTime {
 
     const principal = !this.nosAjustes;
 
-    // --- página principal ---
-    const yBola = -ALTURA_CARD / 2 - ALTURA_BOLA / 2 - 0.016;
-    const yItem = yBola - ALTURA_BOLA / 2 - ALTURA_ITEM / 2 - 0.012;
-    const yGolpe = yItem - ALTURA_ITEM / 2 - ALTURA_GOLPE / 2 - 0.014;
+    // --- página principal, montada DE BAIXO PARA CIMA ---
+    //
+    // A origem do grupo é o pulso (ver `atualizar`), e o painel inteiro cresce
+    // a partir dela para cima. Antes era o contrário: o time ficava no centro e
+    // tudo o mais descia, indo parar abaixo do antebraço — no vazio à frente do
+    // corpo, onde não há em que apoiar a mão nem o olho.
+    //
+    // A ordem de baixo para cima é a de quanto cada coisa é usada com a mão
+    // esticada: os golpes ficam mais perto do pulso porque se trocam no meio da
+    // briga; o time fica em cima porque é o que se LÊ, e o que se lê quer ficar
+    // na linha dos olhos.
+    let y = ALTURA_GOLPE / 2;
 
-    this.fileira(this.cards, 0, this.entradas.length, LARGURA_CARD, 0, principal);
-    this.fileira(this.cardsBola, baseBola, this.bolas.length, LARGURA_BOLA, yBola, principal);
+    this.grade(this.cardsGolpe, baseGolpe, this.golpes.length, LARGURA_GOLPE, ALTURA_GOLPE, y, principal, 2, -1);
+    const linhasDeGolpe = Math.max(1, Math.ceil(this.golpes.length / 2));
+    if (this.golpes.length > 0) {
+      y += (linhasDeGolpe - 1) * (ALTURA_GOLPE + ESPACO * 0.7);
+      y += ALTURA_GOLPE / 2 + 0.012 + ALTURA_ITEM / 2;
+    } else {
+      y += ALTURA_ITEM / 2;
+    }
+
+    const yItem = y;
     const linhasDeItem = this.grade(
       this.cardsItem,
       baseItem,
@@ -347,14 +403,43 @@ export class PainelTime {
       ALTURA_ITEM,
       yItem,
       principal,
+      6,
+      // De baixo para cima, como o resto do painel.
+      -1,
     );
-    // Os golpes descem junto com a mochila: a segunda linha de itens só existe
-    // depois que uma pedra cai, e até lá nada se mexe.
-    const yGolpeReal = yGolpe - (linhasDeItem - 1) * (ALTURA_ITEM + ESPACO * 0.7);
-    this.fileira(this.cardsGolpe, baseGolpe, this.golpes.length, LARGURA_GOLPE, yGolpeReal, principal);
+    y += (linhasDeItem - 1) * (ALTURA_ITEM + ESPACO * 0.7);
+    y += ALTURA_ITEM / 2 + 0.012 + ALTURA_BOLA / 2;
 
-    // --- página de ajustes, ocupando o mesmo espaço ---
-    const yModo = ALTURA_CARD * 0.2;
+    this.grade(this.cardsBola, baseBola, this.bolas.length, LARGURA_BOLA, ALTURA_BOLA, y, principal, 4, -1);
+    const linhasDeBola = Math.max(1, Math.ceil(this.bolas.length / 4));
+    y += (linhasDeBola - 1) * (ALTURA_BOLA + ESPACO * 0.7);
+    y += ALTURA_BOLA / 2 + 0.016 + ALTURA_CARD / 2;
+
+    // O time numa GRADE de três por duas, e não numa fileira de seis: são os
+    // mesmos seis bichos em 0,30 m em vez de 0,66 m.
+    const linhasDeTime = this.grade(
+      this.cards,
+      0,
+      this.entradas.length,
+      LARGURA_CARD,
+      ALTURA_CARD,
+      y,
+      principal,
+      3,
+      -1,
+    );
+    y += (linhasDeTime - 1) * (ALTURA_CARD + ESPACO * 0.7);
+    this.topoDaPagina = y + ALTURA_CARD / 2 + 0.03;
+
+    // --- página de ajustes, do topo para baixo dentro do mesmo espaço ---
+    //
+    // Ela é uma LISTA, e lista se lê de cima para baixo. O que mudou é só onde
+    // o topo dela fica: antes era um número fixo perto do centro, agora é o
+    // mesmo topo da página principal, para as duas ocuparem a mesma moldura e a
+    // engrenagem não fazer o painel pular de tamanho quando alterna.
+    const alturaAjustes =
+      ALTURA_MODO + ALTURA_DIF + this.interruptores.length * (ALTURA_CHAVE + 0.008) + 0.06;
+    const yModo = Math.max(alturaAjustes, this.topoDaPagina - 0.03) - ALTURA_MODO / 2;
     const yDif = yModo - ALTURA_MODO / 2 - ALTURA_DIF / 2 - 0.02;
     const yChaveBase = yDif - ALTURA_DIF / 2 - ALTURA_CHAVE / 2 - 0.022;
 
@@ -383,8 +468,12 @@ export class PainelTime {
 
     // A engrenagem fica na linha do título, encostada na direita — o canto onde
     // ninguém procura um Pokémon e todo mundo procura opções.
-    const yTitulo = ALTURA_CARD * 0.5 + 0.034;
-    const xEngrenagem = 0.3 / 2 + LADO_ENGRENAGEM / 2 + 0.006;
+    //
+    // O título coroa o painel, e por isso ele segue o topo do conteúdo em vez
+    // de ficar num número fixo: com a mochila cheia de pedras ou com os golpes
+    // à mostra, o painel cresce, e um título parado acabaria no meio dele.
+    const yTitulo = Math.max(this.topoDaPagina, yModo + ALTURA_MODO / 2 + 0.03);
+    const xEngrenagem = LARGURA_PAINEL / 2 + LADO_ENGRENAGEM / 2 + 0.006;
     this.titulo.malha.position.y = yTitulo;
     this.cardEngrenagem.malha.position.set(xEngrenagem, yTitulo, 0);
     const alvoEngrenagem = this.alvos[indiceEngrenagem];
@@ -393,7 +482,7 @@ export class PainelTime {
 
     // O PC fica do lado oposto, encostado na esquerda do título: os dois cantos
     // da linha de cima são as duas coisas que não são "um bicho do seu time".
-    const xPc = -(0.3 / 2 + LADO_PC / 2 + 0.006);
+    const xPc = -(LARGURA_PAINEL / 2 + LADO_PC / 2 + 0.006);
     this.cardPc.malha.position.set(xPc, yTitulo, 0);
     const alvoPc = this.alvos[indiceEngrenagem + 1];
     alvoPc.visible = true;
@@ -868,7 +957,14 @@ export class PainelTime {
 
     if (punhoEsquerdo) {
       const posicao = punhoEsquerdo.getWorldPosition(new THREE.Vector3());
-      posicao.y += 0.14;
+      // Quatro centímetros acima do punho, e não catorze.
+      //
+      // O painel inteiro agora cresce PARA CIMA a partir desta origem (ver
+      // `reposicionar`), então ela é a BASE e não mais o centro. Com os catorze
+      // de antes, a base flutuaria um palmo acima do braço e o conjunto
+      // pareceria solto; com quatro, ele nasce do antebraço — que é onde o
+      // jogador acabou de olhar para abri-lo.
+      posicao.y += 0.04;
       this.grupo.position.lerp(posicao, Math.min(1, dt * 14));
       this.grupo.lookAt(camera.getWorldPosition(new THREE.Vector3()));
     }

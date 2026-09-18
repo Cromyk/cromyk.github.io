@@ -184,6 +184,8 @@ function vestir(raiz: THREE.Object3D, descartaveis: THREE.Material[]) {
 export class MaoArticulada {
   readonly raiz = new THREE.Group();
   readonly pontaDoIndicador = new THREE.Object3D();
+  /** O corpo da mão dentro da raiz, para o recuo mexer só nele. Ver `recuar`. */
+  private corpoAlinhado: THREE.Group | null = null;
 
   private juntas = new Map<string, THREE.Object3D>();
   private repouso = new Map<string, THREE.Quaternion>();
@@ -270,6 +272,7 @@ export class MaoArticulada {
     deslocado.add(cena);
     alinhado.add(deslocado);
     this.raiz.add(alinhado);
+    this.corpoAlinhado = alinhado;
 
     // --- a cadeia de ossos, e em que eixo cada um dobra ---
     for (const dedo of DEDOS) {
@@ -361,6 +364,26 @@ export class MaoArticulada {
         osso.quaternion.copy(base).multiply(extra);
       }
     }
+  }
+
+  /**
+   * Empurra a mão desenhada para trás, na direção do antebraço.
+   *
+   * Existe porque o encaixe certo é ao mesmo tempo uma questão de MEDIDA e de
+   * SENSAÇÃO, e as duas podem discordar. A medida está feita e conferida — ver
+   * o comentário do `encaixe`, e a tabela de juntas em PLAYTEST.md, que já
+   * corrigiu 4,55 cm de mão adiantada. Se ainda parecer adiantada, só quem está
+   * com o headset pode dizer.
+   *
+   * Então em vez de eu escolher outro número no escuro, isto vira um
+   * interruptor na engrenagem: dois centímetros a mais para trás, ligável no
+   * meio da sessão, com a mão na frente do rosto para comparar. O número que
+   * ficar é o que o playtest disser.
+   *
+   * Pela convenção do grip space, +Z aponta para o antebraço.
+   */
+  recuar(metros: number) {
+    this.corpoAlinhado?.position.set(0, 0, metros);
   }
 
   descartar() {
@@ -613,6 +636,8 @@ export class Luva {
   private descartada = false;
   private ultimoGatilho = 0;
   private ultimoGrip = 0;
+  /** Recuo pedido pelos ajustes, guardado para valer quando a mão carregar. */
+  private recuoPedido = 0;
 
   constructor(
     readonly lado: 'left' | 'right',
@@ -642,6 +667,20 @@ export class Luva {
     this.pontaDoIndicador.removeFromParent();
     this.articulada.pontaDoIndicador.add(this.pontaDoIndicador);
     this.articulada.definirDedos(this.ultimoGatilho, this.ultimoGrip, 1);
+    this.articulada.recuar(this.recuoPedido);
+  }
+
+  /**
+   * Ver `MaoArticulada.recuar`.
+   *
+   * O valor fica GUARDADO porque a mão de malha chega por rede e pode ainda não
+   * ter carregado quando o ajuste é ligado — sem isso, ligar o recuo antes de a
+   * luva existir não faria nada e ligá-lo de novo desligaria.
+   */
+  recuar(metros: number) {
+    if (metros === this.recuoPedido) return;
+    this.recuoPedido = metros;
+    this.articulada?.recuar(metros);
   }
 
   definirDedos(gatilho: number, grip: number, dt: number) {

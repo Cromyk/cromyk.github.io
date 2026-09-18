@@ -68,7 +68,8 @@ export type ChaveAjuste =
   | 'tamanhoReal'
   | 'vozDoNome'
   | 'musicaDeBatalha'
-  | 'contadorDeQuadros';
+  | 'contadorDeQuadros'
+  | 'maoRecuada';
 
 interface Interruptor {
   id: ChaveAjuste;
@@ -109,10 +110,16 @@ export const INTERRUPTORES: readonly Interruptor[] = [
     desligadoDiz: 'sem contagem no inimigo',
   },
   {
+    id: 'maoRecuada',
+    nome: 'Mão mais atrás',
+    ligadoDiz: 'dois centímetros para trás, se ela parecer adiantada',
+    desligadoDiz: 'no encaixe medido',
+  },
+  {
     id: 'contadorDeQuadros',
     nome: 'Contador de quadros',
     ligadoDiz: 'mostra ms, fps e draw calls',
-    desligadoDiz: 'sem medicao na tela',
+    desligadoDiz: 'sem medição na tela',
   },
   {
     id: 'contornoDaSala',
@@ -159,6 +166,15 @@ export class Ajustes {
    * coisa.
    */
   contadorDeQuadros = false;
+  /**
+   * A mão desenhada dois centímetros mais para trás. Ver `recuar`, em glove.ts.
+   *
+   * É um ajuste de CALIBRAÇÃO, não de gosto: o encaixe medido já corrigiu 4,55
+   * cm de mão adiantada (ver PLAYTEST.md), e se ainda sobrar alguma coisa, quem
+   * sabe é quem está com o headset. Existir como interruptor é o que permite
+   * comparar os dois na mesma sessão, com a mão na frente do rosto.
+   */
+  maoRecuada = false;
 
   constructor() {
     this.carregar();
@@ -209,6 +225,11 @@ export class Ajustes {
       if (typeof dados.tamanhoReal === 'boolean') this.tamanhoReal = dados.tamanhoReal;
       if (typeof dados.vozDoNome === 'boolean') this.vozDoNome = dados.vozDoNome;
       if (typeof dados.musicaDeBatalha === 'boolean') this.musicaDeBatalha = dados.musicaDeBatalha;
+      // Estes dois faltavam na gravação, e o contador voltava desligado a cada
+      // sessão mesmo depois de ligado — um ajuste que não persiste é um ajuste
+      // que ninguém usa duas vezes.
+      if (typeof dados.contadorDeQuadros === 'boolean') this.contadorDeQuadros = dados.contadorDeQuadros;
+      if (typeof dados.maoRecuada === 'boolean') this.maoRecuada = dados.maoRecuada;
     } catch {
       // Armazenamento bloqueado: joga com os padrões, que são os bons.
     }
@@ -227,6 +248,8 @@ export class Ajustes {
           tamanhoReal: this.tamanhoReal,
           vozDoNome: this.vozDoNome,
           musicaDeBatalha: this.musicaDeBatalha,
+          contadorDeQuadros: this.contadorDeQuadros,
+          maoRecuada: this.maoRecuada,
         }),
       );
     } catch {

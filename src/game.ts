@@ -497,8 +497,7 @@ export class Jogo {
    * e some junto quando o controle se desconecta, sem ninguém precisar cuidar
    * disso.
    */
-  private cinto = new Cinto('left');
-  private cintoAnexado = false;
+  private cintos = new Map<'left' | 'right', Cinto>();
   /** A carcaça da Pokédex, nas suas costas. Ver src/tablet.ts. */
   private tablet = new Tablet();
   /**
@@ -679,10 +678,46 @@ export class Jogo {
     return melhor;
   }
 
+  /**
+   * O cinto que ESTA mão alcança: o do outro braço.
+   *
+   * A mão que carrega um cinto nunca alcança o próprio — ele está preso ao
+   * antebraço dela, a distância seria sempre zero, e todo grip daquela mão
+   * viraria "peguei uma bola".
+   */
+  private cintoPara(mao: Mao): Cinto | null {
+    if (mao.lado !== 'left' && mao.lado !== 'right') return null;
+    return this.cintos.get(mao.lado === 'left' ? 'right' : 'left') ?? null;
+  }
+
+  /**
+   * O centro da mão fechada — onde um objeto segurado de verdade estaria.
+   *
+   * É a origem do grip space do WebXR, que é exatamente isso: o ponto em volta
+   * do qual a mão se fecha. Ver `pontoDoDedo` para o outro ponto, o de apontar.
+   */
+  private pontoDeAgarre(mao: Mao): THREE.Vector3 {
+    return mao.posicaoMundo();
+  }
+
   private slotSobAMao(mao: Mao) {
-    if (mao.lado === 'left' || !this.cintoAnexado) return null;
-    // Pelo dedo, como o painel: a bola do cinto se escolhe apontando.
-    return this.cinto.slotSob(this.pontoDoDedo(mao));
+    const cinto = this.cintoPara(mao);
+    if (!cinto) return null;
+
+    // Pelo ponto de AGARRE, não pela ponta do dedo.
+    //
+    // Era pelo dedo, "como o painel" — e essa era a confusão: o painel se
+    // APONTA, o cinto se AGARRA. A ponta do indicador fica uns seis
+    // centímetros à frente do centro da mão fechada, então para o dedo chegar
+    // ao slot a mão inteira já tinha passado dele, e o gesto de fechar a mão em
+    // volta da bola acontecia com a bola atrás da palma. Era esse o "complicado
+    // de pegar" do playtest.
+    //
+    // O dedo continua valendo como segunda chance: quem já se acostumou a
+    // apontar não é punido por isso.
+    return (
+      cinto.slotSob(this.pontoDeAgarre(mao)) ?? cinto.slotSob(this.pontoDoDedo(mao))
+    );
   }
 
   private pegarBola(mao: Mao) {
@@ -887,7 +922,9 @@ export class Jogo {
     if (!origem) return;
     this.bolaVeioDoSlot.delete(mao.indice);
     this.saiuDoCinto.delete(mao.indice);
-    this.cinto.definirAberto(origem, false);
+    // Fecha nos DOIS cintos: o mesmo slot existe nos dois braços, e deixar o
+    // outro aberto mostraria um berço piscando sem bola nenhuma para voltar.
+    for (const cinto of this.cintos.values()) cinto.definirAberto(origem, false);
   }
 
   /** Tira a bola da mão e da cena, sem julgar o motivo. */
@@ -1363,7 +1400,7 @@ export class Jogo {
     if (slotDeOrigem) {
       this.bolaVeioDoSlot.set(mao.indice, slotDeOrigem);
       this.saiuDoCinto.delete(mao.indice);
-      this.cinto.definirAberto(slotDeOrigem, true);
+      for (const cinto of this.cintos.values()) cinto.definirAberto(slotDeOrigem, true);
     }
 
     if (vaiInvocar) {
@@ -2984,7 +3021,7 @@ export class Jogo {
     for (const mao of this.maos) {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
-      mao.atualizarLuva(dt);
+      mao.atualizarLuva(dt, this.ajustes.maoRecuada ? 0.02 : 0);
     }
 
     const mapeadas = this.sala.mapeadas;
@@ -3069,7 +3106,7 @@ export class Jogo {
       for (const mao of this.maos) {
         if (!mao.conectada) continue;
         mao.amostrar(agora);
-        mao.atualizarLuva(dt);
+        mao.atualizarLuva(dt, this.ajustes.maoRecuada ? 0.02 : 0);
       }
       return;
     }
@@ -3081,7 +3118,7 @@ export class Jogo {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
       mao.amostrarBotoes();
-      mao.atualizarLuva(dt);
+      mao.atualizarLuva(dt, this.ajustes.maoRecuada ? 0.02 : 0);
       // A memória de ter saído do painel, para guardar e pegar não serem o
       // mesmo gesto. Ver saiuDoPainel.
       if (!this.cartaSobAMao(mao)) this.saiuDoPainel.add(mao.indice);
@@ -3438,7 +3475,7 @@ export class Jogo {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
       mao.amostrarBotoes();
-      mao.atualizarLuva(dt);
+      mao.atualizarLuva(dt, this.ajustes.maoRecuada ? 0.02 : 0);
       this.sinaisDaMaoNua(mao);
       this.botoesDaMao(mao);
 
@@ -3505,9 +3542,14 @@ export class Jogo {
         this.pulsoAnexado = true;
       }
 
-      if (!this.cintoAnexado && mao.lado === 'left') {
-        mao.punho.add(this.cinto.grupo);
-        this.cintoAnexado = true;
+      // Um cinto por antebraço, criado quando aquele punho aparece. Um controle
+      // sem lado declarado (`none`) não ganha cinto: sem saber o lado, o cinto
+      // sairia espelhado e as bolas ficariam do lado de dentro do braço.
+      const lado = mao.lado;
+      if ((lado === 'left' || lado === 'right') && !this.cintos.has(lado)) {
+        const cinto = new Cinto(lado);
+        mao.punho.add(cinto.grupo);
+        this.cintos.set(lado, cinto);
       }
     }
   }
@@ -3516,13 +3558,24 @@ export class Jogo {
     const esquerda = this.maos.find((m) => m.lado === 'left' && m.conectada);
     const direita = this.maos.find((m) => m.lado === 'right' && m.conectada);
 
-    // --- o cinto, no antebraço esquerdo ---
-    this.cinto.definirEstoque((id) => this.dex.bolas(id));
-    // Quem destaca é a mão que VEM PEGAR, e ela é sempre a outra.
-    this.cinto.destacar(
-      direita && !this.maoCheia(direita) ? this.pontoDoDedo(direita) : null,
-    );
-    this.cinto.atualizar(dt);
+    // --- os cintos, um em cada antebraço ---
+    //
+    // Dois, desde 18/09. O cinto morava só no antebraço esquerdo, e como a mão
+    // que CARREGA o cinto não alcança o próprio braço, só a direita podia tirar
+    // uma bola: quem prefere arremessar com a esquerda não tinha de onde pegar.
+    // Agora cada braço tem o seu, e quem pega é sempre a mão oposta — como num
+    // braço de verdade.
+    //
+    // O estoque é O MESMO nos dois: é uma mochila, não duas. Tirar a última
+    // Bola Comum pelo braço direito esvazia o slot do esquerdo no mesmo quadro,
+    // porque os dois perguntam a mesma coisa à Dex.
+    for (const [lado, cinto] of this.cintos) {
+      cinto.definirEstoque((id: string) => this.dex.bolas(id));
+      // Quem destaca é a mão que VEM PEGAR, e ela é sempre a do outro braço.
+      const quemPega = lado === 'left' ? direita : esquerda;
+      cinto.destacar(quemPega && !this.maoCheia(quemPega) ? this.pontoDeAgarre(quemPega) : null);
+      cinto.atualizar(dt);
+    }
 
     // --- painel do time, na mão esquerda ---
     const entradas = this.dex.time.map((exemplar) => {
@@ -4420,7 +4473,7 @@ export class Jogo {
     this.painelPulso.descartar();
     this.painelTime.descartar();
     this.painelDex.descartar();
-    this.cinto.descartar();
+    for (const cinto of this.cintos.values()) cinto.descartar();
     this.tablet.descartar();
     this.pc.descartar();
     this.promptEvolucao.descartar();
