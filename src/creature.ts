@@ -188,6 +188,20 @@ export class Pokemon {
   /** As partículas da condição, no corpo. Ver src/marcaCondicao.ts. */
   private marcaDaCondicao: MarcaDeCondicao;
 
+  /**
+   * O quanto o Pokémon que está em campo contra ele é uma ameaça: −1 a +1.
+   *
+   * Positivo quer dizer "aquele ali me machuca"; negativo, "eu machuco aquele
+   * ali". Sai da tabela dos dezoito tipos — ver `lerAmeaca`, em src/game.ts.
+   *
+   * Até agora o selvagem ignorava completamente quem estava do outro lado: um
+   * Geodude via um Squirtle do mesmo jeito que via um Charmander, e o alarme só
+   * subia quando ele já tinha apanhado. Isso deixava a escolha de quem mandar
+   * ao campo — que é uma das decisões centrais de qualquer jogo de Pokémon —
+   * sem nenhuma consequência visível antes do primeiro golpe.
+   */
+  private ameaca = 0;
+
   private static readonly RAIO_PASSEIO = 0.85;
 
   /**
@@ -462,6 +476,31 @@ export class Pokemon {
     return true;
   }
 
+  /**
+   * Diz ao selvagem o quanto quem está em campo o ameaça. Ver `ameaca`.
+   *
+   * Muda três coisas, e todas na mesma direção — o que faz o bicho parecer ter
+   * instinto em vez de ter regras:
+   *
+   * - **o susto inicial**: ver um predador natural já assusta, sem apanhar;
+   * - **a distância que ele mantém**: em desvantagem ele fica longe, em
+   *   vantagem ele chega perto — é o que se lê de relance, sem número nenhum;
+   * - **a paciência**: quem está com medo foge com menos dano.
+   *
+   * Vale só para o selvagem: o seu companheiro obedece a você, e um Pokémon que
+   * recusasse chegar perto por conta própria seria um bug, não um caráter.
+   */
+  definirAmeaca(fator: number) {
+    if (this.papel !== 'selvagem') return;
+    const novo = THREE.MathUtils.clamp(fator, -1, 1);
+    // O susto de VER acontece uma vez, quando a ameaça aparece — e não a cada
+    // quadro enquanto ela continua lá.
+    if (novo > 0.3 && this.ameaca <= 0.3) {
+      this.alarme = Math.min(1, this.alarme + 0.22 * novo);
+    }
+    this.ameaca = novo;
+  }
+
   limparCondicao() {
     this.condicao = null;
     this.restaDaCondicao = 0;
@@ -533,7 +572,12 @@ export class Pokemon {
     } else {
       this.estado = 'ferido';
       this.cronometroEstado = 0;
-      if (this.papel === 'selvagem') this.alarme = Math.min(1, this.alarme + 0.18);
+      if (this.papel === 'selvagem') {
+        // Apanhar de quem você já temia assusta mais: a mesma pancada de um
+        // oponente em vantagem vale meio susto a mais. Ver .
+        const medo = 0.18 * (1 + Math.max(0, this.ameaca) * 0.5);
+        this.alarme = Math.min(1, this.alarme + medo);
+      }
     }
   }
 
@@ -1019,11 +1063,40 @@ export class Pokemon {
     } else if (distJogador < this.folga(0.85, 1.1)) {
       this.alarme = Math.min(1, this.alarme + dt * 0.45);
     } else {
-      this.alarme = Math.max(0, this.alarme - dt * 0.12);
+      // Em desvantagem de tipo ele NÃO se acalma: o predador continua ali.
+      // Em vantagem ele relaxa mais depressa — chega a ignorar você e a briga,
+      // que é como um Geodude olha para um Charmander.
+      const sossego = 0.12 * (1 - this.ameaca * 0.7);
+      this.alarme = Math.max(0, this.alarme - dt * sossego);
     }
     if (this.alarme >= 1) {
       this.fugir();
       return;
+    }
+
+    // A distância que ele MANTÉM de quem está em campo contra ele.
+    //
+    // É o sinal que se lê sem número nenhum e sem abrir painel: o bicho que
+    // recua ao ver o seu Pokémon está dizendo que tem desvantagem, e o que vem
+    // para cima está dizendo o contrário. É a mesma informação da etiqueta do
+    // feixe, dita pelo corpo — e em VR o corpo chega primeiro.
+    if (this.alvo?.viva && !this.alvo.desmaiado && Math.abs(this.ameaca) > 0.2) {
+      const paraOOponente = new THREE.Vector3(
+        this.alvo.raiz.position.x - this.raiz.position.x,
+        0,
+        this.alvo.raiz.position.z - this.raiz.position.z,
+      );
+      const distancia = paraOOponente.length();
+      if (distancia > 0.05) {
+        paraOOponente.divideScalar(distancia);
+        // Com medo, a distância confortável cresce; confiante, encolhe.
+        const confortavel = this.folga(1.1, 1.5) * (1 + this.ameaca * 0.55);
+        const erro = distancia - confortavel;
+        if (Math.abs(erro) > 0.25) {
+          this.destino.copy(this.raiz.position).addScaledVector(paraOOponente, erro);
+          this.destino.y = this.pisoY;
+        }
+      }
     }
 
     // De tempos em tempos ele muda de canto. Sem isto a âncora era o berço

@@ -245,6 +245,8 @@ export class Jogo {
   /** O Centro Pokémon, plantado num móvel do seu quarto. Ver src/centro.ts. */
   private centro = new Centro();
   /** Há quanto tempo a cabeça está na altura de quem está sentado. Ver 4.2. */
+  /** Segundos desde a última leitura de ameaça. Ver atualizarAmeacas. */
+  private desdeAmeaca = 0;
   private tempoSentado = 0;
   private pedindoAjudaHa = 0;
   /** Segundos até o gesto de ajuda poder valer de novo. */
@@ -3134,6 +3136,7 @@ export class Jogo {
     this.atualizarAchados(dt);
     this.atualizarPostura(dt);
     this.atualizarCentro(dt);
+    this.atualizarAmeacas(dt);
     this.atualizarCentro(dt);
     this.atualizarPedidoDeAjuda(dt);
     this.atualizarPaineis(dt);
@@ -3768,6 +3771,60 @@ export class Jogo {
       ],
       2.6,
     );
+  }
+
+  /**
+   * Diz a cada selvagem o quanto o seu Pokémon é uma ameaça para ele.
+   *
+   * O número sai da tabela dos dezoito tipos, comparando os dois lados: o
+   * melhor golpe dele contra mim, menos o meu melhor contra ele. Positivo é
+   * "aquele ali me machuca".
+   *
+   * Comparar os DOIS lados, e não só um, é o que evita a leitura errada mais
+   * comum da tabela: um Gyarados é fraco contra elétrico e ainda assim é uma
+   * ameaça enorme para um Pikachu, porque o Pikachu é de papel. Só o lado
+   * defensivo diria que ele deve avançar.
+   *
+   * Roda uma vez por segundo e não por quadro — é uma leitura de tipos, não
+   * uma física, e ela só muda quando alguém entra ou sai de campo.
+   */
+  private atualizarAmeacas(dt: number) {
+    this.desdeAmeaca += dt;
+    if (this.desdeAmeaca < 1) return;
+    this.desdeAmeaca = 0;
+
+    const meu = this.companheiro;
+    for (const { pokemon } of this.selvagens) {
+      if (!meu?.viva || meu.desmaiado) {
+        pokemon.definirAmeaca(0);
+        continue;
+      }
+      pokemon.definirAmeaca(this.lerAmeaca(meu, pokemon));
+    }
+  }
+
+  /**
+   * O quanto `atacante` ameaça `defensor`, de −1 a +1.
+   *
+   * O melhor multiplicador de cada lado é o que conta, e não a média: numa
+   * briga real você usa o golpe certo, não o golpe médio.
+   */
+  private lerAmeaca(atacante: Pokemon, defensor: Pokemon): number {
+    const melhorContra = (de: Pokemon, para: Pokemon) => {
+      let melhor = 0;
+      for (const golpe of arsenal(de)) {
+        if (golpe.categoria === 'status') continue;
+        melhor = Math.max(melhor, multiplicador(golpe.tipo, para.especie.tipos));
+      }
+      return melhor || 1;
+    };
+
+    // Log na base 2: 2× vira +1, 0,5× vira −1, e o normal vira 0. É a escala
+    // certa porque a tabela de tipos é multiplicativa — a diferença entre 1× e
+    // 2× é a mesma que entre 2× e 4×.
+    const sofro = Math.log2(melhorContra(atacante, defensor));
+    const causo = Math.log2(melhorContra(defensor, atacante));
+    return THREE.MathUtils.clamp((sofro - causo) / 2, -1, 1);
   }
 
   private atualizarOuvinte() {

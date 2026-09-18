@@ -1888,6 +1888,42 @@ console.log('29. as pedras de evolução');
     console.log('   caixa da pose: 1×2×1 em qualquer escala, e segue o osso');
   }
 
+  // O instinto do selvagem: ele lê quem está em campo contra ele.
+  //
+  // A conta compara os DOIS lados — o melhor golpe de cada um contra o outro —
+  // e é isso que o teste afirma, porque a leitura de um lado só é a armadilha
+  // clássica da tabela de tipos: um Gyarados é fraco contra elétrico e mesmo
+  // assim é uma ameaça enorme para um Pikachu, que é de papel.
+  {
+    const ameaca = (atacanteId: string, defensorId: string) => {
+      const a = porId(atacanteId)!;
+      const d = porId(defensorId)!;
+      const melhor = (de: typeof a, para: typeof d) => {
+        let m = 0;
+        for (const g of golpesNoNivel(de, 40)) {
+          if (g.categoria === 'status') continue;
+          m = Math.max(m, multiplicador(g.tipo, para.tipos));
+        }
+        return m || 1;
+      };
+      const sofro = Math.log2(melhor(a, d));
+      const causo = Math.log2(melhor(d, a));
+      return Math.max(-1, Math.min(1, (sofro - causo) / 2));
+    };
+
+    // Água contra pedra/terra: o Squirtle é um pesadelo para o Geodude.
+    checar(ameaca('squirtle', 'geodude') > 0.3, 'o Geodude devia temer um Squirtle');
+    // E o contrário: o Geodude não assusta o Squirtle.
+    checar(ameaca('geodude', 'squirtle') < -0.3, 'o Squirtle não devia temer um Geodude');
+    // Espelho: o mesmo bicho contra ele mesmo não ameaça nem é ameaçado.
+    checar(Math.abs(ameaca('pidgey', 'pidgey')) < 0.2, 'um bicho não devia temer a si mesmo');
+
+    console.log(
+      `   instinto: Geodude vê Squirtle a ${ameaca('squirtle', 'geodude').toFixed(2)}, ` +
+        `e Squirtle vê Geodude a ${ameaca('geodude', 'squirtle').toFixed(2)}`,
+    );
+  }
+
   // As condições de status, e o laço que elas existem para criar.
   //
   // O que se afirma aqui não é que a mecânica roda — é que ela MUDA A JOGADA.
