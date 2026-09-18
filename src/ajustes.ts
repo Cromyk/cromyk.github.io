@@ -69,7 +69,7 @@ export type ChaveAjuste =
   | 'vozDoNome'
   | 'musicaDeBatalha'
   | 'contadorDeQuadros'
-  | 'maoRecuada'
+  | 'calibrarMao'
   | 'modoSentado';
 
 interface Interruptor {
@@ -117,10 +117,10 @@ export const INTERRUPTORES: readonly Interruptor[] = [
     desligadoDiz: 'distâncias de quem joga de pé',
   },
   {
-    id: 'maoRecuada',
-    nome: 'Mão mais atrás',
-    ligadoDiz: 'dois centímetros para trás, se ela parecer adiantada',
-    desligadoDiz: 'no encaixe medido',
+    id: 'calibrarMao',
+    nome: 'Calibrar a mão',
+    ligadoDiz: 'analógicos giram e recuam a mão · A zera',
+    desligadoDiz: 'usa a calibração guardada',
   },
   {
     id: 'contadorDeQuadros',
@@ -174,14 +174,34 @@ export class Ajustes {
    */
   contadorDeQuadros = false;
   /**
-   * A mão desenhada dois centímetros mais para trás. Ver `recuar`, em glove.ts.
+   * O modo de calibração da mão, ligado na engrenagem.
    *
-   * É um ajuste de CALIBRAÇÃO, não de gosto: o encaixe medido já corrigiu 4,55
-   * cm de mão adiantada (ver PLAYTEST.md), e se ainda sobrar alguma coisa, quem
-   * sabe é quem está com o headset. Existir como interruptor é o que permite
-   * comparar os dois na mesma sessão, com a mão na frente do rosto.
+   * ## Por que um modo, e não um número que eu escolho
+   *
+   * O relato do playtest de 18/09 foi: *"posição de mão — não é o problema de
+   * posição e sim de rotação e encaixe"*. Isto substitui o interruptor "Mão
+   * mais atrás", que oferecia dois centímetros para trás e nada mais, e que
+   * existia pela mesma razão: o encaixe é ao mesmo tempo uma questão de MEDIDA
+   * e de SENSAÇÃO, e as duas podem discordar.
+   *
+   * A medida está feita e conferida (ver o comentário do `encaixe` em
+   * src/glove.ts, e a tabela de juntas em PLAYTEST.md, que já corrigiu 4,55 cm
+   * de mão adiantada). O que sobra é a rotação, e ela não se resolve no papel:
+   * quando você fecha a mão em volta do cabo de um Touch, o cabo atravessa a
+   * palma na DIAGONAL — não paralelo aos dedos —, e o quanto dessa diagonal é
+   * a sua mão em particular é coisa que só quem está com o controle sabe.
+   *
+   * Então em vez de eu escolher três ângulos no escuro, ligados eles ficam nos
+   * analógicos, com a mão na frente do rosto, e o número que ficar é o que o
+   * playtest disser. Ver `ajustarMao`.
    */
-  maoRecuada = false;
+  calibrarMao = false;
+  /** Giro extra da mão no espaço do grip, em RADIANOS. Ver `ajustarMao`. */
+  maoGiroX = 0;
+  maoGiroY = 0;
+  maoGiroZ = 0;
+  /** Recuo da mão na direção do antebraço, em metros. */
+  maoRecuo = 0;
   /**
    * As distâncias do jogo encolhem para quem não vai levantar do sofá.
    *
@@ -211,6 +231,35 @@ export class Ajustes {
     this[chave] = !this[chave];
     this.salvar();
     return this[chave];
+  }
+
+  /**
+   * Soma à calibração da mão e guarda. Os giros vêm em radianos.
+   *
+   * Os limites não são decoração: passar de 45° em qualquer eixo põe a mão num
+   * lugar onde ela não é mais "a sua mão levemente torta", e sim uma mão
+   * desencaixada — e quem estivesse mexendo no analógico sem olhar acabaria
+   * perdido sem saber que passou do ponto. O recuo vai de -2 a +8 cm: negativo
+   * é a mão mais à frente, que alguém pode querer, e oito centímetros para trás
+   * já é o punho no meio do antebraço.
+   */
+  ajustarMao(dx: number, dy: number, dz: number, dRecuo: number) {
+    const limite = Math.PI * 0.25;
+    const preso = (v: number) => Math.max(-limite, Math.min(limite, v));
+    this.maoGiroX = preso(this.maoGiroX + dx);
+    this.maoGiroY = preso(this.maoGiroY + dy);
+    this.maoGiroZ = preso(this.maoGiroZ + dz);
+    this.maoRecuo = Math.max(-0.02, Math.min(0.08, this.maoRecuo + dRecuo));
+    this.salvar();
+  }
+
+  /** Volta a mão para o encaixe medido. É a saída de quem se perdeu mexendo. */
+  zerarMao() {
+    this.maoGiroX = 0;
+    this.maoGiroY = 0;
+    this.maoGiroZ = 0;
+    this.maoRecuo = 0;
+    this.salvar();
   }
 
   definirModo(id: ModoId) {
@@ -244,7 +293,16 @@ export class Ajustes {
       // sessão mesmo depois de ligado — um ajuste que não persiste é um ajuste
       // que ninguém usa duas vezes.
       if (typeof dados.contadorDeQuadros === 'boolean') this.contadorDeQuadros = dados.contadorDeQuadros;
-      if (typeof dados.maoRecuada === 'boolean') this.maoRecuada = dados.maoRecuada;
+      // O interruptor "Mão mais atrás" virou calibração contínua. Quem tinha os
+      // dois centímetros ligados continua com eles — em metros, agora.
+      const antigo = dados as unknown as { maoRecuada?: boolean };
+      if (antigo.maoRecuada === true && typeof dados.maoRecuo !== 'number') this.maoRecuo = 0.02;
+      if (typeof dados.maoGiroX === 'number') this.maoGiroX = dados.maoGiroX;
+      if (typeof dados.maoGiroY === 'number') this.maoGiroY = dados.maoGiroY;
+      if (typeof dados.maoGiroZ === 'number') this.maoGiroZ = dados.maoGiroZ;
+      if (typeof dados.maoRecuo === 'number') this.maoRecuo = dados.maoRecuo;
+      // `calibrarMao` NÃO é lido de volta: é um modo de trabalho, e voltar de
+      // uma sessão com os analógicos sequestrados seria uma surpresa.
       if (typeof dados.modoSentado === 'boolean') this.modoSentado = dados.modoSentado;
     } catch {
       // Armazenamento bloqueado: joga com os padrões, que são os bons.
@@ -265,7 +323,10 @@ export class Ajustes {
           vozDoNome: this.vozDoNome,
           musicaDeBatalha: this.musicaDeBatalha,
           contadorDeQuadros: this.contadorDeQuadros,
-          maoRecuada: this.maoRecuada,
+          maoGiroX: this.maoGiroX,
+          maoGiroY: this.maoGiroY,
+          maoGiroZ: this.maoGiroZ,
+          maoRecuo: this.maoRecuo,
           modoSentado: this.modoSentado,
         }),
       );

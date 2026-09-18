@@ -42,12 +42,20 @@ interface Pose {
   rotulo: string;
   gatilho: number;
   grip: number;
+  /** Calibração aplicada, em graus e centímetros. Ver MaoArticulada.ajustarGiro. */
+  giro?: [number, number, number];
+  recuo?: number;
 }
 
 const POSES: Pose[] = [
   { rotulo: 'aberta', gatilho: 0, grip: 0 },
   { rotulo: 'apontando', gatilho: 0, grip: 1 },
   { rotulo: 'fechada', gatilho: 1, grip: 1 },
+  // A última linha mostra o que a CALIBRAÇÃO faz: a mesma mão fechada, com o
+  // punho girado 20° no eixo do antebraço e recuada 2 cm. É como se confere,
+  // sem headset, que o ajuste que o jogador mexe no analógico gira em torno do
+  // encaixe — e não em torno do pulso do modelo, que seria o erro fácil.
+  { rotulo: 'fechada · calibrada 20°', gatilho: 1, grip: 1, giro: [0, 0, 20], recuo: 0.02 },
 ];
 
 interface Vista {
@@ -167,6 +175,12 @@ for (const lado of LADOS) {
     // Um dt grande de uma vez: a suavização dos dedos é exponencial, e um passo
     // longo chega ao alvo em vez de ficar no meio do caminho.
     for (let i = 0; i < 6; i++) mao.definirDedos(pose.gatilho, pose.grip, 1);
+    if (pose.giro) {
+      const [gx, gy, gz] = pose.giro;
+      const rad = (g: number) => (g * Math.PI) / 180;
+      mao.ajustarGiro(rad(gx), rad(gy), rad(gz));
+    }
+    if (pose.recuo) mao.recuar(pose.recuo);
 
     const tris = triangulosDe(mao.raiz);
     const caixa = caixaDe(tris);

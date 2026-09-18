@@ -316,7 +316,10 @@ export class MaoArticulada {
     this.descartaveis.push(matAro);
     const aro = new THREE.Mesh(geoAro, matAro);
     aro.frustumCulled = false;
-    this.raiz.add(aro);
+    // Dentro do corpo alinhado, e não na raiz: assim ele acompanha o recuo e a
+    // calibração. Solto na raiz, girar a mão deixava um anel colorido parado no
+    // ar, um palmo atrás do punho que ele deveria marcar.
+    alinhado.add(aro);
     // Na altura do pulso do modelo. Isto já foi o número fixo 0,024 — medido, na
     // época, contra um encaixe que ficava quase em cima do pulso. Corrigido o
     // encaixe, o pulso passou a cair bem mais atrás, e um número fixo viraria
@@ -324,8 +327,9 @@ export class MaoArticulada {
     // pergunta-se ao modelo onde o pulso foi parar depois do alinhamento —
     // assim ele continua certo se a mão for trocada por outra (a luva, por
     // exemplo).
-    const pulsoNoGrip = punho.clone().sub(encaixe).applyQuaternion(this.giro);
-    aro.position.copy(pulsoNoGrip);
+    // Sem o `applyQuaternion`: dentro do `alinhado` o giro já está aplicado
+    // pelo pai, e aplicá-lo aqui de novo giraria o aro duas vezes.
+    aro.position.copy(punho).sub(encaixe);
 
     const ponta = this.juntas.get('index-finger-tip');
     if (ponta) ponta.add(this.pontaDoIndicador);
@@ -375,15 +379,45 @@ export class MaoArticulada {
    * corrigiu 4,55 cm de mão adiantada. Se ainda parecer adiantada, só quem está
    * com o headset pode dizer.
    *
-   * Então em vez de eu escolher outro número no escuro, isto vira um
-   * interruptor na engrenagem: dois centímetros a mais para trás, ligável no
-   * meio da sessão, com a mão na frente do rosto para comparar. O número que
-   * ficar é o que o playtest disser.
-   *
    * Pela convenção do grip space, +Z aponta para o antebraço.
    */
   recuar(metros: number) {
     this.corpoAlinhado?.position.set(0, 0, metros);
+  }
+
+  /**
+   * Gira a mão desenhada em torno do ponto de encaixe.
+   *
+   * ## O que isto conserta
+   *
+   * O alinhamento do construtor segue a convenção do grip space à risca, e
+   * mede os eixos no próprio arquivo em vez de adivinhar. Ainda assim o
+   * playtest de 18/09 relatou: *"não é o problema de posição e sim de rotação e
+   * encaixe"* — e isso é perfeitamente compatível com o alinhamento estar
+   * certo, porque a convenção descreve uma mão de REFERÊNCIA segurando o
+   * controle do jeito de referência.
+   *
+   * A mão de quem joga tem outro tamanho, e cada um segura o Touch com o punho
+   * num ângulo que é seu: mais fechado, mais aberto, mais girado para dentro. O
+   * modelo é um só e o encaixe medido cai no meio dessas variações — e alguns
+   * graus de punho torto é a coisa que se vê na hora e não se sabe nomear.
+   *
+   * Quanto exatamente, portanto, não pode vir daqui: vem do analógico, no
+   * headset, com a mão na frente do rosto. Ver `Ajustes.ajustarMao`.
+   *
+   * ## Por que pré-multiplicar
+   *
+   * `extra * base` gira no espaço do GRIP, ou seja, em torno do cabo do
+   * controle e do ponto de encaixe — que é o eixo em torno do qual uma mão de
+   * verdade escorrega quando você segura o controle torto. `base * extra`
+   * giraria em torno dos eixos do modelo da mão, e o mesmo ângulo produziria
+   * um desencaixe diferente em cada eixo.
+   */
+  ajustarGiro(x: number, y: number, z: number) {
+    if (!this.corpoAlinhado) return;
+    _euler.set(x, y, z, 'XYZ');
+    _extra.setFromEuler(_euler);
+    this.corpoAlinhado.quaternion.copy(_extra).multiply(this.giro);
   }
 
   descartar() {
@@ -638,6 +672,8 @@ export class Luva {
   private ultimoGrip = 0;
   /** Recuo pedido pelos ajustes, guardado para valer quando a mão carregar. */
   private recuoPedido = 0;
+  /** Giro pedido pela calibração, pelo mesmo motivo. */
+  private giroPedido = new THREE.Vector3();
 
   constructor(
     readonly lado: 'left' | 'right',
@@ -668,6 +704,7 @@ export class Luva {
     this.articulada.pontaDoIndicador.add(this.pontaDoIndicador);
     this.articulada.definirDedos(this.ultimoGatilho, this.ultimoGrip, 1);
     this.articulada.recuar(this.recuoPedido);
+    this.articulada.ajustarGiro(this.giroPedido.x, this.giroPedido.y, this.giroPedido.z);
   }
 
   /**
@@ -681,6 +718,16 @@ export class Luva {
     if (metros === this.recuoPedido) return;
     this.recuoPedido = metros;
     this.articulada?.recuar(metros);
+  }
+
+  /**
+   * Ver `MaoArticulada.ajustarGiro`. Guardado pelo mesmo motivo do recuo: a mão
+   * de malha chega por rede, e o ajuste pode ser mexido antes disso.
+   */
+  ajustarGiro(x: number, y: number, z: number) {
+    if (x === this.giroPedido.x && y === this.giroPedido.y && z === this.giroPedido.z) return;
+    this.giroPedido.set(x, y, z);
+    this.articulada?.ajustarGiro(x, y, z);
   }
 
   definirDedos(gatilho: number, grip: number, dt: number) {
@@ -722,3 +769,7 @@ export class Luva {
     this.reserva.descartar();
   }
 }
+
+/** Temporários do `ajustarGiro`, para não alocar um quaternion por quadro. */
+const _euler = new THREE.Euler();
+const _extra = new THREE.Quaternion();

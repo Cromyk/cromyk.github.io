@@ -94,10 +94,18 @@ export class Mao {
    * Põe a luva no estado do quadro: dedos fechando conforme os botões, ou as
    * juntas de verdade quando a mão está nua. Devolve se a mão está rastreada.
    */
-  atualizarLuva(dt: number, recuo = 0): boolean {
+  atualizarLuva(dt: number, recuo = 0, giro?: { x: number; y: number; z: number }): boolean {
     const luva = this.luva;
     if (!luva) return false;
     luva.recuar(recuo);
+    // O giro chega ESPELHADO para a mão direita: sob reflexão no plano do
+    // corpo, um eixo de rotação (x, y, z) vira (x, −y, −z). Sem isso o mesmo
+    // empurrão no analógico abriria uma mão e fecharia a outra, e calibrar as
+    // duas viraria duas calibrações.
+    if (giro) {
+      const espelho = this.lado === 'right' ? -1 : 1;
+      luva.ajustarGiro(giro.x, giro.y * espelho, giro.z * espelho);
+    }
     const comJuntas =
       this.semControle &&
       luva.usarJuntas(this.rastreada as unknown as THREE.Object3D & { joints?: Record<string, THREE.Object3D> });
@@ -252,6 +260,14 @@ export class Mao {
     if (!eixos) return 0;
     const x = eixos[2] ?? eixos[0] ?? 0;
     return Math.abs(x) < 0.15 ? 0 : x; // zona morta
+  }
+
+  /** Inclinação vertical do analógico, de -1 (para cima) a 1 (para baixo). */
+  analogicoY(): number {
+    const eixos = this.fonte?.gamepad?.axes;
+    if (!eixos) return 0;
+    const y = eixos[3] ?? eixos[1] ?? 0;
+    return Math.abs(y) < 0.15 ? 0 : y; // zona morta
   }
 
   /** Vibração curta no controle, quando o runtime suportar. */

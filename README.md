@@ -310,9 +310,37 @@ O resultado, medido em `npm test`:
 O modo de jogo ocupava uma fileira fixa do painel do pulso, entre o título e o
 time — o lugar mais nobre da tela para uma coisa que se muda uma vez por sessão.
 Agora é uma **engrenagem** no canto do título: um toque abre a página de
-ajustes, outro fecha. Lá dentro: modo de jogo, dificuldade e cinco interruptores —
-**tamanho real**, **ele fala o nome**, voz da Pokédex, barra de carga e contorno
-da sala. Tudo fica salvo no headset.
+ajustes, outro fecha. Lá dentro: modo de jogo, dificuldade e os interruptores —
+**tamanho real**, **ele fala o nome**, voz da Pokédex, barra de carga, modo
+sentado, contorno da sala, contador de quadros e **calibrar a mão**. Tudo fica
+salvo no headset.
+
+#### Calibrar a mão
+
+A mão desenhada é posta no grip space por medida, não por chute (ver
+`src/glove.ts`), mas a convenção descreve uma mão de REFERÊNCIA segurando o
+controle do jeito de referência — e a sua tem outro tamanho e segura o Touch com
+o punho no seu próprio ângulo. Alguns graus de punho torto é a coisa que se vê
+na hora e não se sabe nomear.
+
+Ligado o interruptor, os dois analógicos param de fazer o que fazem e passam a
+mexer na mão, com ela na frente do rosto:
+
+| Analógico | O que faz |
+|---|---|
+| esquerdo, para os lados | gira o punho no eixo do antebraço |
+| esquerdo, para cima/baixo | levanta e abaixa a mão |
+| direito, para os lados | abre e fecha a mão em torno do cabo |
+| direito, para cima/baixo | recua e adianta ao longo do antebraço |
+| **A** | zera tudo e volta ao encaixe medido |
+
+Os quatro números aparecem no painel do pulso enquanto você mexe, o limite é de
+45° por eixo, e o valor bom é aquele em que você para de mexer — fica salvo
+sozinho. A mão direita recebe o ESPELHO dos ângulos, para o mesmo empurrão no
+stick torcer as duas do mesmo jeito.
+
+A última linha de `npm run mao` mostra o efeito: a mesma mão fechada, com o
+punho girado 20° e recuada 2 cm.
 
 A folha de painéis acima sai de `npm run paineis`: os painéis são canvas 2D, e a
 ferramenta troca o `document` por um de mentira para rasterizar o **mesmo código

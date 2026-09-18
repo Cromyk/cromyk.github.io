@@ -276,6 +276,13 @@ export class Jogo {
   private carregandoEscolha = false;
   /** Trava o analógico para um passo por inclinada. */
   private analogicoNeutro = true;
+  /**
+   * A calibração da mão deste quadro, reaproveitada em vez de alocada.
+   *
+   * Ver `Ajustes.ajustarMao` e `MaoArticulada.ajustarGiro`: são três ângulos e
+   * um recuo que o jogador mexe no headset, com a mão na frente do rosto.
+   */
+  private giroDaMao = { x: 0, y: 0, z: 0 };
 
   private recarga = 0;
   readonly ajustes = new Ajustes();
@@ -1995,6 +2002,22 @@ export class Jogo {
     // incoerência de meio minuto até eles serem trocados.
     if (id === 'tamanhoReal') void this.remontarCompanheiro();
 
+    // A calibração da mão precisa dizer o que os analógicos fazem, e dizer
+    // ANTES: é o único ajuste do jogo que muda o que os controles significam, e
+    // quem ligasse sem saber acharia que a troca de bola tinha quebrado.
+    if (id === 'calibrarMao' && ligado) {
+      this.aviso.mostrar(
+        [
+          { texto: 'calibrando a mão', tamanho: 36, cor: '#7fe7c4' },
+          { texto: 'esquerdo: gira o punho e levanta', tamanho: 23, cor: '#c8d4e6', peso: 500 },
+          { texto: 'direito: abre e recua · A zera', tamanho: 23, cor: '#c8d4e6', peso: 500 },
+          { texto: 'os números estão no painel do pulso', tamanho: 20, cor: '#9aa5b8', peso: 500 },
+        ],
+        4,
+      );
+      return;
+    }
+
     const tipo = INTERRUPTORES.find((c) => c.id === id);
     this.aviso.mostrar(
       [
@@ -3285,11 +3308,15 @@ export class Jogo {
       this.dex.especiesCapturadas,
       this.dex.totalEspecies,
       this.sala.mapeadas,
-      // A corrente só toma a linha do mapeamento quando já mudou a chance de
-      // um jeito que se sente. Abaixo de três ela é ruído.
-      this.dex.corrente >= 3
-        ? `corrente ${this.dex.corrente} · brilhante ${textoChanceShiny(chanceShiny(this.dex.sorteBrilhante))}`
-        : null,
+      // Calibrando, a segunda linha é a calibração: é o único número que muda
+      // enquanto você mexe, e ele precisa estar à vista de quem está de mão na
+      // frente do rosto. A corrente só toma essa linha quando já mudou a chance
+      // de um jeito que se sente — abaixo de três ela é ruído.
+      this.ajustes.calibrarMao
+        ? this.textoDaCalibracao
+        : this.dex.corrente >= 3
+          ? `corrente ${this.dex.corrente} · brilhante ${textoChanceShiny(chanceShiny(this.dex.sorteBrilhante))}`
+          : null,
     );
     this.aviso.atualizar(dt, this.camera);
     if (this.evolucaoPendente) {
@@ -3318,7 +3345,7 @@ export class Jogo {
     for (const mao of this.maos) {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
-      mao.atualizarLuva(dt, this.ajustes.maoRecuada ? 0.02 : 0);
+      mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
     }
 
     const mapeadas = this.sala.mapeadas;
@@ -3403,7 +3430,7 @@ export class Jogo {
       for (const mao of this.maos) {
         if (!mao.conectada) continue;
         mao.amostrar(agora);
-        mao.atualizarLuva(dt, this.ajustes.maoRecuada ? 0.02 : 0);
+        mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
       }
       return;
     }
@@ -3415,7 +3442,7 @@ export class Jogo {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
       mao.amostrarBotoes();
-      mao.atualizarLuva(dt, this.ajustes.maoRecuada ? 0.02 : 0);
+      mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
       // A memória de ter saído do painel, para guardar e pegar não serem o
       // mesmo gesto. Ver saiuDoPainel.
       if (!this.cartaSobAMao(mao)) this.saiuDoPainel.add(mao.indice);
@@ -4026,6 +4053,70 @@ export class Jogo {
     this.mochila.atualizar(dt, pontos, (id) => this.dex.item(id));
   }
 
+  /**
+   * Os analógicos giram e recuam a mão desenhada, enquanto o modo está ligado.
+   *
+   * ## O mapa, e por que ele é este
+   *
+   * - **esquerdo, para os lados** — gira em torno do eixo do antebraço (Z). É o
+   *   ajuste do punho torto para dentro ou para fora, e é o mais provável de
+   *   ser o que está errado: é nesse eixo que a mão escorrega quando cada
+   *   pessoa segura o Touch com o punho num ângulo diferente.
+   * - **esquerdo, para cima e para baixo** — levanta e abaixa a mão em torno do
+   *   eixo que atravessa a palma (X).
+   * - **direito, para os lados** — abre e fecha a mão em torno do eixo que sobe
+   *   pelo cabo (Y).
+   * - **direito, para cima e para baixo** — recua e adianta a mão ao longo do
+   *   antebraço. Este é o antigo interruptor "Mão mais atrás", agora contínuo.
+   * - **A** — zera tudo e volta ao encaixe medido.
+   *
+   * A velocidade é de 40° por segundo com o stick no talo: uma volta inteira
+   * de 45° leva pouco mais de um segundo, o que é rápido o bastante para não
+   * cansar e lento o bastante para parar onde se quer. O recuo anda 6 cm/s.
+   *
+   * ## Por que não pede confirmação
+   *
+   * Cada quadro escreve no `localStorage` só quando o valor muda de verdade
+   * (ver `ajustarMao`), e o valor bom é aquele em que você para de mexer. Uma
+   * tela de "salvar?" no fim faria a pessoa tirar os olhos da mão, que é a
+   * única coisa que ela precisa estar olhando.
+   */
+  private calibrarComOAnalogico(mao: Mao, dt: number) {
+    if (mao.apertou(BOTAO_A) && mao.lado === 'right') {
+      this.ajustes.zerarMao();
+      mao.sentir('recusado');
+      audio.clique();
+      this.aviso.mostrar(
+        [
+          { texto: 'mão no encaixe medido', tamanho: 34, cor: '#eef2f8' },
+          { texto: 'giro e recuo zerados', tamanho: 22, cor: '#9aa5b8', peso: 500 },
+        ],
+        1.4,
+      );
+      return;
+    }
+
+    const x = mao.analogicoX();
+    const y = mao.analogicoY();
+    if (x === 0 && y === 0) return;
+
+    const passo = THREE.MathUtils.degToRad(40) * dt;
+    if (mao.lado === 'left') {
+      this.ajustes.ajustarMao(-y * passo, 0, x * passo, 0);
+    } else {
+      this.ajustes.ajustarMao(0, x * passo, 0, y * 0.06 * dt);
+    }
+  }
+
+  /** Os quatro números da calibração, para o painel do pulso mostrar. */
+  private get textoDaCalibracao(): string {
+    const g = (rad: number) => `${Math.round(THREE.MathUtils.radToDeg(rad))}°`;
+    return (
+      `${g(this.ajustes.maoGiroX)} ${g(this.ajustes.maoGiroY)} ${g(this.ajustes.maoGiroZ)} · ` +
+      `${(this.ajustes.maoRecuo * 100).toFixed(1)} cm`
+    );
+  }
+
   private atualizarMaos(dt: number, agora: number) {
     if (this.modoPlano) {
       const bola = this.bolaNaMao.get(99);
@@ -4040,11 +4131,18 @@ export class Jogo {
       return;
     }
 
+    // A calibração vale para as duas mãos e é lida uma vez por quadro: são três
+    // ângulos e um recuo guardados nos ajustes, e a mão direita recebe o
+    // espelho deles (ver Mao.atualizarLuva).
+    this.giroDaMao.x = this.ajustes.maoGiroX;
+    this.giroDaMao.y = this.ajustes.maoGiroY;
+    this.giroDaMao.z = this.ajustes.maoGiroZ;
+
     for (const mao of this.maos) {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
       mao.amostrarBotoes();
-      mao.atualizarLuva(dt, this.ajustes.maoRecuada ? 0.02 : 0);
+      mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
       this.sinaisDaMaoNua(mao);
       this.botoesDaMao(mao);
 
@@ -4071,10 +4169,19 @@ export class Jogo {
 
       this.atualizarFeixe(mao, dt, agora);
 
+      // Calibrando a mão, os dois analógicos param de fazer o que fazem e
+      // passam a girar e recuar a mão desenhada. É um modo, ligado na
+      // engrenagem, e ele SEQUESTRA os sticks de propósito: calibrar é uma
+      // coisa que se faz com a mão na frente do rosto, olhando, em vinte
+      // segundos — e um ajuste que exigisse apontar para um menu enquanto se
+      // olha para a mão não seria calibração nenhuma.
+      if (this.ajustes.calibrarMao) {
+        this.calibrarComOAnalogico(mao, dt);
+      }
       // Analógico da direita: vira página da Pokédex quando ela está aberta, e
       // troca de bola quando não está. Um passo por inclinada — só volta a valer
       // depois que o stick passa pelo centro.
-      if (mao.lado === 'right') {
+      else if (mao.lado === 'right') {
         const x = mao.analogicoX();
         if (this.analogicoNeutro && Math.abs(x) > 0.7) {
           this.analogicoNeutro = false;
