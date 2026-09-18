@@ -30,36 +30,59 @@ ouviu e recusou"*. As duas coisas precisam de respostas diferentes e audíveis.
 
 ---
 
-## Já feito, em 17/09
+## O roteiro saiu inteiro, menos o 0.2
 
-Sete itens saíram no mesmo dia em que este roteiro foi escrito. Ficam aqui em
-vez de sumirem porque o **como saber que funcionou** de cada um continua sendo
-uma pergunta para você, no headset — nenhum deles foi visto rodando por mim.
+Em 17 e 18/09 saíram **todos os itens deste roteiro**, com uma exceção que não
+é minha de fazer. Eles ficam listados aqui em vez de sumirem porque o **como
+saber que funcionou** de cada um continua sendo uma pergunta para você, no
+headset: nenhum foi visto rodando por mim.
 
 | Item | O que entrou | Falta você conferir |
 |---|---|---|
-| **0.1** | `src/medidor.ts` — ms, fps, pior caso e draw calls num canto da visão, ligável na engrenagem | se o número aparece, e se ele muda quando um Charizard entra |
-| **1.1** | `recusar()` — o gatilho na recarga, recolher e chamar sem ninguém em campo agora respondem | se dá para sentir a recusa sem tirar os olhos do bicho |
-| **1.2** | `TATO`, em `src/hands.ts` — as 33 vibrações soltas viraram 5 padrões nomeados | se, de olhos fechados, "peguei" e "fui recusado" são distinguíveis |
-| **2.1** | Hit-stop, empurrão e vibração de acerto em `resolverDano` | se dá para dizer, de costas para a barra, que o golpe pegou |
-| **1.3** | `pedindoAjuda` — as duas palmas para cima trazem o cartão de comandos de volta | se o gesto dispara quando você quer, e só quando você quer |
-| **1.4** | `Dex.primeiraVez` — item novo, primeiro selvagem e vida baixa explicam-se uma vez e ficam no save | se a dica da poção chega na hora em que ela importa |
-| **2.2** | `NumeroDeDano` — o dano sobe do corpo do bicho, na cor da efetividade | se dá para brigar sem olhar a barra de vida |
+| **0.1** | `src/medidor.ts` — ms, fps, pior caso e draw calls num canto da visão | se o número aparece, e se muda quando um Charizard entra |
+| **1.1** | `recusar()` — o gatilho na recarga e os gestos sem alvo agora respondem | se dá para sentir a recusa sem tirar os olhos do bicho |
+| **1.2** | `TATO` — as 33 vibrações soltas viraram 5 padrões nomeados | se, de olhos fechados, "peguei" e "fui recusado" são diferentes |
+| **1.3** | `pedindoAjuda` — as duas palmas para cima trazem o cartão de comandos | se dispara quando você quer, e só quando você quer |
+| **1.4** | `Dex.primeiraVez` — cada coisa se explica uma vez, e fica no save | se a dica da poção chega na hora em que ela importa |
+| **2.1** | Hit-stop, empurrão e vibração de acerto | se dá para dizer, de costas para a barra, que o golpe pegou |
+| **2.2** | `NumeroDeDano` — o dano sobe do corpo, na cor da efetividade | se o número sai legível num Diglett e num Onix |
+| **2.3** | Squash no quique, chacoalho com ritmo desigual, estalo do fecho | se errar a captura ficou frustrante do jeito bom |
+| **2.4** | `audio.de(…)` — golpe, impacto e grito saem do lugar certo da sala | se você vira a cabeça na direção certa antes de ver o bicho |
+| **3.1** | `ondeNasce` — quem voa no alto, quem cava no chão, os pequenos nos móveis | se o cômodo parece povoado em vez de sorteado |
+| **3.2** | `src/achados.ts` — itens aparecem em cima dos seus móveis de verdade | se você anda pela casa sem eu ter pedido |
+| **3.3** | `Sala.esconderijo` — o assustado corre para trás de um móvel | se procurar um Pokémon virou uma coisa que acontece |
+| **4.1** | `Pokemon.escalaPessoal` e o interruptor "Modo sentado" | se dá para jogar uma sessão inteira do sofá |
+| **4.2** | O jogo repara na altura dos olhos e sugere o modo sentado, uma vez | se a sugestão chega na hora certa e não atrapalha |
+| — | `tsconfig.tools.json` — o smoke passa a ser checado por tipos | nada; é encanamento, e já cobrou dois erros reais |
 
-A Fase 1 fechou inteira. Da Fase 2 saíram o 2.1 e o 2.2; sobram o **2.3** (a
-bola tem peso) e o **2.4** (som posicional).
+### O 0.2 é seu, e continua sendo o mais importante
 
-O que **não** entrou do 2.1: o flash branco no alvo. Os materiais vêm do molde
-em cache e são compartilhados por todos os exemplares da espécie — piscar um
-piscaria todo Rattata da sala, e clonar material por golpe vaza memória no
-headset. Com o número de dano de pé (2.2), a falta dele diminuiu: o corpo do
-bicho já tem o que dizer no instante do acerto. Fica para quando alguém quiser
-mexer em material clonado por exemplar, que é um problema maior do que o flash.
+Com o contador de pé, falta a medida: quadro parado, com três selvagens, com a
+mochila aberta, com o fogo aceso. **Eu não posso fazer essa parte** — ela exige
+o headset na cabeça.
 
-**Nada disto foi visto rodando.** Sete itens de uma vez é muita coisa entrando
-sem headset: se algum deles estiver errado, é mais provável que seja o gesto das
-duas palmas (1.3) — o limiar foi escolhido no papel — ou o tamanho do número de
-dano num bicho muito pequeno ou muito grande (2.2).
+E ela ficou mais urgente do que era quando este roteiro foi escrito: entraram
+depois dele o número de dano, os sprites de fogo, o laser, a mochila, os itens
+na sala e o som posicional. Cada um custa alguma coisa, e a soma nunca foi
+medida. Enquanto essa tabela não existir, qualquer decisão de performance aqui
+— inclusive a de que tudo isso cabe — continua sendo chute.
+
+### O que ficou de fora, e por quê
+
+**O flash branco no alvo**, do 2.1. Os materiais vêm do molde em cache e são
+compartilhados por todos os exemplares da espécie: piscar um piscaria todo
+Rattata da sala, e clonar material por golpe vaza memória no headset. Com o
+número de dano de pé, a falta dele diminuiu — o corpo do bicho já tem o que
+dizer no instante do acerto.
+
+**As outras ferramentas de `tools/`** continuam fora da checagem de tipos. Só o
+smoke entrou, que é o que segura o projeto; o resto são scripts de linha de
+comando que falham na hora e em voz alta.
+
+**Nada disto foi visto rodando.** Quinze itens sem headset é muita coisa: se
+algum estiver errado, os candidatos mais prováveis são o limiar do gesto das
+duas palmas (1.3), o fator 0,62 do modo sentado (4.1) — escolhido no papel — e
+a frequência com que os itens aparecem na sala (3.2), que só se calibra jogando.
 
 ---
 

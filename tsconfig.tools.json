@@ -1,0 +1,21 @@
+// O tsconfig que o BUILD usa, e que o conjunto de verificações deveria ter tido
+// desde sempre.
+//
+// O `tsconfig.json` ao lado inclui só `src`, então `tools/smoke.ts` — as trinta
+// verificações que seguram este projeto — passava pelo esbuild sem que ninguém
+// conferisse os tipos dela. Isso já cobrou: quando `Corpo` ganhou
+// `renormalizar`, os dois corpos falsos do smoke ficaram sem o método e nada
+// reclamou; e um `Combatente` de teste vinha sem `precisao` nos estágios.
+//
+// Só o smoke entra de `tools/`. As outras ferramentas são scripts de linha de
+// comando rodados à mão — elas falham na hora, em voz alta, e prendê-las aqui
+// custaria mais do que rende.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "three", "webxr", "vite/client"],
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["src", "tools/smoke.ts"]
+}

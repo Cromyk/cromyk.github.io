@@ -240,6 +240,8 @@ export class Jogo {
   /** Os itens que aparecem em cima dos seus móveis. Ver src/achados.ts. */
   private achados = new Achados(this.cena);
   /** Há quanto tempo as duas palmas estão para cima. Ver atualizarPedidoDeAjuda. */
+  /** Há quanto tempo a cabeça está na altura de quem está sentado. Ver 4.2. */
+  private tempoSentado = 0;
   private pedindoAjudaHa = 0;
   /** Segundos até o gesto de ajuda poder valer de novo. */
   private travaDaAjuda = 0;
@@ -2829,7 +2831,15 @@ export class Jogo {
       // A faixa e mais larga do que era: com o mapa acompanhando quem anda,
       // um bicho a cinco metros e um convite para caminhar ate ele em vez de um
       // que nunca sera alcancado.
-      const local = this.sala.pontoDeSpawn(this.posicaoJogador, 1.2, 5.5, ondeNasce(especie));
+      // Sentado, o cômodo inteiro encolhe: não adianta pôr um bicho a cinco
+      // metros de quem não vai levantar para ir até ele. Ver o item 4.1.
+      const perto = Pokemon.escalaPessoal;
+      const local = this.sala.pontoDeSpawn(
+        this.posicaoJogador,
+        1.2 * perto,
+        5.5 * perto,
+        ondeNasce(especie),
+      );
       if (!local) return;
 
       const corpo = instanciar(especie.id, this.alturaDe(especie), shiny, this.ajustes.tamanhoReal);
@@ -3040,6 +3050,7 @@ export class Jogo {
     this.atualizarMochila(dt);
     this.atualizarOuvinte();
     this.atualizarAchados(dt);
+    this.atualizarPostura(dt);
     this.atualizarPedidoDeAjuda(dt);
     this.atualizarPaineis(dt);
     this.atualizarMarca(dt);
@@ -3574,6 +3585,52 @@ export class Jogo {
       );
       return;
     }
+  }
+
+  /**
+   * O modo sentado, e a pergunta que ele faz sozinho — itens 4.1 e 4.2.
+   *
+   * O 4.1 é o interruptor: um fator que encolhe todas as distâncias pessoais
+   * (ver `Pokemon.escalaPessoal`) e o alcance de spawn.
+   *
+   * O 4.2 é isto aqui: o jogo REPARA. A altura dos olhos de quem está sentado
+   * fica uns quarenta centímetros abaixo da de quem está de pé, e o headset
+   * sabe essa altura a cada quadro. Depois de meio minuto consistentemente
+   * baixo, o jogo pergunta — uma vez, e nunca mais.
+   *
+   * Pergunta, e não liga sozinho. Um jogo que muda as próprias distâncias sem
+   * avisar é um jogo que parece quebrado: o bicho começa a parar mais perto e
+   * ninguém sabe por quê. E quem está deitado no chão brincando de propósito
+   * não quer que nada mude.
+   */
+  private atualizarPostura(dt: number) {
+    Pokemon.escalaPessoal = this.ajustes.modoSentado ? 0.62 : 1;
+
+    if (this.ajustes.modoSentado || this.modoPlano) return;
+
+    // A altura sai do CHÃO mapeado, não do zero da sessão: uma casa com
+    // degrau, ou uma origem de sessão calibrada em pé, faria a conta mentir.
+    const olhos = this.posicaoJogador.y - this.sala.pisoY;
+    const baixo = olhos > 0.4 && olhos < 1.25;
+    this.tempoSentado = baixo ? this.tempoSentado + dt : 0;
+
+    if (this.tempoSentado < 30) return;
+    this.tempoSentado = -Infinity;
+    if (!this.dex.primeiraVez('sugerir-sentado')) return;
+
+    this.aviso.mostrar(
+      [
+        { texto: 'jogando sentado?', tamanho: 36, cor: '#cfe6ff' },
+        {
+          texto: 'na engrenagem, "Modo sentado" traz tudo para perto do seu alcance',
+          tamanho: 21,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      4.5,
+    );
+    for (const mao of this.maos) mao.sentir('marcou');
   }
 
   private atualizarOuvinte() {

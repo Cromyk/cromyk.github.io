@@ -458,7 +458,7 @@ async function desenharDedos() {
     const q = ponto(luva, i).sub(centroL);
     pts.push([q.dot(eixosL[1]), q.dot(eixosL[0]), q.dot(eixosL[2])]);
   }
-  const tris = [];
+  const tris: Array<{ a: number[]; b: number[]; c: number[]; cor: number[] }> = [];
   for (let i = 0; i < luva.TRI.length; i += 3) {
     const a = luva.TRI[i];
     tris.push({

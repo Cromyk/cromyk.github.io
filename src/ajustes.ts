@@ -69,7 +69,8 @@ export type ChaveAjuste =
   | 'vozDoNome'
   | 'musicaDeBatalha'
   | 'contadorDeQuadros'
-  | 'maoRecuada';
+  | 'maoRecuada'
+  | 'modoSentado';
 
 interface Interruptor {
   id: ChaveAjuste;
@@ -108,6 +109,12 @@ export const INTERRUPTORES: readonly Interruptor[] = [
     nome: 'Barra de carga',
     ligadoDiz: 'mostra quando ele vai atacar',
     desligadoDiz: 'sem contagem no inimigo',
+  },
+  {
+    id: 'modoSentado',
+    nome: 'Modo sentado',
+    ligadoDiz: 'tudo acontece mais perto, sem precisar andar',
+    desligadoDiz: 'distâncias de quem joga de pé',
   },
   {
     id: 'maoRecuada',
@@ -175,6 +182,14 @@ export class Ajustes {
    * comparar os dois na mesma sessão, com a mão na frente do rosto.
    */
   maoRecuada = false;
+  /**
+   * As distâncias do jogo encolhem para quem não vai levantar do sofá.
+   *
+   * Ver `Pokemon.escalaPessoal`: o bicho para mais perto, passeia num raio
+   * menor e nasce mais perto. É calibração e não mecânica nova — todas essas
+   * distâncias já passavam por um lugar só.
+   */
+  modoSentado = false;
 
   constructor() {
     this.carregar();
@@ -230,6 +245,7 @@ export class Ajustes {
       // que ninguém usa duas vezes.
       if (typeof dados.contadorDeQuadros === 'boolean') this.contadorDeQuadros = dados.contadorDeQuadros;
       if (typeof dados.maoRecuada === 'boolean') this.maoRecuada = dados.maoRecuada;
+      if (typeof dados.modoSentado === 'boolean') this.modoSentado = dados.modoSentado;
     } catch {
       // Armazenamento bloqueado: joga com os padrões, que são os bons.
     }
@@ -250,6 +266,7 @@ export class Ajustes {
           musicaDeBatalha: this.musicaDeBatalha,
           contadorDeQuadros: this.contadorDeQuadros,
           maoRecuada: this.maoRecuada,
+          modoSentado: this.modoSentado,
         }),
       );
     } catch {

@@ -208,6 +208,8 @@ function esqueletoDe(nomes: string[], altura = 0.6) {
     raio: altura * 0.5,
     mixer: null,
     acoes: new Map(),
+    // Este esqueleto é montado à mão aqui: não há pose de arquivo para remedir.
+    renormalizar() {},
     descartar() {
       raizGrupo.removeFromParent();
     },
@@ -1140,7 +1142,7 @@ console.log('21. estágios: buff, debuff e o limite');
     intervaloDeAtaque(rapido) < intervaloDeAtaque(lento) - 0.5,
     'o rápido deveria atacar bem mais vezes que o lento',
   );
-  const comArranque = { ...lento, estagios: { ataque: 0, defesa: 0, velocidade: 2 } };
+  const comArranque = { ...lento, estagios: { ataque: 0, defesa: 0, velocidade: 2, precisao: 0 } };
   checar(
     intervaloDeAtaque(comArranque) < intervaloDeAtaque(lento),
     'Arranque não encurtou o intervalo',
@@ -1883,6 +1885,37 @@ console.log('29. as pedras de evolução');
       `com o osso 5 acima, a caixa devia ir de 4 a 6 em Y; foi de ${caixa.min.y.toFixed(2)} a ${caixa.max.y.toFixed(2)}`,
     );
     console.log('   caixa da pose: 1×2×1 em qualquer escala, e segue o osso');
+  }
+
+  // O modo sentado encolhe o jogo de verdade — item 4.1 do roteiro.
+  //
+  // O teste vale porque o item inteiro é UM número atravessando dezenas de
+  // distâncias: se `escalaPessoal` parar de ser consultada em `folga`, nada
+  // quebra, nada avisa, e o modo sentado vira um interruptor que não faz nada.
+  {
+    const especie = porId('charmander')!;
+    const jogador = new THREE.Vector3(0, 1.6, 0);
+
+    const medirParada = () => {
+      const bicho = new Pokemon(especie, corpoFalso(0.6), new THREE.Vector3(0, 0, -3), 0, 'companheiro', 10);
+      // Tempo suficiente para ele vir andando e assentar perto do treinador.
+      for (let i = 0; i < 60 * 8; i++) bicho.atualizar(1 / 60, jogador);
+      return Math.hypot(bicho.raiz.position.x - jogador.x, bicho.raiz.position.z - jogador.z);
+    };
+
+    Pokemon.escalaPessoal = 1;
+    const dePe = medirParada();
+    Pokemon.escalaPessoal = 0.62;
+    const sentado = medirParada();
+    Pokemon.escalaPessoal = 1;
+
+    checar(
+      sentado < dePe - 0.05,
+      `sentado devia trazer o companheiro para mais perto: de pé ${dePe.toFixed(2)} m, sentado ${sentado.toFixed(2)} m`,
+    );
+    console.log(
+      `   modo sentado: o companheiro para a ${sentado.toFixed(2)} m em vez de ${dePe.toFixed(2)} m`,
+    );
   }
 
   // O cinto: quanta precisão a mão precisa ter para pegar a bola CERTA.

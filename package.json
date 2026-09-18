@@ -10,7 +10,7 @@
     "icons": "node tools/icons.mjs",
     "assetlinks": "node tools/assetlinks.mjs",
     "pwa:check": "node tools/pwa-check.mjs",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit -p tsconfig.tools.json && vite build",
     "preview": "vite preview --host",
     "test": "esbuild tools/smoke.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/smoke.mjs --log-level=error && node node_modules/.cache/smoke.mjs",
     "serve:dist": "node tools/serve.mjs",
@@ -31,7 +31,8 @@
     "vozes:anime": "node tools/vozes-anime.mjs",
     "luva": "node tools/luva.mjs",
     "rig": "esbuild tools/rig.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rig.mjs --log-level=error --external:./raster.mjs --external:./png.mjs && node --max-old-space-size=4096 node_modules/.cache/rig.mjs",
-    "ver:luva": "node tools/ver-luva.mjs"
+    "ver:luva": "node tools/ver-luva.mjs",
+    "tipos": "tsc --noEmit -p tsconfig.tools.json"
   },
   "dependencies": {
     "three": "^0.184.0"
@@ -40,6 +41,7 @@
     "@gltf-transform/core": "^4.5.0",
     "@gltf-transform/extensions": "^4.5.0",
     "@napi-rs/canvas": "^1.0.9",
+    "@types/node": "^26.6.1",
     "@types/three": "^0.184.0",
     "@types/webxr": "^0.5.24",
     "@vitejs/plugin-basic-ssl": "^2.1.0",

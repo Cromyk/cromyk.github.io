@@ -172,6 +172,8 @@ function corpoDe(esqueleto: THREE.Group, altura: number, clipes: THREE.Animation
     raiz: raizJogo,
     corpo: esqueleto,
     boca,
+    // Montado aqui a partir do arquivo: nao ha pose para remedir.
+    renormalizar() {},
     altura,
     raio: altura * 0.5,
     mixer,

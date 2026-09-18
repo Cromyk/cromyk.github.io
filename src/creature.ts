@@ -186,8 +186,25 @@ export class Pokemon {
    * de antes e o tamanho do corpo. Num Diglett nada muda; num Onix, tudo.
    */
   private folga(minimo: number, vezes = 1): number {
-    return Math.max(minimo, this.raio * vezes);
+    return Math.max(minimo, this.raio * vezes) * Pokemon.escalaPessoal;
   }
+
+  /**
+   * Multiplica TODA distância pessoal do jogo — item 4.1 do roteiro.
+   *
+   * As distâncias deste arquivo foram escritas para quem joga de pé, com espaço
+   * para andar: o bicho para a 1,1 m de você, passeia num raio de 85 cm, volta
+   * quando se afasta demais. Quem joga sentado no sofá, num canto, ou com pouco
+   * espaço vive outro jogo — e esse é o caso mais comum de quem tem um Quest em
+   * casa, não a exceção.
+   *
+   * Um número só, aqui, porque todas essas distâncias já passavam por `folga`.
+   * Era o que fazia deste item calibração em vez de reescrita.
+   *
+   * Estático de propósito: é uma propriedade do JOGADOR e da sala dele, não de
+   * cada bicho. Um Onix sentado e um Diglett sentado estão no mesmo sofá.
+   */
+  static escalaPessoal = 1;
 
   constructor(
     especie: Especie,

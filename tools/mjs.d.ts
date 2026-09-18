@@ -7,7 +7,7 @@ declare module './pose.mjs' {
   export function aplicar(m: number[], p: number[]): number[];
   export function primitivasEmRepouso(
     documento: unknown,
-    poseLocal?: Map<string, number[]> | null,
+    poseLocal?: Map<string, number[]> | null | undefined,
   ): Array<{ prim: any; material: any; pontos: Float64Array; contagem: number }>;
 }
 
@@ -40,4 +40,10 @@ declare module './raster.mjs' {
     tris: unknown[];
     naTela: (p: number[]) => number[];
   }): void;
+}
+
+// O decodificador Draco nao publica tipos. As ferramentas so chamam a fabrica.
+declare module 'draco3d' {
+  const draco3d: { createDecoderModule: (o?: unknown) => Promise<unknown> };
+  export default draco3d;
 }
