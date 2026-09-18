@@ -80,9 +80,35 @@ export class Dex {
    * novo, como se a sessão anterior não tivesse acontecido.
    */
   private emCampo = -1;
+  /**
+   * As dicas de primeira vez que já foram dadas — item 1.4 do roteiro.
+   *
+   * Cada coisa do jogo explica a si mesma uma vez, na primeira vez em que você
+   * a encontra, e nunca mais. Fica no save, e não na memória da sessão, porque
+   * "primeira vez" tem de valer para a sua vida e não para este boot: uma dica
+   * que reaparece toda vez que o headset reinicia não é uma dica, é um aviso.
+   *
+   * O conjunto é de chaves curtas (`bola`, `pocao`, `pedra`) em vez de um campo
+   * por dica, para uma dica nova não precisar mexer no formato do save.
+   */
+  private jaExplicado = new Set<string>();
 
   constructor() {
     this.carregar();
+  }
+
+  /**
+   * Devolve `true` UMA vez por chave, e grava que já devolveu.
+   *
+   * Quem chama não precisa saber se é a primeira vez — pergunta e, se for, dá a
+   * dica. A gravação acontece aqui dentro de propósito: separar "perguntar" de
+   * "marcar como visto" é como uma dica acaba aparecendo duas vezes.
+   */
+  primeiraVez(chave: string): boolean {
+    if (this.jaExplicado.has(chave)) return false;
+    this.jaExplicado.add(chave);
+    this.salvar();
+    return true;
   }
 
   private carregar() {
@@ -98,6 +124,7 @@ export class Dex {
         estoque?: Record<string, number>;
         itens?: Record<string, number>;
         ativo?: number;
+        jaExplicado?: string[];
         bolaAtiva?: string;
         escolheuInicial?: boolean;
         recarregadoEm?: number;
@@ -149,6 +176,10 @@ export class Dex {
       this.recarregadoEm = dados.recarregadoEm ?? Date.now();
       const campo = dados.emCampo ?? -1;
       this.emCampo = campo >= 0 && campo < this.exemplares.length ? campo : -1;
+      // Quem já jogava não volta a receber as dicas de primeira vez, mas quem
+      // tem uma gravação ANTERIOR a elas recebe — e é o certo: aquele save é de
+      // antes de as dicas existirem, então ninguém as viu.
+      this.jaExplicado = new Set(dados.jaExplicado ?? []);
     } catch {
       // Armazenamento bloqueado ou corrompido: começa do zero, sem quebrar o jogo.
       this.comecarDoZero();
@@ -174,6 +205,7 @@ export class Dex {
           escolheuInicial: this.escolheuInicial,
           recarregadoEm: this.recarregadoEm,
           emCampo: this.emCampo,
+          jaExplicado: [...this.jaExplicado],
         }),
       );
     } catch {

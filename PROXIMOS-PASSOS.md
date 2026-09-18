@@ -32,7 +32,7 @@ ouviu e recusou"*. As duas coisas precisam de respostas diferentes e audíveis.
 
 ## Já feito, em 17/09
 
-Quatro itens saíram no mesmo dia em que este roteiro foi escrito. Ficam aqui em
+Sete itens saíram no mesmo dia em que este roteiro foi escrito. Ficam aqui em
 vez de sumirem porque o **como saber que funcionou** de cada um continua sendo
 uma pergunta para você, no headset — nenhum deles foi visto rodando por mim.
 
@@ -42,12 +42,24 @@ uma pergunta para você, no headset — nenhum deles foi visto rodando por mim.
 | **1.1** | `recusar()` — o gatilho na recarga, recolher e chamar sem ninguém em campo agora respondem | se dá para sentir a recusa sem tirar os olhos do bicho |
 | **1.2** | `TATO`, em `src/hands.ts` — as 33 vibrações soltas viraram 5 padrões nomeados | se, de olhos fechados, "peguei" e "fui recusado" são distinguíveis |
 | **2.1** | Hit-stop, empurrão e vibração de acerto em `resolverDano` | se dá para dizer, de costas para a barra, que o golpe pegou |
+| **1.3** | `pedindoAjuda` — as duas palmas para cima trazem o cartão de comandos de volta | se o gesto dispara quando você quer, e só quando você quer |
+| **1.4** | `Dex.primeiraVez` — item novo, primeiro selvagem e vida baixa explicam-se uma vez e ficam no save | se a dica da poção chega na hora em que ela importa |
+| **2.2** | `NumeroDeDano` — o dano sobe do corpo do bicho, na cor da efetividade | se dá para brigar sem olhar a barra de vida |
+
+A Fase 1 fechou inteira. Da Fase 2 saíram o 2.1 e o 2.2; sobram o **2.3** (a
+bola tem peso) e o **2.4** (som posicional).
 
 O que **não** entrou do 2.1: o flash branco no alvo. Os materiais vêm do molde
 em cache e são compartilhados por todos os exemplares da espécie — piscar um
 piscaria todo Rattata da sala, e clonar material por golpe vaza memória no
-headset. Fica para junto do 2.2, que já vai precisar desenhar algo no corpo do
-bicho.
+headset. Com o número de dano de pé (2.2), a falta dele diminuiu: o corpo do
+bicho já tem o que dizer no instante do acerto. Fica para quando alguém quiser
+mexer em material clonado por exemplar, que é um problema maior do que o flash.
+
+**Nada disto foi visto rodando.** Sete itens de uma vez é muita coisa entrando
+sem headset: se algum deles estiver errado, é mais provável que seja o gesto das
+duas palmas (1.3) — o limiar foi escolhido no papel — ou o tamanho do número de
+dano num bicho muito pequeno ou muito grande (2.2).
 
 ---
 

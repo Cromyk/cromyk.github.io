@@ -74,3 +74,66 @@ export function olhandoORelogio(
 
   return encarando > (abertoAgora ? MANTER : ABRIR) && (erguida || abertoAgora);
 }
+
+// ------------------------------------------------------- as duas mãos abertas
+
+const CIMA = new THREE.Vector3(0, 1, 0);
+/** Quanto a palma precisa encarar o teto. */
+const PALMA_ACIMA = 0.72;
+
+const palma = new THREE.Vector3();
+const posicaoE = new THREE.Vector3();
+const posicaoD = new THREE.Vector3();
+
+const palmaLocal = (lado: 'left' | 'right') => dorsoLocal(lado).clone().negate();
+
+function palmaParaCima(punho: THREE.Object3D, lado: 'left' | 'right'): boolean {
+  punho.updateMatrixWorld();
+  punho.getWorldQuaternion(giro);
+  palma.copy(palmaLocal(lado)).applyQuaternion(giro);
+  return palma.dot(CIMA) > PALMA_ACIMA;
+}
+
+/**
+ * As duas palmas viradas para cima: o gesto universal de *"e agora?"*.
+ *
+ * É o que traz o cartão de comandos de volta. São 21 comandos no jogo, e o
+ * ensino deles era uma placa de sete segundos na entrada da sessão que sumia
+ * para sempre — depois disso, a única forma de lembrar qual botão fazia o quê
+ * era perguntar a alguém que não estava na sala.
+ *
+ * ## Por que gesto, e não botão
+ *
+ * Porque não sobrou botão: A, B, X e Y já fazem coisa, e gastar o último livre
+ * com a ajuda seria trocar um comando por um lembrete de comandos. Mas o motivo
+ * bom é outro: quem esqueceu qual botão apertar não vai ser salvo por um botão.
+ *
+ * ## Por que as DUAS, e por que a palma
+ *
+ * `olhandoORelogio` acima conta que a primeira versão dele usava a palma de uma
+ * mão só e pegava demais — com o braço relaxado ao lado do corpo a mão já fica
+ * quase nessa pose. Duas palmas para cima ao mesmo tempo, à frente do corpo e
+ * na altura do peito, ninguém faz sem querer: para ambas apontarem ao teto os
+ * dois antebraços têm de girar, e braço caído não faz isso.
+ */
+export function pedindoAjuda(
+  punhoE: THREE.Object3D | null,
+  punhoD: THREE.Object3D | null,
+  camera: THREE.Camera,
+): boolean {
+  if (!punhoE || !punhoD) return false;
+  if (!palmaParaCima(punhoE, 'left') || !palmaParaCima(punhoD, 'right')) return false;
+
+  punhoE.getWorldPosition(posicaoE);
+  punhoD.getWorldPosition(posicaoD);
+  camera.getWorldPosition(cabeca);
+
+  // À frente e abaixo dos olhos, as duas. A faixa é generosa em altura porque
+  // quem joga sentado abre as mãos mais perto do colo.
+  const alturaOk = (p: THREE.Vector3) => p.y < cabeca.y - 0.1 && p.y > cabeca.y - 1.0;
+  if (!alturaOk(posicaoE) || !alturaOk(posicaoD)) return false;
+
+  // E separadas: as duas mãos juntas com as palmas para cima é a pose de quem
+  // está segurando alguma coisa, não de quem está perguntando.
+  return posicaoE.distanceTo(posicaoD) > 0.14;
+}

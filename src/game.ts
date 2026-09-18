@@ -61,7 +61,8 @@ import { ehPedra, pedraPorId, aQuemServe } from './pedras';
 import { ItemNaMao, RastroDeIsca } from './isca';
 import { Mochila } from './mochila';
 import { Medidor } from './medidor';
-import { Aura, Efeito, Impacto } from './attacks';
+import { pedindoAjuda } from './gesto';
+import { Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
 import { PainelPc } from './pc';
 import { calar, falar, preparar, temNarracao } from './voz';
@@ -184,6 +185,8 @@ export class Jogo {
   private bolas: Pokebola[] = [];
   private efeitos: Efeito[] = [];
   private impactos: Impacto[] = [];
+  /** Os números de dano subindo dos bichos. Ver src/attacks.ts. */
+  private numeros: NumeroDeDano[] = [];
   /** Os efeitos exclusivos dos iniciais. Ver src/signature.ts. */
   private assinaturas: Assinatura[] = [];
 
@@ -226,6 +229,10 @@ export class Jogo {
   private painelPulso = new PainelPulso();
   /** A mochila aberta no ar, onde os itens são pegos com a mão. Ver src/mochila.ts. */
   private mochila = new Mochila();
+  /** Há quanto tempo as duas palmas estão para cima. Ver atualizarPedidoDeAjuda. */
+  private pedindoAjudaHa = 0;
+  /** Segundos até o gesto de ajuda poder valer de novo. */
+  private travaDaAjuda = 0;
   /** O contador de quadros, preso à câmera. Ver src/medidor.ts. */
   private medidor = new Medidor();
   private painelTime = new PainelTime();
@@ -990,21 +997,25 @@ export class Jogo {
     mao.sentir('pegou');
     audio.tilintar();
 
-    this.aviso.mostrar(
-      [
-        { texto: `${tipo.nome} na mão`, tamanho: 38, cor: `#${new THREE.Color(tipo.cor).getHexString()}` },
-        {
-          texto:
-            id === 'pocao'
-              ? 'encoste no seu Pokémon para usar · grip no painel devolve'
-              : 'aponte para um selvagem e segure — ou encoste no seu Pokémon',
-          tamanho: 22,
-          cor: '#9aa5b8',
-          peso: 500,
-        },
-      ],
-      3,
-    );
+    // A explicação só na primeira vez que este item cai na sua mão — item 1.4
+    // do roteiro. Da segunda em diante, o nome basta: quem já usou uma poção
+    // sabe o que fazer com ela, e ler de novo é ruído em cima do jogo.
+    const linhas: LinhaTexto[] = [
+      { texto: `${tipo.nome} na mão`, tamanho: 38, cor: `#${new THREE.Color(tipo.cor).getHexString()}` },
+    ];
+    if (this.dex.primeiraVez(`item:${id}`)) {
+      linhas.push({
+        texto: ehPedra(id)
+          ? 'encoste no seu Pokémon — e é para sempre: pedra não se desfaz'
+          : id === 'pocao'
+            ? 'encoste no seu Pokémon para usar · grip no painel devolve'
+            : 'aponte para um selvagem e segure — ou encoste no seu Pokémon',
+        tamanho: 22,
+        cor: '#9aa5b8',
+        peso: 500,
+      });
+    }
+    this.aviso.mostrar(linhas, linhas.length > 1 ? 3 : 1.6);
   }
 
   private guardarIsca(mao: Mao) {
@@ -2237,9 +2248,36 @@ export class Jogo {
     this.cena.add(impacto.pontos);
     this.impactos.push(impacto);
 
+    // O número, no corpo de quem levou — item 2.2 do roteiro.
+    //
+    // A cor é a da EFETIVIDADE, não a do tipo do golpe: o que o jogador precisa
+    // aprender olhando é se a escolha dele foi boa, e a tabela dos 18 tipos é
+    // grande demais para se decorar de cabeça. Verde quando foi super eficaz,
+    // cinza quando quase não arranhou, branco no normal — três cores, que é o
+    // que se distingue de relance num quarto iluminado por acaso.
+    const corDoDano =
+      efetividade >= 2 ? '#8ef0a8' : efetividade === 0 ? '#6a7386' : efetividade <= 0.5 ? '#b9c0cc' : '#ffffff';
+    const numero = new NumeroDeDano(defensor.centro, dano, corDoDano, critico, defensor.altura);
+    this.cena.add(numero.sprite);
+    this.numeros.push(numero);
+
     // Quem levou é o seu: a mão sente o baque, não o acerto.
     if (defensor.papel === 'companheiro') {
       for (const mao of this.maos) mao.sentir('levou');
+      // A primeira vez que o SEU bicho fica perto de cair é a hora em que a
+      // poção deixa de ser um item da mochila e vira uma decisão. Dizer onde
+      // ela está agora vale mais do que ter dito na entrada da sessão, quando
+      // ninguém precisava dela.
+      const baixa = defensor.hp > 0 && defensor.hp <= defensor.hpMax * 0.35;
+      if (baixa && this.dex.item('pocao') > 0 && this.dex.primeiraVez('vida-baixa')) {
+        this.aviso.mostrar(
+          [
+            { texto: `${defensor.especie.nome} está mal`, tamanho: 34, cor: '#ff9f9f' },
+            { texto: 'B abre a mochila · pegue a poção e encoste nele', tamanho: 22, cor: '#9ff0c4', peso: 600 },
+          ],
+          3.4,
+        );
+      }
     } else {
       for (const mao of this.maos) mao.sentir(critico ? 'levou' : 'acertou');
     }
@@ -2742,6 +2780,19 @@ export class Jogo {
           ...(novidade
             ? [{ texto: 'espécie nova', tamanho: 24, cor: '#ffd78a', peso: 600 }]
             : []),
+          // A primeira vez que um selvagem aparece é o único momento em que o
+          // laço inteiro do jogo cabe numa linha — e é o momento em que quem
+          // acabou de entrar mais precisa dela. Uma vez só, guardada no save.
+          ...(this.dex.primeiraVez('selvagem')
+            ? [
+                {
+                  texto: 'enfraqueça com o gatilho, depois arremesse uma bola nele',
+                  tamanho: 22,
+                  cor: '#9ff0c4',
+                  peso: 600,
+                },
+              ]
+            : []),
           // A corrente só aparece quando já significa alguma coisa: anunciar
           // "corrente de 1" a cada encontro seria ruído.
           ...(corrente >= 3 && !shiny
@@ -2878,6 +2929,7 @@ export class Jogo {
     this.atualizarRecargaDeBolas();
     this.atualizarMaos(dt, agora);
     this.atualizarMochila(dt);
+    this.atualizarPedidoDeAjuda(dt);
     this.atualizarPaineis(dt);
     this.atualizarMarca(dt);
     this.atualizarIscas(dt);
@@ -3973,6 +4025,13 @@ export class Jogo {
         this.impactos.splice(this.impactos.indexOf(impacto), 1);
       }
     }
+    for (const numero of [...this.numeros]) {
+      numero.atualizar(dt);
+      if (numero.terminou) {
+        numero.descartar(this.cena);
+        this.numeros.splice(this.numeros.indexOf(numero), 1);
+      }
+    }
     for (const aura of [...this.auras]) {
       aura.atualizar(dt, 0.9);
       if (aura.terminou) {
@@ -4262,16 +4321,76 @@ export class Jogo {
     // suficiente para achar que não funcionou e puxar de novo.
     preparar(INICIAIS.map((e) => e.id));
 
+    this.mostrarComandos('olhe em volta');
+  }
+
+  /**
+   * O cartão de comandos — item 1.3 do roteiro.
+   *
+   * Era uma placa de sete segundos na entrada da sessão, e só. Depois disso,
+   * quem esquecesse qual botão faz o quê — e são 21 comandos — não tinha a quem
+   * perguntar. Agora ela volta com as duas palmas viradas para cima; ver
+   * `pedindoAjuda`, em src/gesto.ts.
+   *
+   * A última linha é a que faz o resto valer: ela ensina a trazer o cartão de
+   * volta. Uma ajuda que não diz como ser reencontrada é uma ajuda de uma vez
+   * só, que é exatamente o que havia antes.
+   */
+  private mostrarComandos(titulo = 'os comandos', segundos = 7) {
     this.aviso.mostrar(
       [
-        { texto: 'olhe em volta', tamanho: 42, cor: '#cfe6ff' },
+        { texto: titulo, tamanho: 42, cor: '#cfe6ff' },
         { texto: 'GRIP segura a pokébola · solte no movimento para arremessar', tamanho: 21, cor: '#9aa5b8', peso: 500 },
         { texto: 'GATILHO toca para atacar · segure para marcar no chão até onde ele vai', tamanho: 21, cor: '#9aa5b8', peso: 500 },
         { texto: 'A recolhe · B abre a mochila · X chama · Y liga o PC', tamanho: 21, cor: '#9aa5b8', peso: 500 },
-        { texto: 'gire os pulsos: time e Pokédex', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        { texto: 'gire os pulsos: time e Pokédex · mão às costas: a Pokédex de mão', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        { texto: 'as duas palmas para cima trazem este cartão de volta', tamanho: 21, cor: '#ffd78a', peso: 600, espaco: 4 },
       ],
-      7,
+      segundos,
     );
+  }
+
+  /**
+   * O gesto de pedir ajuda, conferido por quadro.
+   *
+   * O tempo de espera não é enfeite: a pose acontece de passagem quando você
+   * gira as duas mãos por outro motivo, e o cartão pulando na frente do jogo a
+   * cada meio giro seria pior do que não existir. Meio segundo mantido é curto
+   * para quem quer e longo demais para o acaso.
+   *
+   * A trava depois de mostrar existe pelo mesmo motivo ao contrário: o gesto
+   * continua valendo enquanto você lê o cartão, e sem ela ele se remostraria
+   * para sempre.
+   */
+  private atualizarPedidoDeAjuda(dt: number) {
+    if (this.travaDaAjuda > 0) {
+      this.travaDaAjuda -= dt;
+      return;
+    }
+    // Com painel, mochila ou escolha na frente, as mãos estão fazendo outra
+    // coisa — e o cartão por cima deles só atrapalharia.
+    if (this.escolha || this.mochila.estaAberta || this.painelTime.aberto || this.painelDex.aberto) {
+      this.pedindoAjudaHa = 0;
+      return;
+    }
+
+    const esquerda = this.maos.find((m) => m.lado === 'left' && m.conectada);
+    const direita = this.maos.find((m) => m.lado === 'right' && m.conectada);
+    const pedindo = pedindoAjuda(esquerda?.punho ?? null, direita?.punho ?? null, this.camera);
+
+    if (!pedindo) {
+      this.pedindoAjudaHa = 0;
+      return;
+    }
+
+    this.pedindoAjudaHa += dt;
+    if (this.pedindoAjudaHa < 0.5) return;
+
+    this.pedindoAjudaHa = 0;
+    this.travaDaAjuda = 8;
+    this.mostrarComandos('os comandos', 8);
+    audio.abrirPainel();
+    for (const mao of this.maos) mao.sentir('marcou');
   }
 
   descartar() {
@@ -4284,6 +4403,7 @@ export class Jogo {
     for (const bola of this.bolas) bola.descartar(this.cena);
     for (const efeito of this.efeitos) efeito.descartar(this.cena);
     for (const impacto of this.impactos) impacto.descartar(this.cena);
+    for (const numero of this.numeros) numero.descartar(this.cena);
     for (const assinatura of this.assinaturas) assinatura.descartar(this.cena);
     for (const aura of this.auras) aura.descartar(this.cena);
     for (const mira of this.miras.values()) mira.descartar();

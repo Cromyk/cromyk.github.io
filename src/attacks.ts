@@ -361,3 +361,113 @@ export class Aura {
     for (const d of this.descartaveis) d.dispose();
   }
 }
+
+/**
+ * O número do dano, subindo do corpo de quem levou — item 2.2 do roteiro.
+ *
+ * Em VR, informação presa a um painel é informação que você tem de ir BUSCAR.
+ * A barra de vida do selvagem flutua sobre ele, o que já ajuda, mas ela conta
+ * um estado, não um acontecimento: ela desce, e você descobre depois que desceu.
+ * O número aparece onde o golpe bateu, no instante em que bateu, e some.
+ *
+ * ## Por que sprite
+ *
+ * Billboard de graça — o número nunca é visto de lado, e num jogo onde o
+ * jogador anda em volta do bicho isso não é detalhe. É a mesma escolha da chama
+ * (src/fogo.ts) e pelo mesmo motivo.
+ *
+ * ## O canvas é por número, e isso é aceitável
+ *
+ * Cada acerto desenha uma textura pequena e a joga fora em menos de um segundo.
+ * Seria caro se fosse por quadro; é barato porque é por GOLPE, e um golpe leva
+ * pelo menos um segundo de recarga. A textura tem 128×64: o suficiente para
+ * três dígitos legíveis a um metro, e pequeno o bastante para o upload não
+ * aparecer no medidor.
+ */
+export class NumeroDeDano {
+  readonly sprite: THREE.Sprite;
+
+  private material: THREE.SpriteMaterial;
+  private textura: THREE.CanvasTexture;
+  private tempo = 0;
+  private readonly inicio: THREE.Vector3;
+  private readonly subida: number;
+  private readonly duracao: number;
+
+  constructor(posicao: THREE.Vector3, dano: number, cor: string, critico: boolean, altura: number) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+
+    const texto = String(Math.max(1, Math.round(dano)));
+    const corpo = critico ? 'bold 46px system-ui, sans-serif' : 'bold 40px system-ui, sans-serif';
+    ctx.font = corpo;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Contorno escuro antes do preenchimento: em passthrough o fundo é o seu
+    // quarto, e um número sem contorno some em cima de qualquer parede clara.
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = 'rgba(6, 9, 14, 0.9)';
+    ctx.strokeText(texto, 64, 34);
+    ctx.fillStyle = cor;
+    ctx.fillText(texto, 64, 34);
+
+    if (critico) {
+      ctx.font = 'bold 17px system-ui, sans-serif';
+      ctx.lineWidth = 5;
+      ctx.strokeText('CRÍTICO', 64, 9);
+      ctx.fillStyle = '#ffd76a';
+      ctx.fillText('CRÍTICO', 64, 9);
+    }
+
+    this.textura = new THREE.CanvasTexture(canvas);
+    this.textura.colorSpace = THREE.SRGBColorSpace;
+    this.material = new THREE.SpriteMaterial({
+      map: this.textura,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      toneMapped: false,
+    });
+
+    this.sprite = new THREE.Sprite(this.material);
+    this.sprite.frustumCulled = false;
+
+    // O tamanho acompanha o bicho: um número de 12 cm em cima de um Diglett o
+    // esconde, e o mesmo número num Onix de oito metros não se vê.
+    const escala = THREE.MathUtils.clamp(altura * 0.55, 0.11, 0.5);
+    this.sprite.scale.set(escala * 2, escala, 1);
+
+    // Sai de um lado aleatório do centro: dois golpes seguidos no mesmo bicho
+    // empilhariam dois números no mesmo pixel.
+    this.inicio = posicao.clone();
+    this.inicio.x += (Math.random() - 0.5) * altura * 0.4;
+    this.inicio.z += (Math.random() - 0.5) * altura * 0.4;
+    this.sprite.position.copy(this.inicio);
+
+    this.subida = altura * (critico ? 0.75 : 0.55);
+    this.duracao = critico ? 1.15 : 0.9;
+  }
+
+  get terminou(): boolean {
+    return this.tempo >= this.duracao;
+  }
+
+  atualizar(dt: number) {
+    this.tempo += dt;
+    const t = Math.min(1, this.tempo / this.duracao);
+    // Sobe rápido e desacelera: é a curva de uma coisa jogada para cima, e o
+    // olho a reconhece sem saber por quê.
+    this.sprite.position.y = this.inicio.y + this.subida * (1 - (1 - t) ** 2);
+    // Fica inteiro a maior parte do tempo e some no fim. Apagar desde o começo
+    // deixaria o número ilegível justo quando ele é novidade.
+    this.material.opacity = t < 0.65 ? 1 : 1 - (t - 0.65) / 0.35;
+  }
+
+  descartar(cena: THREE.Object3D) {
+    cena.remove(this.sprite);
+    this.textura.dispose();
+    this.material.dispose();
+  }
+}
