@@ -38,10 +38,41 @@ redimensionar();
 
 // ---------------------------------------------------------------- WebXR
 
+/**
+ * O que o jogo pede ao runtime. Só `local-floor` é obrigatório — tudo o mais é
+ * opcional de propósito: um headset que não entregue planos continua jogando
+ * com o chão sondado a passos, e um que não entregue profundidade continua
+ * jogando sem oclusão.
+ *
+ * - **unbounded** — espaço de referência SEM limite de área, pedido em 18/09 a
+ *   partir de *"quero poder andar sem definir uma escala de cômodo, em tempo
+ *   real"*. É o que diz ao runtime que este app quer a casa inteira e não um
+ *   quadrado. Onde não existir, `local-floor` continua valendo e nada muda; o
+ *   que continua sendo do SISTEMA, e não do jogo, é o limite do Guardião — ver
+ *   GUIA-QUEST.md.
+ * - **depth-sensing** — o mapa de profundidade do quarto, quadro a quadro. É a
+ *   única coisa em WebXR que enxerga o que se MEXE: móvel que você arrastou,
+ *   porta que abriu, e uma pessoa entrando na sala. Ver `oclusaoDoQuarto` em
+ *   src/ajustes.ts.
+ */
 const FEATURES: XRSessionInit = {
   requiredFeatures: ['local-floor'],
-  optionalFeatures: ['plane-detection', 'mesh-detection', 'anchors', 'hit-test', 'hand-tracking'],
-};
+  optionalFeatures: [
+    'unbounded',
+    'plane-detection',
+    'mesh-detection',
+    'anchors',
+    'hit-test',
+    'hand-tracking',
+    'depth-sensing',
+  ],
+  // O three só monta a textura de profundidade no caminho de GPU; no de CPU
+  // ele ignora, e a oclusão simplesmente não acontece.
+  depthSensing: {
+    usagePreference: ['gpu-optimized'],
+    dataFormatPreference: ['luminance-alpha', 'float32'],
+  },
+} as XRSessionInit;
 
 async function prepararBotaoXR() {
   if (!('xr' in navigator) || !navigator.xr) {
@@ -100,6 +131,29 @@ async function entrarXR(automatico = false) {
     });
 
     await renderer.xr.setSession(sessao);
+
+    // Sem limite de área, quando o runtime souber fazer isso.
+    //
+    // `unbounded` é o espaço de referência de quem anda pela CASA: o runtime
+    // pode reajustar a origem enquanto você caminha para manter a precisão
+    // longe do ponto de partida, e não há um quadrado além do qual as
+    // coordenadas deixam de valer. `local-floor`, o padrão, garante y = 0 no
+    // seu piso mas nasce ancorado onde você entrou.
+    //
+    // Pedir depois de `setSession` e não antes: se o espaço não existir, a
+    // promessa rejeita e o jogo segue com o que o three já configurou — é uma
+    // troca opcional, não um requisito. E a altura do chão não se perde por
+    // isso: a sala mede o piso com hit-test a cada passo (ver src/room.ts),
+    // então ela se acerta sozinha mesmo com a origem em outro lugar.
+    try {
+      const semLimite = await sessao.requestReferenceSpace('unbounded');
+      renderer.xr.setReferenceSpace(semLimite);
+      jogo.semLimiteDeArea = true;
+    } catch {
+      // Quest sem `unbounded`: segue no local-floor, que já anda pela casa
+      // desde 15/09 — o que limita é o Guardião, não o jogo.
+    }
+
     ui.style.display = 'none';
     jogo.aoEntrarNaSessao();
   } catch (erro) {

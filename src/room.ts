@@ -16,14 +16,79 @@ export interface Superficie {
    * veio do Space Setup. Ver `sondarChao`.
    */
   sondada?: boolean;
+  /** De onde ela veio. Ver `Sala`. */
+  fonte?: 'plano' | 'malha' | 'sonda' | 'sintetica';
+  /**
+   * O que a ALTURA diz que isso é, quando o rótulo não diz.
+   *
+   * O Quest rotula o que o Space Setup pediu para você marcar, e a lista dele
+   * não tem "cadeira": uma cadeira vem como `other`, `couch` ou nada. Mas a
+   * altura não mente — um assento fica entre 35 e 55 cm do chão, uma mesa entre
+   * 60 e 85, uma bancada entre 85 e 120. Ver `classificarPelaAltura`.
+   */
+  movel?: TipoDeMovel;
 }
+
+export type TipoDeMovel = 'assento' | 'mesa' | 'bancada' | 'alto';
 
 /**
  * Que tipo de lugar uma criatura procura para nascer. Ver `pontoDeSpawn`.
  */
 export type Preferencia = 'alto' | 'chao' | 'movel' | 'qualquer';
 
-const ROTULOS_UTEIS = new Set(['floor', 'table', 'desk', 'couch', 'shelf', 'bed', 'other', 'seat']);
+/**
+ * Os rótulos que o Quest entrega, normalizados.
+ *
+ * A lista da Meta mudou de forma entre versões e entre as duas APIs: o mesmo
+ * móvel pode chegar como `desk` ou `table`, e as superfícies verticais vêm como
+ * `wall face`, com espaço. Normalizar num lugar só evita que meia dúzia de
+ * comparações espalhadas pelo arquivo tenham de saber disso.
+ */
+function normalizarRotulo(bruto: string | undefined): string {
+  const r = (bruto ?? 'other').toLowerCase().trim();
+  if (r.startsWith('wall')) return r === 'wall art' ? 'wall art' : 'wall';
+  if (r.startsWith('door')) return 'door';
+  if (r.startsWith('window')) return 'window';
+  if (r === 'desk') return 'table';
+  if (r === 'global mesh') return 'malha';
+  return r;
+}
+
+/**
+ * Onde cabe um Pokémon. Cresceu junto com a leitura da malha: `storage`,
+ * `screen` e `cabinet` são superfícies de verdade em cima das quais um bicho
+ * pequeno pode aparecer, e ignorá-las era jogar fora metade do quarto.
+ */
+const ROTULOS_UTEIS = new Set([
+  'floor',
+  'table',
+  'couch',
+  'shelf',
+  'bed',
+  'other',
+  'seat',
+  'storage',
+  'cabinet',
+  'counter',
+  'screen',
+  'malha',
+]);
+
+/**
+ * O que a altura acima do piso diz que um móvel é.
+ *
+ * As faixas são as de móvel de casa, e a folga entre elas é de propósito: um
+ * puff de 42 cm e uma cadeira de 47 são a mesma coisa para o jogo — algo em que
+ * um Pikachu senta. O que interessa é distinguir "sento", "apoio o cotovelo" e
+ * "não alcanço", porque é isso que muda onde cada bicho nasce.
+ */
+export function classificarPelaAltura(acimaDoPiso: number): TipoDeMovel | undefined {
+  if (acimaDoPiso < 0.22) return undefined;
+  if (acimaDoPiso < 0.58) return 'assento';
+  if (acimaDoPiso < 0.88) return 'mesa';
+  if (acimaDoPiso < 1.25) return 'bancada';
+  return 'alto';
+}
 
 /** Lado da célula do mapa de chão, em metros. */
 const CELULA = 0.8;
@@ -40,12 +105,22 @@ const chaveDaCelula = (x: number, z: number) =>
  *
  * 1. **Os planos do Space Setup** (`plane-detection`) — chão, mesa, sofá, cama,
  *    com rótulo semântico. É a melhor informação que existe, e é o que põe um
- *    Pokémon em cima da sua mesa em vez de no chão na frente dela.
- * 2. **O chão sob os seus pés** (`hit-test`) — um raio para baixo a partir da
+ *    Pokémon em cima da sua mesa em vez de no chão na frente dela. As
+ *    superfícies VERTICAIS entram por uma porta própria: parede, porta e janela
+ *    não são lugar de pousar, mas são lugar de não NASCER. Ver `pertoDeParede`.
+ * 2. **A malha do quarto** (`mesh-detection`) — o scan que o Quest 3 faz do
+ *    cômodo, uma malha por objeto. Cada uma vira a caixa que a envolve, e o
+ *    topo da caixa vira superfície. É o que enxerga o móvel que ninguém marcou
+ *    no Space Setup. Ver `lerMalhas`.
+ * 3. **O chão sob os seus pés** (`hit-test`) — um raio para baixo a partir da
  *    cabeça, a cada meio segundo. É isto que faz o mapa CRESCER enquanto você
  *    caminha: cada passo carimba a célula onde você está.
- * 3. **Um piso sintético que te acompanha**, quando o aparelho não dá nenhuma
- *    das duas.
+ * 4. **Um piso sintético que te acompanha**, quando o aparelho não dá nenhuma
+ *    das três.
+ *
+ * E o que o rótulo não diz, a ALTURA diz: ver `classificarPelaAltura`, que é
+ * como uma cadeira vira uma cadeira num aparelho cuja lista de rótulos não tem
+ * a palavra "cadeira".
  *
  * ## Por que somar, e não substituir
  *
@@ -70,6 +145,10 @@ export class Sala {
 
   /** Planos do Space Setup, guardados pela identidade que o runtime mantém. */
   private planos = new Map<XRPlane, Superficie>();
+  /** As superfícies VERTICAIS: parede, porta, janela. Ver `pertoDeParede`. */
+  private paredes = new Map<XRPlane, Superficie>();
+  /** A malha do quarto, uma caixa por objeto reconhecido. Ver `lerMalhas`. */
+  private malhas = new Map<XRMesh, { carimbo: number | undefined; superficie: Superficie }>();
   /** Chão medido a passos, uma célula por quadrado de 80 cm. */
   private celulas = new Map<string, Superficie>();
   /** O piso que acompanha o jogador quando não há nada real. */
@@ -231,6 +310,7 @@ export class Sala {
   atualizar(frame: XRFrame | null, espacoRef: XRReferenceSpace | null, jogador: THREE.Vector3) {
     if (frame && espacoRef) {
       this.lerPlanos(frame, espacoRef);
+      this.lerMalhas(frame, espacoRef);
       this.sondarChao(frame, espacoRef, jogador);
     }
 
@@ -249,9 +329,16 @@ export class Sala {
     if (!detectados || detectados.size === 0) return;
 
     for (const plano of detectados) {
-      if (plano.orientation !== 'horizontal') continue;
+      const rotulo = normalizarRotulo((plano as XRPlane & { semanticLabel?: string }).semanticLabel);
 
-      const rotulo = (plano as XRPlane & { semanticLabel?: string }).semanticLabel ?? 'other';
+      // As superfícies VERTICAIS vão para outra lista: parede, porta e janela
+      // não são lugar de nascer nem de pisar, mas são lugar de NÃO nascer, e
+      // até 18/09 o jogo simplesmente as jogava fora. Ver `paredes`.
+      if (plano.orientation === 'vertical') {
+        this.guardarParede(frame, espacoRef, plano, rotulo);
+        continue;
+      }
+      if (plano.orientation !== 'horizontal') continue;
       if (!ROTULOS_UTEIS.has(rotulo)) continue;
 
       const pose = frame.getPose(plano.planeSpace, espacoRef);
@@ -294,17 +381,172 @@ export class Sala {
         rotulo,
         altura: centro.y,
         area: meiaLargura * meiaProfundidade * 4,
+        fonte: 'plano',
+        movel: classificarPelaAltura(centro.y - this.pisoY),
       });
       this.temDadosReais = true;
       this.listaSuja = true;
     }
   }
 
-  /** Reconstrói a lista achatada a partir das três fontes. */
+  /** Guarda uma superfície vertical: parede, porta, janela, quadro. */
+  private guardarParede(
+    frame: XRFrame,
+    espacoRef: XRReferenceSpace,
+    plano: XRPlane,
+    rotulo: string,
+  ) {
+    if (this.paredes.has(plano)) return;
+    const pose = frame.getPose(plano.planeSpace, espacoRef);
+    if (!pose) return;
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const p of plano.polygon) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+      minZ = Math.min(minZ, p.z);
+      maxZ = Math.max(maxZ, p.z);
+    }
+    const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
+    const centro = new THREE.Vector3((minX + maxX) * 0.5, 0, (minZ + maxZ) * 0.5).applyMatrix4(m);
+
+    this.paredes.set(plano, {
+      centro,
+      // Num plano vertical, o "z" local sobe: a altura da parede é a
+      // profundidade do polígono, e a largura continua sendo a largura.
+      meiaLargura: (maxX - minX) * 0.5,
+      meiaProfundidade: (maxZ - minZ) * 0.5,
+      rotacaoY: new THREE.Euler().setFromRotationMatrix(m, 'YXZ').y,
+      rotulo,
+      altura: centro.y,
+      area: (maxX - minX) * (maxZ - minZ),
+      fonte: 'plano',
+    });
+    this.temDadosReais = true;
+  }
+
+  /**
+   * A MALHA do quarto — `mesh-detection`, a terceira fonte, ligada em 18/09.
+   *
+   * O Quest 3 varre o cômodo com os sensores de profundidade e devolve uma
+   * malha por objeto reconhecido, mais uma malha grande do cômodo inteiro (a
+   * `global mesh`). Isso é mapeamento de verdade, e é o que responde ao pedido
+   * do playtest: *"quero mapeamento dinâmico do ambiente, reconhecendo chão,
+   * mesa, cadeira, pessoas"*. Estava na lista de features pedidas ao
+   * `requestSession` desde sempre e nunca tinha sido lido.
+   *
+   * ## O que se tira de uma malha, e o que não
+   *
+   * Um Pokémon anda sobre uma superfície plana com um centro, um tamanho e uma
+   * altura — não sobre um triângulo. Então cada malha vira a CAIXA que a
+   * envolve, e o topo dessa caixa vira a superfície: é o tampo da mesa, o
+   * assento da cadeira, o braço do sofá. Dá para fazer melhor (segmentar a
+   * malha em patamares), mas isso custaria varrer milhares de triângulos por
+   * quadro no headset, e o que se ganharia é precisão em cima de um móvel que o
+   * bicho já usa inteiro.
+   *
+   * A `global mesh` é pulada: ela é o cômodo todo numa caixa só, e a caixa que
+   * envolve o cômodo é o teto.
+   */
+  private lerMalhas(frame: XRFrame, espacoRef: XRReferenceSpace) {
+    const detectadas = (frame as XRFrame & { detectedMeshes?: XRMeshSet }).detectedMeshes;
+    if (!detectadas || detectadas.size === 0) return;
+
+    for (const malha of detectadas) {
+      const rotulo = normalizarRotulo((malha as XRMesh & { semanticLabel?: string }).semanticLabel);
+      // O cômodo inteiro numa caixa só não é um móvel: é o teto.
+      if (rotulo === 'malha' || rotulo === 'ceiling' || rotulo === 'wall') continue;
+
+      const guardada = this.malhas.get(malha);
+      // `lastChangedTime` é o carimbo que o runtime atualiza quando a malha
+      // muda. Sem ele, remedir dezenas de malhas por leitura seria o item mais
+      // caro deste arquivo — e elas quase nunca mudam depois do primeiro scan.
+      const mudou = (malha as XRMesh & { lastChangedTime?: number }).lastChangedTime;
+      if (guardada && mudou !== undefined && guardada.carimbo === mudou) continue;
+
+      const pose = frame.getPose(malha.meshSpace, espacoRef);
+      if (!pose) continue;
+
+      const vertices = malha.vertices;
+      if (!vertices || vertices.length < 9) continue;
+
+      // A caixa envolvente, no espaço do mundo. Os vértices vêm em coordenadas
+      // da própria malha, então cada um passa pela pose antes de entrar na
+      // conta — é isto que põe a mesa no lugar da mesa.
+      const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
+      const caixa = new THREE.Box3();
+      const v = new THREE.Vector3();
+      for (let i = 0; i + 2 < vertices.length; i += 3) {
+        v.set(vertices[i], vertices[i + 1], vertices[i + 2]).applyMatrix4(m);
+        caixa.expandByPoint(v);
+      }
+
+      const tamanho = caixa.getSize(new THREE.Vector3());
+      const centro = caixa.getCenter(new THREE.Vector3());
+      if (tamanho.x < 0.2 || tamanho.z < 0.2) continue;
+
+      this.malhas.set(malha, {
+        carimbo: mudou,
+        superficie: {
+          // O TOPO da caixa: é onde se pousa.
+          centro: new THREE.Vector3(centro.x, caixa.max.y, centro.z),
+          meiaLargura: tamanho.x * 0.5,
+          meiaProfundidade: tamanho.z * 0.5,
+          rotacaoY: 0,
+          rotulo,
+          altura: caixa.max.y,
+          area: tamanho.x * tamanho.z,
+          fonte: 'malha',
+          movel: classificarPelaAltura(caixa.max.y - this.pisoY),
+        },
+      });
+      this.temDadosReais = true;
+      this.listaSuja = true;
+    }
+  }
+
+  /** Reconstrói a lista achatada a partir das quatro fontes. */
   private recompor() {
-    this.superficies = [...this.planos.values(), ...this.celulas.values()];
+    this.superficies = [
+      ...this.planos.values(),
+      ...[...this.malhas.values()].map((m) => m.superficie),
+      ...this.celulas.values(),
+    ];
     if (this.sintetica) this.superficies.push(this.sintetica);
     this.listaSuja = false;
+  }
+
+  /**
+   * Há parede a menos de `folga` deste ponto?
+   *
+   * Serve para o selvagem não nascer dentro do armário nem meio metro para fora
+   * da janela. É uma pergunta barata — as paredes de uma sala são umas quatro —
+   * e a resposta é conservadora: mede a distância do ponto ao SEGMENTO da
+   * parede vista de cima, ignorando a altura, porque um bicho a meio metro de
+   * uma parede está perto dela em qualquer altura.
+   */
+  pertoDeParede(ponto: THREE.Vector3, folga = 0.35): boolean {
+    for (const p of this.paredes.values()) {
+      // A parede é um segmento no plano do chão, de comprimento 2·meiaLargura,
+      // girado por rotacaoY em torno do centro.
+      const dx = ponto.x - p.centro.x;
+      const dz = ponto.z - p.centro.z;
+      const cos = Math.cos(-p.rotacaoY);
+      const sen = Math.sin(-p.rotacaoY);
+      const ao = dx * cos - dz * sen;
+      const perpendicular = dx * sen + dz * cos;
+      if (Math.abs(ao) > p.meiaLargura + folga) continue;
+      if (Math.abs(perpendicular) <= folga) return true;
+    }
+    return false;
+  }
+
+  /** Quantas paredes, portas e janelas o mapa conhece. */
+  get paredesConhecidas(): number {
+    return this.paredes.size;
   }
 
   // ------------------------------------------------------------- consultas
@@ -355,7 +597,50 @@ export class Sala {
 
   /** Quantas superfícies o mapa já conhece — o HUD mostra isso crescendo. */
   get mapeadas(): number {
-    return this.planos.size + this.celulas.size;
+    return this.planos.size + this.malhas.size + this.celulas.size;
+  }
+
+  /**
+   * O que o mapa reconheceu, em palavras — para o jogo poder DIZER.
+   *
+   * O número de superfícies subindo prova que o mapeamento está vivo e não diz
+   * o que ele viu. "duas mesas, um sofá e uma cadeira" diz, e é a diferença
+   * entre confiar no mapeamento e torcer por ele.
+   */
+  inventario(): Array<{ o_que: string; quantos: number }> {
+    const conta = new Map<string, number>();
+    const nomear = (s: Superficie): string | null => {
+      if (s.rotulo === 'floor' || s.sondada) return null;
+      if (s.rotulo === 'couch') return 'sofá';
+      if (s.rotulo === 'bed') return 'cama';
+      if (s.rotulo === 'table') return 'mesa';
+      if (s.rotulo === 'shelf') return 'prateleira';
+      if (s.rotulo === 'screen') return 'tela';
+      // Sem rótulo que sirva, vale a altura: é assim que a cadeira aparece,
+      // porque "cadeira" não existe na lista de rótulos do Quest.
+      switch (s.movel) {
+        case 'assento':
+          return 'assento';
+        case 'mesa':
+          return 'mesa';
+        case 'bancada':
+          return 'bancada';
+        case 'alto':
+          return 'lugar alto';
+        default:
+          return null;
+      }
+    };
+
+    for (const s of this.superficies) {
+      const nome = nomear(s);
+      if (!nome) continue;
+      conta.set(nome, (conta.get(nome) ?? 0) + 1);
+    }
+    if (this.paredes.size > 0) conta.set('parede', this.paredes.size);
+    return [...conta.entries()]
+      .map(([o_que, quantos]) => ({ o_que, quantos }))
+      .sort((a, b) => b.quantos - a.quantos);
   }
 
   /**
@@ -419,7 +704,12 @@ export class Sala {
       const ponto = escolhida.centro.clone().add(local);
 
       const dist = Math.hypot(ponto.x - jogador.x, ponto.z - jogador.z);
-      if (dist >= distMin && dist <= distMax) return { ponto, rotulo: escolhida.rotulo };
+      if (dist < distMin || dist > distMax) continue;
+      // Desde que as paredes passaram a ser lidas (18/09), nascer encostado
+      // numa delas deixou de ser sorte: meio metro de um Charizard contra a
+      // parede é meio Charizard dentro do gesso.
+      if (this.pertoDeParede(ponto, 0.3)) continue;
+      return { ponto, rotulo: escolhida.rotulo };
     }
     return null;
   }
@@ -495,17 +785,22 @@ export class Sala {
 
     switch (procura) {
       // Quem voa procura o alto: o armário, a estante, o topo da geladeira. É o
-      // que faz um Zubat parecer um Zubat em vez de um rato com asas.
+      // que faz um Zubat parecer um Zubat em vez de um rato com asas. A
+      // classificação por altura (18/09) afina isto: uma bancada ou uma
+      // prateleira valem mais do que um assento de 40 cm, que tecnicamente é
+      // "móvel" e está na altura do joelho.
       case 'alto':
-        return ehMovel ? 3.2 : 0.35;
+        if (!ehMovel) return 0.35;
+        return s.movel === 'alto' ? 4 : s.movel === 'bancada' ? 3.2 : 1.4;
       // Quem cava, rasteja ou é feito de pedra fica no chão. Um Diglett em cima
       // da mesa de jantar é engraçado uma vez e errado sempre.
       case 'chao':
         return ehChao ? 2.4 : 0.25;
-      // Os pequenos e curiosos sobem no que houver, mas não no alto de tudo: o
-      // sofá e a mesa, não a estante.
+      // Os pequenos e curiosos sobem no que houver, mas não no alto de tudo: a
+      // cadeira, o sofá e a mesa, não a estante.
       case 'movel':
-        return ehMovel && acimaDoChao < 1.0 ? 2.6 : 0.6;
+        if (!ehMovel) return 0.6;
+        return s.movel === 'assento' || s.movel === 'mesa' ? 3 : acimaDoChao < 1.0 ? 2 : 0.6;
       default:
         return 1;
     }
@@ -584,33 +879,72 @@ export class Sala {
     if (ligado) this.redesenharDebug();
   }
 
-  /** Contorno fino sobre cada superfície reconhecida — só para conferir a leitura. */
+  /**
+   * Contorno fino sobre cada superfície reconhecida — só para conferir a
+   * leitura.
+   *
+   * A cor diz o que o mapa ACHA que aquilo é, e não só que achou alguma coisa:
+   * verde o chão medido, azul o chão sondado a passos, amarelo o que veio da
+   * malha do quarto, laranja os assentos e as mesas, vermelho as paredes.
+   * Ligado o contorno, dá para andar pelo cômodo e ver, sem tirar o headset, se
+   * a cadeira virou cadeira ou virou parte do chão.
+   */
   private redesenharDebug() {
     this.limparDebug();
-    const material = new THREE.LineBasicMaterial({ color: 0x55e2c2, transparent: true, opacity: 0.7 });
-    const materialSondado = new THREE.LineBasicMaterial({
-      color: 0x8ab6ff,
-      transparent: true,
-      opacity: 0.35,
-    });
-    this.descartaveis.push(material, materialSondado);
 
-    for (const s of this.superficies) {
-      const pontos = [
-        new THREE.Vector3(-s.meiaLargura, 0, -s.meiaProfundidade),
-        new THREE.Vector3(s.meiaLargura, 0, -s.meiaProfundidade),
-        new THREE.Vector3(s.meiaLargura, 0, s.meiaProfundidade),
-        new THREE.Vector3(-s.meiaLargura, 0, s.meiaProfundidade),
-        new THREE.Vector3(-s.meiaLargura, 0, -s.meiaProfundidade),
-      ];
-      const geo = new THREE.BufferGeometry().setFromPoints(pontos);
+    const cores: Record<string, number> = {
+      chao: 0x55e2c2,
+      sondado: 0x8ab6ff,
+      malha: 0xffd76a,
+      movel: 0xff9f6b,
+      parede: 0xff6b6b,
+    };
+    const materiais = new Map<string, THREE.LineBasicMaterial>();
+    const material = (chave: string) => {
+      const pronto = materiais.get(chave);
+      if (pronto) return pronto;
+      const novo = new THREE.LineBasicMaterial({
+        color: cores[chave],
+        transparent: true,
+        opacity: chave === 'sondado' ? 0.35 : 0.7,
+      });
+      materiais.set(chave, novo);
+      this.descartaveis.push(novo);
+      return novo;
+    };
+
+    const contorno = (s: Superficie, chave: string, vertical: boolean) => {
+      const a = s.meiaLargura;
+      const b = s.meiaProfundidade;
+      // Na parede o retângulo fica EM PÉ: o segundo eixo é a altura.
+      const canto = (x: number, y: number) =>
+        vertical ? new THREE.Vector3(x, y, 0) : new THREE.Vector3(x, 0, y);
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        canto(-a, -b),
+        canto(a, -b),
+        canto(a, b),
+        canto(-a, b),
+        canto(-a, -b),
+      ]);
       this.descartaveis.push(geo);
-      const linha = new THREE.Line(geo, s.sondada ? materialSondado : material);
+      const linha = new THREE.Line(geo, material(chave));
       linha.position.copy(s.centro);
-      linha.position.y += 0.005;
+      if (!vertical) linha.position.y += 0.005;
       linha.rotation.y = s.rotacaoY;
       this.grupoDebug.add(linha);
+    };
+
+    for (const s of this.superficies) {
+      const chave = s.sondada
+        ? 'sondado'
+        : s.movel
+          ? 'movel'
+          : s.fonte === 'malha'
+            ? 'malha'
+            : 'chao';
+      contorno(s, chave, false);
     }
+    for (const p of this.paredes.values()) contorno(p, 'parede', true);
   }
 
   private limparDebug() {

@@ -60,6 +60,7 @@ import { Aviso } from '../src/hud';
 import { ITENS } from '../src/itens';
 import { Mochila, disporGrade } from '../src/mochila';
 import { MEDIDAS_TIME, disporTime } from '../src/menu';
+import { classificarPelaAltura } from '../src/room';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
 import { GOLPES_DEX } from '../src/golpes.gen';
@@ -2642,6 +2643,38 @@ console.log('29. as pedras de evolução');
     console.log(
       `   time em bolas de luz: ${MEDIDAS_TIME.porLinha} por linha, vizinhas a ${(maisPerto * 100).toFixed(1)} cm, ` +
         `${(larguraDoTime * 100).toFixed(0)} × ${(alturaDoTime * 100).toFixed(0)} cm (eram 30 × 24)`,
+    );
+  }
+
+
+  // A classificação por altura, que é como uma cadeira vira uma cadeira num
+  // aparelho cuja lista de rótulos não tem a palavra "cadeira". As faixas
+  // precisam cobrir a casa inteira sem buraco: uma altura que não cai em faixa
+  // nenhuma é um móvel que o jogo trata como chão.
+  {
+    const casos: Array<[number, string | undefined]> = [
+      [0.0, undefined], // o próprio chão
+      [0.12, undefined], // um degrau, um tapete grosso
+      [0.45, 'assento'], // cadeira, sofá, puff
+      [0.74, 'mesa'], // mesa de jantar, escrivaninha
+      [0.95, 'bancada'], // bancada de cozinha, aparador
+      [1.8, 'alto'], // alto do armário
+    ];
+    for (const [altura, esperado] of casos) {
+      const deu = classificarPelaAltura(altura);
+      checar(
+        deu === esperado,
+        `altura de ${(altura * 100).toFixed(0)} cm devia ser ${esperado ?? 'chão'} e deu ${deu ?? 'chão'}`,
+      );
+    }
+    // Sem buraco entre as faixas: 57 e 59 cm têm de cair em faixas vizinhas, e
+    // não os dois fora.
+    checar(
+      classificarPelaAltura(0.57) === 'assento' && classificarPelaAltura(0.59) === 'mesa',
+      'há um buraco entre a faixa do assento e a da mesa',
+    );
+    console.log(
+      '   móveis por altura: assento até 58 cm · mesa até 88 · bancada até 125 · acima é lugar alto',
     );
   }
 

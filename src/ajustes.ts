@@ -70,6 +70,7 @@ export type ChaveAjuste =
   | 'musicaDeBatalha'
   | 'contadorDeQuadros'
   | 'calibrarMao'
+  | 'oclusaoDoQuarto'
   | 'modoSentado';
 
 interface Interruptor {
@@ -127,6 +128,12 @@ export const INTERRUPTORES: readonly Interruptor[] = [
     nome: 'Contador de quadros',
     ligadoDiz: 'mostra ms, fps e draw calls',
     desligadoDiz: 'sem medição na tela',
+  },
+  {
+    id: 'oclusaoDoQuarto',
+    nome: 'Sumir atrás das coisas',
+    ligadoDiz: 'o quarto tapa quem está atrás — pessoas inclusive',
+    desligadoDiz: 'os Pokémon aparecem por cima de tudo',
   },
   {
     id: 'contornoDaSala',
@@ -202,6 +209,35 @@ export class Ajustes {
   maoGiroZ = 0;
   /** Recuo da mão na direção do antebraço, em metros. */
   maoRecuo = 0;
+  /**
+   * A oclusão pelo sensor de profundidade do headset.
+   *
+   * ## O que ela é
+   *
+   * O Quest 3 mede a distância de cada pedaço do que você está vendo, quadro a
+   * quadro. Com isso, um Pokémon que esteja ATRÁS do sofá é tapado pelo sofá; e
+   * como a medida é refeita a cada quadro, ela enxerga o que se mexe — a porta
+   * que abriu, a cadeira que você arrastou, e uma pessoa que entrou na sala.
+   *
+   * É a resposta possível ao "reconhecendo… pessoas" do playtest de 18/09: não
+   * existe, em WebXR, API que diga *ali está uma pessoa*. O que existe é a
+   * profundidade — e ela não precisa saber o que a coisa É para tapar o que
+   * está atrás dela.
+   *
+   * ## Por que nasce desligada
+   *
+   * Porque o modo de falhar dela é bruto: se a profundidade vier zerada ou
+   * perto demais, TUDO fica escondido — os Pokémon, os painéis, e a própria
+   * engrenagem em que se desliga isto. Um ajuste cuja falha esconde o botão de
+   * desligar não pode vir ligado antes de alguém o ter visto funcionando com o
+   * headset na cabeça.
+   *
+   * Há também um efeito conhecido e sem conserto barato: com CONTROLE na mão, a
+   * sua mão de verdade está exatamente onde a mão desenhada está, e a
+   * profundidade discorda do desenho por milímetros — a luva pode piscar. Com
+   * hand tracking não: aí a mão de verdade tapar a desenhada é o certo.
+   */
+  oclusaoDoQuarto = false;
   /**
    * As distâncias do jogo encolhem para quem não vai levantar do sofá.
    *
@@ -303,6 +339,7 @@ export class Ajustes {
       if (typeof dados.maoRecuo === 'number') this.maoRecuo = dados.maoRecuo;
       // `calibrarMao` NÃO é lido de volta: é um modo de trabalho, e voltar de
       // uma sessão com os analógicos sequestrados seria uma surpresa.
+      if (typeof dados.oclusaoDoQuarto === 'boolean') this.oclusaoDoQuarto = dados.oclusaoDoQuarto;
       if (typeof dados.modoSentado === 'boolean') this.modoSentado = dados.modoSentado;
     } catch {
       // Armazenamento bloqueado: joga com os padrões, que são os bons.
@@ -327,6 +364,7 @@ export class Ajustes {
           maoGiroY: this.maoGiroY,
           maoGiroZ: this.maoGiroZ,
           maoRecuo: this.maoRecuo,
+          oclusaoDoQuarto: this.oclusaoDoQuarto,
           modoSentado: this.modoSentado,
         }),
       );

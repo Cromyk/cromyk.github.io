@@ -443,16 +443,23 @@ O jogo não acontece em volta do ponto onde você entrou. Ele acontece **onde vo
 está**, e o mapa cresce a cada passo — dá para caminhar até o outro cômodo e
 encontrar coisa nova lá.
 
-Três fontes se **somam**, em vez de se substituírem:
+Quatro fontes se **somam**, em vez de se substituírem:
 
 1. **Os planos do Space Setup** (`plane-detection`) — chão, mesa, sofá, cama,
    com rótulo semântico. É o que põe um Pokémon em cima da sua mesa em vez de no
-   chão na frente dela.
-2. **O chão sob os seus pés** (`hit-test`) — um raio apontado para BAIXO a
+   chão na frente dela. As superfícies **verticais** (parede, porta, janela) vão
+   para uma lista à parte: não são lugar de nascer nem de pisar, mas são lugar
+   de NÃO nascer — meio Charizard dentro do gesso era o que acontecia antes.
+2. **A malha do quarto** (`mesh-detection`) — o Quest 3 varre o cômodo e
+   devolve uma malha por objeto reconhecido. Cada uma vira a caixa que a
+   envolve, e o TOPO da caixa vira superfície: o tampo da mesa, o assento da
+   cadeira, o braço do sofá. É o que enxerga o móvel que você nunca marcou no
+   Space Setup.
+3. **O chão sob os seus pés** (`hit-test`) — um raio apontado para BAIXO a
    partir da cabeça, lido três vezes por segundo. Cada passo carimba a célula de
    80 cm onde você está, com a altura medida ali. É isto que faz o mapa crescer,
    e é o que acerta o degrau e o tapete.
-3. **Um piso que te acompanha**, enquanto o aparelho não der nenhuma das duas.
+4. **Um piso que te acompanha**, enquanto o aparelho não der nenhuma das três.
 
 Somar importa: `detectedPlanes` é o conjunto dos planos que o runtime rastreia
 **agora**, e ele encolhe quando você vira as costas. A versão anterior trocava a
@@ -462,6 +469,61 @@ entrou. Plano é estático no mundo, então o que se viu uma vez se guarda.
 
 O contador de **superfícies mapeadas** aparece no painel do pulso: é como se vê,
 de dentro do headset, que o mapeamento está funcionando.
+
+### A cadeira que o Quest não sabe nomear
+
+A lista de rótulos do Quest não tem "cadeira": ela vem como `other`, `couch`, ou
+sem rótulo nenhum. Mas a **altura não mente** — um assento fica entre 22 e 58 cm
+do chão, uma mesa entre 58 e 88, uma bancada até 1,25 m, e acima disso é lugar
+alto. É assim que a cadeira entra no jogo, e é o que decide onde cada bicho
+nasce: um Zubat prefere o alto de tudo, um Diglett o carpete, e os pequenos e
+curiosos sobem no assento e na mesa.
+
+No fim do mapeamento o jogo DIZ o que encontrou — "2 mesas · 1 sofá · 1
+assento" —, porque um número de superfícies subindo prova que o mapeamento está
+vivo e não prova que a sua cadeira virou cadeira. Com o **contorno da sala**
+ligado, a cor diz o mesmo: verde o chão medido, azul o chão sondado a passos,
+amarelo o que veio da malha, laranja os móveis, vermelho as paredes.
+
+### Andar pela casa, sem definir cômodo
+
+Não há escala de cômodo a definir, e nunca houve: os selvagens nascem de 1,2 a
+5,5 m da sua posição ATUAL, quem fica 9 m para trás some e abre vaga à frente, e
+o chão é medido a cada passo. Você pode sair da sala e continuar jogando na
+cozinha.
+
+Desde 18/09 a sessão também pede o espaço de referência **`unbounded`** — o de
+quem anda pela casa, em que o runtime reajusta a origem sozinho para manter a
+precisão longe do ponto de partida. É pedido como OPCIONAL: onde ele não
+existir, vale o `local-floor` de sempre e nada muda. Qual dos dois você
+conseguiu aparece no fim do mapeamento ("sem limite de área — ande pela casa").
+
+O que pode continuar te prendendo **não é o jogo, é o sistema**: o limite do
+Guardião. Se a grade azul aparece quando você dá alguns passos, é ele. No Quest
+3, em realidade misturada, dá para desligá-lo nas configurações do headset
+(*Segurança do dispositivo → Limite*) — nenhum app, nativo ou web, pode fazer
+isso por você.
+
+
+### Pessoas, e o que dá para fazer a respeito
+
+Não existe, em WebXR, API que diga *ali está uma pessoa* — e nem no SDK nativo
+do Quest, para apps de terceiros. O que existe é a **profundidade**:
+`depth-sensing` entrega, a cada quadro, a distância de cada pedaço do que você
+está vendo. Ela não sabe o que a coisa é, e não precisa saber para **tapar o que
+está atrás dela**.
+
+Ligado o interruptor **"Sumir atrás das coisas"** na engrenagem, um Pokémon
+atrás do sofá fica escondido pelo sofá; como a medida é refeita quadro a quadro,
+a porta que abriu, a cadeira que você arrastou e a pessoa que entrou na sala
+também tapam. É a resposta possível ao pedido, e é honesta quanto ao que ela é:
+oclusão, não reconhecimento.
+
+Nasce **desligado**, e por um motivo: o modo de falhar dela é bruto. Se a
+profundidade vier zerada, tudo some — os Pokémon, os painéis, e a engrenagem em
+que se desliga isso. Além disso, com CONTROLE na mão a sua mão de verdade está
+exatamente onde a mão desenhada está, e a luva pode piscar; com hand tracking,
+não.
 
 ### A abertura: a sala antes do jogo
 

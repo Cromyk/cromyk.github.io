@@ -283,6 +283,18 @@ export class Jogo {
    * um recuo que o jogador mexe no headset, com a mão na frente do rosto.
    */
   private giroDaMao = { x: 0, y: 0, z: 0 };
+  /** O plano que carimba a profundidade do quarto. Ver `atualizarOclusao`. */
+  private malhaDeOclusao: THREE.Mesh | null = null;
+  /**
+   * A sessão conseguiu o espaço de referência SEM LIMITE de área.
+   *
+   * Escrito de fora, por src/main.ts, logo depois de a sessão abrir. O jogo não
+   * muda de comportamento por causa disto — ele já anda pela casa desde 15/09 —,
+   * mas é o que permite DIZER a quem está jogando qual dos dois espaços ele
+   * conseguiu, e é a primeira coisa a saber quando alguém relatar que ainda se
+   * sente preso a um quadrado.
+   */
+  semLimiteDeArea = false;
 
   private recarga = 0;
   readonly ajustes = new Ajustes();
@@ -3238,6 +3250,8 @@ export class Jogo {
       );
     }
 
+    this.atualizarOclusao();
+
     // O quarto vem antes do jogo. Enquanto o mapa não tem o bastante, a única
     // coisa que acontece é você andar e ver a sala se desenhar.
     if (this.escaneando) {
@@ -3337,6 +3351,48 @@ export class Jogo {
    * coisa. Passada a abertura, o contorno volta a obedecer a engrenagem e o
    * mapa continua crescendo calado, como sempre.
    */
+  /**
+   * Põe (ou tira) a malha de profundidade na cena.
+   *
+   * ## Como a oclusão acontece
+   *
+   * O three monta, a partir da textura de profundidade do headset, um plano que
+   * cobre a tela inteira e cujo fragment shader escreve `gl_FragDepth` com a
+   * distância MEDIDA do seu quarto. Desenhado antes de tudo (`renderOrder`
+   * bem negativo), ele deixa o buffer de profundidade com a forma do mundo
+   * real — e aí o teste de profundidade que o three já faz descarta, sozinho,
+   * todo pedaço de Pokémon que esteja atrás de alguma coisa.
+   *
+   * `colorWrite = false` é a parte que não vem de graça: o shader do three só
+   * escreve profundidade e deixa a cor por escrever, o que em WebGL2 é valor
+   * indefinido — poderia pintar a tela inteira de lixo. Dizer que ele não
+   * escreve cor nenhuma resolve, e é exatamente o que se quer de uma máscara.
+   *
+   * A malha só existe depois que o runtime entrega a primeira profundidade, e
+   * `hasDepthSensing` é a pergunta certa a cada quadro: ela também volta a ser
+   * falsa se a sessão trocar.
+   */
+  private atualizarOclusao() {
+    const quer = this.ajustes.oclusaoDoQuarto && this.renderer.xr.hasDepthSensing();
+    if (!quer) {
+      if (this.malhaDeOclusao) {
+        this.cena.remove(this.malhaDeOclusao);
+        this.malhaDeOclusao = null;
+      }
+      return;
+    }
+    if (this.malhaDeOclusao) return;
+
+    const malha = this.renderer.xr.getDepthSensingMesh();
+    if (!malha) return;
+    const material = malha.material as THREE.Material;
+    material.colorWrite = false;
+    malha.frustumCulled = false;
+    malha.renderOrder = -1000;
+    this.cena.add(malha);
+    this.malhaDeOclusao = malha;
+  }
+
   private atualizarEscaneamento(dt: number, agora: number) {
     if (this.tempoEscaneando === 0) this.sala.mostrarContorno(true);
     this.tempoEscaneando += dt;
@@ -3394,18 +3450,39 @@ export class Jogo {
     this.sala.mostrarContorno(this.ajustes.contornoDaSala);
     this.aviso.soltar();
     audio.sucesso();
+    // O que ele RECONHECEU, e não só quantas superfícies achou.
+    //
+    // O número subindo prova que o mapeamento está vivo; ele não diz se a sua
+    // mesa virou mesa. "duas mesas, um sofá e um assento" diz — e é a única
+    // forma de você descobrir, sem tirar o headset, que a cadeira em que você
+    // está sentado entrou no mapa.
+    const inventario = this.sala.inventario();
+    const emPalavras = inventario
+      .slice(0, 4)
+      .map(({ o_que, quantos }) => `${quantos} ${quantos > 1 ? plural(o_que) : o_que}`)
+      .join(' · ');
+
     this.aviso.mostrar(
       [
         { texto: 'Sala pronta', tamanho: 40, cor: '#7fe7c4' },
         { texto: `${mapeadas} superfícies mapeadas`, tamanho: 26, cor: '#7fd6a8', peso: 700 },
+        ...(emPalavras
+          ? [{ texto: emPalavras, tamanho: 22, cor: '#cfe6ff', peso: 600, espaco: 2 }]
+          : []),
         {
-          texto: 'e o mapa cresce enquanto você anda',
+          // Qual dos dois espaços a sessão conseguiu. Quem pediu para "andar
+          // sem definir uma escala de cômodo" precisa saber se conseguiu — e,
+          // se não conseguiu, que o que prende é o Guardião do sistema, não o
+          // jogo. Ver src/main.ts e GUIA-QUEST.md.
+          texto: this.semLimiteDeArea
+            ? 'sem limite de área — ande pela casa'
+            : 'e o mapa cresce enquanto você anda',
           tamanho: 21,
           cor: '#9aa5b8',
           peso: 500,
         },
       ],
-      2.6,
+      3.2,
     );
   }
 
@@ -5257,4 +5334,18 @@ export class Jogo {
     this.sala.descartar();
     for (const d of this.descartaveis) d.dispose();
   }
+}
+
+/**
+ * O plural das poucas palavras que o inventário da sala usa.
+ *
+ * Não é um pluralizador de português — é uma tabela de seis casos. Um
+ * pluralizador de verdade erraria em "lugar alto" (as duas palavras concordam)
+ * e pesaria mais do que a lista inteira de palavras que ele precisa saber.
+ */
+function plural(palavra: string): string {
+  if (palavra === 'sofá') return 'sofás';
+  if (palavra === 'parede') return 'paredes';
+  if (palavra === 'lugar alto') return 'lugares altos';
+  return `${palavra}s`;
 }
