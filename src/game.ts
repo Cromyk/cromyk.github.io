@@ -43,6 +43,7 @@ import { Pokebola } from './orb';
 import { Sala } from './room';
 import { BOTAO_A, BOTAO_B, FeixeDeAlvo, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, RaioMira } from './hands';
 import { Luva } from './glove';
+import { Rastro, aVista, rumoDoRastro } from './rastro';
 import { Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
 import { Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
@@ -97,6 +98,8 @@ const _ouvintePos = new THREE.Vector3();
 const _ouvinteFrente = new THREE.Vector3();
 const _ouvinteCima = new THREE.Vector3();
 const _ouvinteGiro = new THREE.Quaternion();
+/** Rascunho do olhar para o rastro no chão. Ver atualizarRastro. */
+const _olharRastro = new THREE.Vector3();
 
 const MAX_SELVAGENS = 3;
 /**
@@ -255,6 +258,10 @@ export class Jogo {
   private travaDaAjuda = 0;
   /** O contador de quadros, preso à câmera. Ver src/medidor.ts. */
   private medidor = new Medidor();
+  /** As pegadas no chão que apontam para quem você ainda não viu. */
+  private pegadas = new Rastro();
+  /** Selvagens que já passaram pelo seu campo de visão. Ver atualizarRastro. */
+  private notados = new WeakSet<Pokemon>();
   private painelTime = new PainelTime();
   private painelDex = new PainelDex();
   /** O PC: a caixa e a edição da equipe. Abre com o botão Y. */
@@ -323,6 +330,7 @@ export class Jogo {
     this.sala.usarFallback();
 
     this.cena.add(this.painelTime.grupo, this.pc.grupo, this.mochila.grupo, this.centro.grupo);
+    this.cena.add(this.pegadas.grupo);
     // A Pokédex não entra solta na cena: as placas dela são a TELA do tablet,
     // e é a carcaça que anda pelo mundo.
     this.tablet.tela.add(this.painelDex.grupo);
@@ -3203,7 +3211,7 @@ export class Jogo {
     this.atualizarPostura(dt);
     this.atualizarCentro(dt);
     this.atualizarAmeacas(dt);
-    this.atualizarCentro(dt);
+    this.atualizarRastro(dt);
     this.atualizarPedidoDeAjuda(dt);
     this.atualizarPaineis(dt);
     this.atualizarMarca(dt);
@@ -3878,6 +3886,53 @@ export class Jogo {
         continue;
       }
       pokemon.definirAmeaca(this.lerAmeaca(meu, pokemon));
+    }
+  }
+
+  /**
+   * O rastro no chão: para onde olhar quando não há nada à vista.
+   *
+   * O trabalho daqui é só de bookkeeping — quem decide é `rumoDoRastro`, em
+   * src/rastro.ts, que é função pura justamente para poder ser afirmada sem um
+   * headset. O que este método guarda é o que a função não tem como saber: quem
+   * você JÁ viu.
+   *
+   * A marca de visto é por indivíduo e mora num `WeakSet` porque um selvagem
+   * que foi embora é um objeto que precisa poder ser coletado; uma lista comum
+   * de referências cresceria a sessão inteira.
+   */
+  private atualizarRastro(dt: number) {
+    this.camera.getWorldDirection(_olharRastro);
+
+    const escondidos: THREE.Vector3[] = [];
+    for (const { pokemon } of this.selvagens) {
+      if (!pokemon.viva) continue;
+      if (this.notados.has(pokemon)) continue;
+      escondidos.push(pokemon.centro);
+    }
+
+    const rumo = rumoDoRastro(this.posicaoJogador, _olharRastro, escondidos);
+
+    // Quem está no cone do olhar passa a estar notado — e o `rumoDoRastro`
+    // devolve null neste mesmo quadro, então a pegada já começa a sumir junto.
+    for (const { pokemon } of this.selvagens) {
+      if (!pokemon.viva || this.notados.has(pokemon)) continue;
+      if (aVista(this.posicaoJogador, _olharRastro, pokemon.centro)) this.notados.add(pokemon);
+    }
+
+    this.pegadas.atualizar(dt, rumo, this.posicaoJogador, _olharRastro, this.sala.pisoY);
+
+    // A dica chega na primeira vez que o rastro serve para alguma coisa, e não
+    // no começo da sessão junto das outras sete: uma explicação fora do momento
+    // em que ela importa é uma explicação que ninguém guarda. Ver `primeiraVez`.
+    if (rumo && this.dex.primeiraVez('rastro')) {
+      this.aviso.mostrar(
+        [
+          { texto: 'tem alguém por perto', tamanho: 34, cor: '#8fe6ff' },
+          { texto: 'olhe o chão: as pegadas apontam para onde ele está', tamanho: 22, cor: '#9aa5b8', peso: 500 },
+        ],
+        3.2,
+      );
     }
   }
 

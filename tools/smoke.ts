@@ -53,6 +53,7 @@ import { BOLAS } from '../src/balls';
 import { PEDRAS, EVOLUI_SO_COM_PEDRA } from '../src/pedras';
 import { ALCANCE_SLOT, INICIO_SLOT, PASSO_SLOT } from '../src/cinto';
 import { bonusDeCaptura } from '../src/condicao';
+import { Rastro, aVista, rumoDoRastro } from '../src/rastro';
 import { ITENS } from '../src/itens';
 import { Mochila, disporGrade } from '../src/mochila';
 import { Rig, type Chave } from '../src/rig';
@@ -1947,6 +1948,92 @@ console.log('29. as pedras de evolução');
 
     console.log(
       `   afeto: aguenta o golpe fatal uma vez, e a paralisia cai de ${semAfeto.toFixed(1)}s para ${comCarinho.toFixed(1)}s`,
+    );
+  }
+
+  // O rastro no chão: para onde ele aponta, e quando ele se cala.
+  //
+  // `pontoDeSpawn` não olha para onde você está olhando — um selvagem nasce
+  // tanto na mesa à frente quanto na estante às costas —, e a única pista para
+  // o segundo caso era o som do nascimento, que toca uma vez. O que se afirma
+  // aqui é o contrato das três regras: aponta para o mais perto que está fora
+  // da vista, cala quando há alguém à vista, e cala quando não há ninguém.
+  {
+    const olhos = new THREE.Vector3(0, 1.6, 0);
+    // Olhando para −Z, que é a frente da câmera do three.
+    const frente = new THREE.Vector3(0, 0, -1);
+    const atras = new THREE.Vector3(0, 0.4, 3);
+    const aFrente = new THREE.Vector3(0, 0.4, -3);
+    const aEsquerda = new THREE.Vector3(-3, 0.4, 0);
+
+    checar(rumoDoRastro(olhos, frente, []) === null, 'sem ninguém na sala, nada de pegadas');
+    checar(rumoDoRastro(olhos, frente, [aFrente]) === null, 'com o bicho à vista, o rastro se cala');
+
+    const paraTras = rumoDoRastro(olhos, frente, [atras]);
+    checar(paraTras !== null, 'um bicho atrás de você é exatamente o caso que isto existe para resolver');
+    checar(paraTras!.direcao.z > 0.99, 'a pegada devia apontar para trás');
+    checar(Math.abs(paraTras!.distancia - 3) < 0.01, 'a distância é a horizontal, sem contar a altura');
+
+    // Um só à vista basta para calar tudo: a atenção não se divide.
+    checar(
+      rumoDoRastro(olhos, frente, [atras, aFrente]) === null,
+      'havendo alguém à vista, o rastro não aponta para o de trás',
+    );
+
+    // Entre dois escondidos, o mais perto.
+    const perto = new THREE.Vector3(-1.5, 0.4, 0);
+    const escolhido = rumoDoRastro(olhos, frente, [aEsquerda, perto]);
+    checar(escolhido!.direcao.x < -0.99, 'com dois escondidos, aponta para o mais perto');
+    checar(escolhido!.distancia < 1.6, 'e a distância é a dele');
+
+    // Longe demais não conta: o bicho a mais de nove metros vai embora sozinho.
+    checar(rumoDoRastro(olhos, frente, [new THREE.Vector3(0, 0, 12)]) === null, 'longe demais não aponta');
+
+    // O cone que cala é o MESMO que marca como visto — se fossem diferentes,
+    // existiria uma faixa de ângulo em que a pegada aponta para sempre para um
+    // bicho que está bem ali.
+    for (let g = 0; g <= 90; g += 5) {
+      const a = THREE.MathUtils.degToRad(g);
+      const alvo = new THREE.Vector3(Math.sin(a) * 3, 0.4, -Math.cos(a) * 3);
+      const visto = aVista(olhos, frente, alvo);
+      const aponta = rumoDoRastro(olhos, frente, [alvo]) !== null;
+      checar(visto !== aponta, `a ${g}°: "à vista" e "apontado" têm de ser o contrário um do outro`);
+    }
+
+    // Grudado em você conta como visto, venha de onde vier.
+    checar(aVista(olhos, frente, new THREE.Vector3(0.1, 1.5, 0.2)), 'a 20 cm do rosto não há o que procurar');
+
+    // E agora o que nenhuma conta de ângulo pega: para que lado a pegada
+    // DESENHADA aponta. São dois pontos onde o sinal pode inverter — o flipY da
+    // textura e a ordem do Euler —, e dois erros desses se cancelam em silêncio.
+    const chao = new Rastro();
+    let pior = 0;
+    // De 60° a 300°: a volta inteira menos o cone da frente, onde o rastro
+    // se cala de propósito e não há o que medir.
+    for (let g = 60; g <= 300; g += 30) {
+      const a = THREE.MathUtils.degToRad(g);
+      const bicho = new THREE.Vector3(Math.sin(a) * 4, 0.4, -Math.cos(a) * 4);
+      const rumo = rumoDoRastro(olhos, frente, [bicho])!;
+      checar(rumo !== null, `a ${g}° o bicho devia estar escondido o bastante para apontar`);
+      // Dois quadros: o primeiro acende o grupo, o segundo já está no lugar.
+      chao.atualizar(0.5, rumo, olhos, frente, 0);
+      chao.atualizar(0.5, rumo, olhos, frente, 0);
+      const aponta = chao.direcaoNoMundo();
+      const erro = Math.acos(THREE.MathUtils.clamp(aponta.dot(rumo.direcao), -1, 1));
+      pior = Math.max(pior, THREE.MathUtils.radToDeg(erro));
+    }
+    checar(pior < 1, `a pegada aponta ${pior.toFixed(0)}° fora do bicho — o rastro está mentindo`);
+    chao.descartar();
+
+    const limite = (() => {
+      for (let g = 0; g <= 90; g++) {
+        const a = THREE.MathUtils.degToRad(g);
+        if (!aVista(olhos, frente, new THREE.Vector3(Math.sin(a) * 3, 0.4, -Math.cos(a) * 3))) return g;
+      }
+      return 90;
+    })();
+    console.log(
+      `   rastro: aponta para quem passa de ${limite}° do olhar, com erro de ${pior.toFixed(1)}°, e se cala com qualquer um à vista`,
     );
   }
 
