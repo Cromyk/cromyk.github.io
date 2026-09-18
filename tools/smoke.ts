@@ -51,6 +51,7 @@ import { caixaDaPose, type Corpo } from '../src/modelos';
 import { BOLAS } from '../src/balls';
 import { PEDRAS, EVOLUI_SO_COM_PEDRA } from '../src/pedras';
 import { ALCANCE_SLOT, INICIO_SLOT, PASSO_SLOT } from '../src/cinto';
+import { bonusDeCaptura } from '../src/condicao';
 import { ITENS } from '../src/itens';
 import { Mochila, disporGrade } from '../src/mochila';
 import { Rig, type Chave } from '../src/rig';
@@ -1885,6 +1886,67 @@ console.log('29. as pedras de evolução');
       `com o osso 5 acima, a caixa devia ir de 4 a 6 em Y; foi de ${caixa.min.y.toFixed(2)} a ${caixa.max.y.toFixed(2)}`,
     );
     console.log('   caixa da pose: 1×2×1 em qualquer escala, e segue o osso');
+  }
+
+  // As condições de status, e o laço que elas existem para criar.
+  //
+  // O que se afirma aqui não é que a mecânica roda — é que ela MUDA A JOGADA.
+  // Em Pokémon o laço não é "enfraqueça e jogue a bola", é "enfraqueça,
+  // ADORMEÇA e jogue a bola"; se dormir não melhorar a captura de forma
+  // sentida, o golpe de status volta a ser um botão que ninguém aperta.
+  {
+    const alvo = porId('pidgey')!;
+    const inteiro = (ajuda: number) => chanceCaptura(alvo, 1, 0, 1, 10, ajuda);
+    const machucado = (ajuda: number) => chanceCaptura(alvo, 0.25, 0, 1, 10, ajuda);
+
+    const semNada = machucado(1);
+    const dormindo = machucado(bonusDeCaptura('sono'));
+    const paralisado = machucado(bonusDeCaptura('paralisia'));
+
+    checar(dormindo > semNada + 0.02, 'dormir devia ajudar a capturar, e não ajudou');
+    checar(
+      dormindo > paralisado,
+      'o sono devia valer mais que a paralisia — é a condição mais forte do jogo',
+    );
+    // A captura final é a chance por sacudida ao CUBO.
+    //
+    // O que se mede é a queda do ESCAPE, e não a subida do acerto, porque perto
+    // do teto a subida é pequena por construção — 83% para 93% parece pouco e é
+    // o escape caindo pela METADE, que é exatamente o que o jogador sente: "ele
+    // estava fugindo toda hora e agora ficou". Medir o lado errado desta conta
+    // faria um teste reprovar a mecânica certa.
+    const final = (p: number) => p ** 3;
+    const escapeSemNada = 1 - final(semNada);
+    const escapeDormindo = 1 - final(dormindo);
+    checar(
+      escapeDormindo < escapeSemNada * 0.6,
+      `dormindo, o escape devia cair bem: ${(escapeSemNada * 100).toFixed(0)}% → ${(escapeDormindo * 100).toFixed(0)}%`,
+    );
+    // E não pode virar captura automática num alvo inteiro, senão a briga some.
+    checar(
+      final(inteiro(bonusDeCaptura('sono'))) < 0.9,
+      'dormir num alvo inteiro não pode ser captura garantida',
+    );
+
+    // Uma condição não derruba a outra: a vaga é uma só.
+    const bicho = new Pokemon(alvo, corpoFalso(0.4), new THREE.Vector3(0, 0, -1), 0, 'selvagem', 10);
+    checar(bicho.aplicarCondicao('sono'), 'a primeira condição devia pegar');
+    checar(!bicho.aplicarCondicao('queimadura'), 'a segunda condição não devia derrubar a primeira');
+    checar(bicho.aplicarCondicao('sono'), 'renovar a MESMA condição devia valer');
+    checar(bicho.condicao === 'sono', 'a condição certa não ficou');
+
+    // Dormindo, ele não ataca.
+    checar(!bicho.podeAtacar, 'quem está dormindo não devia poder atacar');
+
+    // E ela ACABA sozinha.
+    const jogador = new THREE.Vector3(0, 1.6, 0);
+    for (let i = 0; i < 60 * 10; i++) bicho.atualizar(1 / 60, jogador);
+    checar(bicho.condicao === null, 'a condição devia acabar sozinha depois da duração');
+
+    console.log(
+      `   captura com 25% de vida: ${(final(semNada) * 100).toFixed(0)}% acordado · ` +
+        `${(final(paralisado) * 100).toFixed(0)}% paralisado · ${(final(dormindo) * 100).toFixed(0)}% dormindo`,
+    );
   }
 
   // O modo sentado encolhe o jogo de verdade — item 4.1 do roteiro.

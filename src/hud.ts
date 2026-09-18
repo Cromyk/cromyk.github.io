@@ -220,7 +220,13 @@ export class BarraVida {
     private corTipo: number,
   ) {}
 
-  private redesenhar(hp: number, hpMax: number, rotulo: string, carga: Carga | null) {
+  private redesenhar(
+    hp: number,
+    hpMax: number,
+    rotulo: string,
+    carga: Carga | null,
+    condicao: { sigla: string; cor: number } | null,
+  ) {
     const { ctx, canvas } = this.placa;
     const fracao = Math.max(0, hp / hpMax);
 
@@ -242,6 +248,16 @@ export class BarraVida {
       alinhar: 'right',
       maxLargura: util * 0.44,
     });
+
+    // A condição de status ganha a própria pílula, embaixo da do tipo: é o
+    // lugar onde os jogos de Pokémon sempre a puseram, e é a informação que
+    // decide se vale jogar a bola agora. Ver src/condicao.ts.
+    if (condicao) {
+      pilula(ctx, condicao.sigla, canvas.width - margem, 52, 22, hex(condicao.cor), {
+        alinhar: 'right',
+        maxLargura: util * 0.3,
+      });
+    }
 
     // --- vida ---
     const yVida = 66;
@@ -300,6 +316,7 @@ export class BarraVida {
     camera: THREE.Camera,
     rotulo = '',
     carga: Carga | null = null,
+    condicao: { sigla: string; cor: number } | null = null,
   ) {
     this.tempo += dt;
 
@@ -307,10 +324,12 @@ export class BarraVida {
     // quantizada: redesenhar o canvas 72 vezes por segundo por causa de dois
     // pixels de barra é exatamente o tipo de custo que o headset não perdoa.
     const passoCarga = carga ? Math.round(carga.fracao * 24) : -1;
-    const assinatura = `${Math.ceil(hp)}|${rotulo}|${carga?.golpe ?? ''}|${passoCarga}|${carga?.iminente ? 1 : 0}`;
+    const assinatura =
+      `${Math.ceil(hp)}|${rotulo}|${carga?.golpe ?? ''}|${passoCarga}|` +
+      `${carga?.iminente ? 1 : 0}|${condicao?.sigla ?? ''}`;
     if (assinatura !== this.assinatura) {
       this.assinatura = assinatura;
-      this.redesenhar(hp, hpMax, rotulo, carga);
+      this.redesenhar(hp, hpMax, rotulo, carga, condicao);
     }
 
     const alvo = mostrar ? 1 : 0;

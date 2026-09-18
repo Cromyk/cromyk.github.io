@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Pokemon } from './creature';
 import { chanceCaptura } from './species';
+import { bonusDeCaptura } from './condicao';
 import { audio } from './audio';
 
 export type EstadoBola =
@@ -198,6 +199,7 @@ export class Pokebola {
       pokemon.alarme,
       multiplicadorBola,
       pokemon.nivel,
+      bonusDeCaptura(pokemon.condicao),
     );
     this.chancePorSacudida = THREE.MathUtils.clamp(base * (1 + precisao * 0.1), 0.1, 0.985);
     this.sacudidasRestantes = SACUDIDAS;

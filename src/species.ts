@@ -906,6 +906,16 @@ export function chanceCaptura(
   alarme: number,
   multiplicadorBola = 1,
   nivel = 5,
+  /**
+   * Quanto a condição de status divide a chance de ESCAPE. Ver src/condicao.ts.
+   *
+   * Entra junto com a bola, no mesmo lugar e pelo mesmo motivo: as duas cortam
+   * o escape em vez de somar acerto, o que mantém o efeito forte num alvo
+   * enfraquecido sem estourar o teto num alvo inteiro. Dormindo vale 2,5 —
+   * mais do que qualquer bola do jogo —, e é isso que faz "adormeça e depois
+   * jogue a bola" ser a jogada certa em vez de um detalhe de sabor.
+   */
+  ajudaDaCondicao = 1,
 ): number {
   // Calibrado para a captura final (isto ao cubo) andar de ~33% com o alvo
   // inteiro até ~80% com ele quase desmaiado, usando a bola comum num alvo
@@ -920,7 +930,7 @@ export function chanceCaptura(
     0.1,
     0.94,
   );
-  const comBola = 1 - (1 - base) / Math.max(1, multiplicadorBola);
+  const comBola = 1 - (1 - base) / Math.max(1, multiplicadorBola * ajudaDaCondicao);
   return THREE.MathUtils.clamp(comBola, 0.1, 0.985);
 }
 

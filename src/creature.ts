@@ -5,6 +5,7 @@ import type { Corpo } from './modelos';
 import { criarRng, entre, type Rng } from './rng';
 import { Animador } from './anima';
 import { Chama, FOGO_POR_ESPECIE, pontaDaCadeia } from './fogo';
+import { CONDICOES, type Condicao } from './condicao';
 
 export type Papel = 'selvagem' | 'companheiro';
 
@@ -172,6 +173,17 @@ export class Pokemon {
   private recuo = new THREE.Vector3();
   /** Onde o jogador estava no último quadro. O esconderijo precisa saber. */
   private ondeEstaOJogador = new THREE.Vector3();
+
+  /**
+   * A condição de status, e quanto falta dela. Ver src/condicao.ts.
+   *
+   * Uma só por vez, como no jogo original: duas que se acumulam viram uma que
+   * se empilha, e sono mais paralisia tornaria a captura automática.
+   */
+  condicao: Condicao | null = null;
+  private restaDaCondicao = 0;
+  /** Sobra de dano por segundo, para veneno e queimadura tirarem HP inteiro. */
+  private acumuladoDaCondicao = 0;
 
   private static readonly RAIO_PASSEIO = 0.85;
 
@@ -350,6 +362,8 @@ export class Pokemon {
   }
 
   get podeAtacar(): boolean {
+    // Dormindo, ninguém ataca — nem você nem ele. É o ponto do sono.
+    if (this.perfilDaCondicao?.imobiliza) return false;
     return (
       this.recarga <= 0 &&
       !this.desmaiado &&
@@ -378,7 +392,11 @@ export class Pokemon {
    * precisa: ele ocupa a vez, mas nao e um ataque.
    */
   marcarRecarga(segundos: number) {
-    this.recarga = Math.max(this.recarga, segundos);
+    // Paralisado, a espera entre golpes estica: é o que a condição faz de mais
+    // visível num combate em tempo real, onde não há turno para perder.
+    const fator = this.perfilDaCondicao?.fatorVelocidade ?? 1;
+    const esticada = fator > 0 ? segundos / fator : segundos;
+    this.recarga = Math.max(this.recarga, esticada);
   }
 
   /** Mesmo gesto de ataque, mas contra um ponto da sala em vez de alguém. */
@@ -407,6 +425,76 @@ export class Pokemon {
    */
   congelar(segundos: number) {
     this.pausa = Math.max(this.pausa, segundos);
+  }
+
+  /**
+   * Põe (ou renova) uma condição de status. Devolve se ela de fato pegou.
+   *
+   * Uma condição nova NÃO derruba a que está valendo: em Pokémon o status é uma
+   * vaga só, e a primeira a chegar fica. Isso importa aqui mais do que no jogo
+   * original — num combate em tempo real, com golpes saindo a cada segundo, a
+   * regra oposta faria o alvo trocar de status a cada acerto e nenhuma condição
+   * duraria o bastante para você aproveitar.
+   *
+   * Renovar a MESMA condição é permitido, e é o que deixa manter alguém dormindo
+   * ser uma escolha em vez de um acaso.
+   */
+  aplicarCondicao(condicao: Condicao): boolean {
+    if (this.desmaiado || !this.viva) return false;
+    if (this.condicao && this.condicao !== condicao) return false;
+
+    this.condicao = condicao;
+    this.restaDaCondicao = CONDICOES[condicao].duracao;
+    this.acumuladoDaCondicao = 0;
+    if (CONDICOES[condicao].imobiliza) {
+      // Dormir interrompe o que estava fazendo, inclusive a fuga.
+      this.cancelarComando();
+      this.animador.disparar('apanhar');
+    }
+    return true;
+  }
+
+  limparCondicao() {
+    this.condicao = null;
+    this.restaDaCondicao = 0;
+    this.acumuladoDaCondicao = 0;
+  }
+
+  /** O perfil da condição atual, para quem desenha e para quem calcula. */
+  get perfilDaCondicao() {
+    return this.condicao ? CONDICOES[this.condicao] : null;
+  }
+
+  /**
+   * O relógio da condição: gasta o tempo e cobra o dano.
+   *
+   * O dano é acumulado em fração e cobrado em PONTOS INTEIROS: um veneno de
+   * 1,2% por segundo num bicho de 30 de vida tira 0,36 por segundo, e chamar
+   * `receberDano(0.36)` sessenta vezes por segundo faria o tremor e a animação
+   * de apanhar dispararem sem parar. Assim ele leva um baque de verdade a cada
+   * poucos segundos, que é como se lê no jogo original.
+   */
+  private correrCondicao(dt: number) {
+    if (!this.condicao) return;
+    const perfil = CONDICOES[this.condicao];
+
+    this.restaDaCondicao -= dt;
+    if (this.restaDaCondicao <= 0) {
+      this.limparCondicao();
+      return;
+    }
+
+    if (perfil.danoPorSegundo <= 0) return;
+    this.acumuladoDaCondicao += perfil.danoPorSegundo * this.hpMax * dt;
+    if (this.acumuladoDaCondicao < 1) return;
+
+    const inteiro = Math.floor(this.acumuladoDaCondicao);
+    this.acumuladoDaCondicao -= inteiro;
+    // Nunca DERRUBA: a condição leva o bicho a um ponto de vida e para. Quem
+    // desmaia é quem apanhou, e um alvo que cai sozinho enquanto você mira é
+    // uma captura perdida por um motivo que o jogador não controlou.
+    const dano = Math.min(inteiro, Math.max(0, this.hp - 1));
+    if (dano > 0) this.receberDano(dano);
   }
 
   /**
@@ -727,6 +815,7 @@ export class Pokemon {
     }
 
     this.ondeEstaOJogador.copy(jogador);
+    this.correrCondicao(dt);
     this.tempo += dt;
     this.cronometroEstado += dt;
     if (this.recarga > 0) this.recarga -= dt;
@@ -1014,6 +1103,13 @@ export class Pokemon {
 
   /** A velocidade de deslocamento, em metros por segundo, no estado atual. */
   private get velocidadeDeAndar(): number {
+    // A condição multiplica tudo o que vem abaixo: paralisado anda a 45%, e
+    // dormindo não anda. É um lugar só porque todo deslocamento passa por aqui.
+    const fator = this.perfilDaCondicao?.fatorVelocidade ?? 1;
+    return this.velocidadeCrua * fator;
+  }
+
+  private get velocidadeCrua(): number {
     if (this.estado === 'fugindo') return 2.6;
     // Ordem sua — ou isca sua — tem pressa própria: mais rápido do que passear e
     // mais devagar do que fugir, para dar para ver ele vindo.

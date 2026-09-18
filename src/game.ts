@@ -63,6 +63,7 @@ import { ItemNaMao, RastroDeIsca } from './isca';
 import { Mochila } from './mochila';
 import { Medidor } from './medidor';
 import { Achados } from './achados';
+import { CONDICOES, condicaoDoGolpe } from './condicao';
 import { pedindoAjuda } from './gesto';
 import { Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
@@ -2060,6 +2061,9 @@ export class Jogo {
     if (!this.companheiro) return;
     // Buff e debuff sao da BRIGA, nao do bicho: voltar para a bola limpa tudo.
     this.companheiro.limparEstagios();
+    // Voltar para a bola limpa a condição, como no jogo original: o Centro
+    // Pokémon cabe dentro dela.
+    this.companheiro.limparCondicao();
     if (this.exemplarEmCampo) this.dex.definirHp(this.exemplarEmCampo, this.companheiro.hp);
     audio.recolher();
     this.companheiro.dissolver();
@@ -2312,6 +2316,10 @@ export class Jogo {
     const { efetividade, critico } = rolagem;
     let dano = rolagem.dano;
 
+    // Queimado bate mais fraco — é o preço da condição, e o que a diferencia do
+    // veneno, que só corrói. Ver src/condicao.ts.
+    dano *= atacante.perfilDaCondicao?.fatorAtaque ?? 1;
+
     // O teto e a dificuldade valem só do lado de cá. Ver TETO_DANO_RECEBIDO em
     // src/species.ts: um teto para os dois achataria a tabela de tipos, e o que
     // precisava de piso de reação era o golpe que CHEGA em você.
@@ -2386,6 +2394,10 @@ export class Jogo {
       audio.impacto(efetividade);
       if (critico) audio.critico();
     });
+
+    // Um golpe de dano também pode deixar condição — chance pequena, porque é
+    // bônus e não o plano. Ver condicaoDoGolpe.
+    this.talvezCondicao(defensor, golpe);
 
     const nota = textoEfetividade(efetividade);
     const linhas = [
@@ -2531,8 +2543,53 @@ export class Jogo {
    * Vale para os dois lados — é o mesmo código quando você escolhe "Escudo" e
    * quando o selvagem resolve baixar o seu ataque.
    */
+  /**
+   * A condição de status que um golpe pode deixar no alvo — ver src/condicao.ts.
+   *
+   * Chamada dos dois lados do combate: o que o seu Pokémon faz com o selvagem
+   * é o mesmo que ele faz com você. Uma mecânica que só funciona numa direção é
+   * uma mecânica que o jogador aprende a explorar em vez de respeitar.
+   */
+  private talvezCondicao(alvo: Pokemon, golpe: Golpe) {
+    const possivel = condicaoDoGolpe(golpe.tipo, golpe.categoria, golpe.nome);
+    if (!possivel || Math.random() > possivel.chance) return;
+    if (!alvo.aplicarCondicao(possivel.condicao)) return;
+
+    const perfil = CONDICOES[possivel.condicao];
+    const onde = alvo.centro;
+    audio.de(onde.x, onde.y, onde.z, () => audio.golpeDeStatus(false));
+
+    const brilho = new Impacto(alvo.centro, perfil.cor);
+    this.cena.add(brilho.pontos);
+    this.impactos.push(brilho);
+
+    this.aviso.mostrar(
+      [
+        {
+          texto: `${alvo.especie.nome} ${perfil.diz}`,
+          tamanho: 34,
+          cor: `#${new THREE.Color(perfil.cor).getHexString()}`,
+        },
+        ...(possivel.condicao === 'sono' && alvo.papel === 'selvagem' && this.dex.primeiraVez('sono')
+          ? [
+              {
+                texto: 'dormindo, a bola pega MUITO mais fácil — aproveite',
+                tamanho: 21,
+                cor: '#9ff0c4',
+                peso: 600,
+              },
+            ]
+          : []),
+      ],
+      2.2,
+    );
+  }
+
   private usarStatus(usuario: Pokemon, oponente: Pokemon, golpe: Golpe) {
     const efeito = golpe.efeito;
+    // Um golpe de status pode não mexer em estágio nenhum e ainda assim valer a
+    // vez: os que adormecem e paralisam passam por aqui.
+    this.talvezCondicao(oponente, golpe);
     if (!efeito) return;
 
     const destino = efeito.alvo === 'proprio' ? usuario : oponente;
@@ -3939,6 +3996,7 @@ export class Jogo {
         this.camera,
         pokemon.desmaiado ? `N${pokemon.nivel} · exausto` : `N${pokemon.nivel}`,
         carga,
+        pokemon.perfilDaCondicao,
       );
 
       // Exausto: fica um tempo no chão, fácil de capturar, e some se você
