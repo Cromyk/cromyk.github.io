@@ -15,6 +15,14 @@ export type Papel = 'selvagem' | 'companheiro';
  */
 export interface Terreno {
   alturaEm(ponto: THREE.Vector3): number;
+  /**
+   * Um lugar atrás de um móvel, se houver. Ver `esconderijo` em src/room.ts.
+   *
+   * Opcional porque nem toda implementação de terreno tem móveis — os testes
+   * passam um chão liso —, e porque um bicho sem esconderijo simplesmente foge
+   * como fugia antes.
+   */
+  esconderijo?(quem: THREE.Vector3, jogador: THREE.Vector3): THREE.Vector3 | null;
 }
 
 export type Estado =
@@ -162,6 +170,8 @@ export class Pokemon {
   private pausa = 0;
   /** O que falta gastar do empurrão do golpe. Ver empurrar. */
   private recuo = new THREE.Vector3();
+  /** Onde o jogador estava no último quadro. O esconderijo precisa saber. */
+  private ondeEstaOJogador = new THREE.Vector3();
 
   private static readonly RAIO_PASSEIO = 0.85;
 
@@ -445,6 +455,19 @@ export class Pokemon {
     if (this.atracao > 0) return;
     this.estado = 'fugindo';
     this.cronometroEstado = 0;
+
+    // Atrás de um móvel, quando houver um — item 3.3 do roteiro.
+    //
+    // Fugir em linha reta por quatro metros, dentro de um quarto, quer dizer
+    // "para dentro da parede". Correr para trás do sofá é o que um bicho
+    // assustado faz, e é o que transforma procurar um Pokémon numa coisa que
+    // acontece em vez de um bicho que sumiu.
+    const abrigo = this.terreno?.esconderijo?.(this.raiz.position, this.ondeEstaOJogador);
+    if (abrigo) {
+      this.destino.copy(abrigo);
+      return;
+    }
+
     const angulo = this.rng() * Math.PI * 2;
     this.destino.set(
       this.ancora.x + Math.cos(angulo) * 4,
@@ -686,6 +709,7 @@ export class Pokemon {
       this.recuo.multiplyScalar(1 - passo);
     }
 
+    this.ondeEstaOJogador.copy(jogador);
     this.tempo += dt;
     this.cronometroEstado += dt;
     if (this.recarga > 0) this.recarga -= dt;

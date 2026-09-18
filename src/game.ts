@@ -22,6 +22,7 @@ import {
   evolucaoEm,
   evolucaoDaPedra,
   nivelSelvagem,
+  ondeNasce,
   pesoSpawn,
   porId,
   chanceShiny,
@@ -61,6 +62,7 @@ import { ehPedra, pedraPorId, aQuemServe } from './pedras';
 import { ItemNaMao, RastroDeIsca } from './isca';
 import { Mochila } from './mochila';
 import { Medidor } from './medidor';
+import { Achados } from './achados';
 import { pedindoAjuda } from './gesto';
 import { Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
@@ -235,6 +237,8 @@ export class Jogo {
   private painelPulso = new PainelPulso();
   /** A mochila aberta no ar, onde os itens são pegos com a mão. Ver src/mochila.ts. */
   private mochila = new Mochila();
+  /** Os itens que aparecem em cima dos seus móveis. Ver src/achados.ts. */
+  private achados = new Achados(this.cena);
   /** Há quanto tempo as duas palmas estão para cima. Ver atualizarPedidoDeAjuda. */
   private pedindoAjudaHa = 0;
   /** Segundos até o gesto de ajuda poder valer de novo. */
@@ -2825,7 +2829,7 @@ export class Jogo {
       // A faixa e mais larga do que era: com o mapa acompanhando quem anda,
       // um bicho a cinco metros e um convite para caminhar ate ele em vez de um
       // que nunca sera alcancado.
-      const local = this.sala.pontoDeSpawn(this.posicaoJogador, 1.2, 5.5);
+      const local = this.sala.pontoDeSpawn(this.posicaoJogador, 1.2, 5.5, ondeNasce(especie));
       if (!local) return;
 
       const corpo = instanciar(especie.id, this.alturaDe(especie), shiny, this.ajustes.tamanhoReal);
@@ -3035,6 +3039,7 @@ export class Jogo {
     this.atualizarMaos(dt, agora);
     this.atualizarMochila(dt);
     this.atualizarOuvinte();
+    this.atualizarAchados(dt);
     this.atualizarPedidoDeAjuda(dt);
     this.atualizarPaineis(dt);
     this.atualizarMarca(dt);
@@ -3525,6 +3530,52 @@ export class Jogo {
    * relação ao ouvinte, e um ouvinte parado na origem faria tudo soar como se
    * você nunca tivesse saído de onde a sessão começou.
    */
+  /**
+   * Os itens em cima dos móveis, e a mão que os pega — item 3.2 do roteiro.
+   *
+   * Pegar é com a MÃO, não com a mira: o item está em cima da sua mesa de
+   * verdade, ao alcance do braço, e apontar para uma coisa que está a um palmo
+   * de você seria o gesto errado — o mesmo motivo pelo qual a mochila e o cinto
+   * também se agarram.
+   */
+  private atualizarAchados(dt: number) {
+    this.achados.atualizar(dt, this.sala, this.posicaoJogador);
+    if (!this.achados.tipoNaSala) return;
+
+    for (const mao of this.maos) {
+      if (!mao.conectada) continue;
+      const tipo = this.achados.colher(this.pontoDeAgarre(mao));
+      if (!tipo) continue;
+
+      this.dex.ganharItem(tipo.id, 1);
+      mao.sentir('pegou');
+      audio.tilintar();
+      const onde = this.posicaoJogador;
+      audio.de(onde.x, onde.y, onde.z, () => audio.sucesso());
+      this.aviso.mostrar(
+        [
+          {
+            texto: `achou ${tipo.nome}`,
+            tamanho: 36,
+            cor: `#${new THREE.Color(tipo.cor).getHexString()}`,
+          },
+          ...(this.dex.primeiraVez('achado')
+            ? [
+                {
+                  texto: 'coisas aparecem pela casa — vale andar por aí',
+                  tamanho: 21,
+                  cor: '#9aa5b8',
+                  peso: 500,
+                },
+              ]
+            : []),
+        ],
+        2.4,
+      );
+      return;
+    }
+  }
+
   private atualizarOuvinte() {
     this.camera.getWorldPosition(_ouvintePos);
     this.camera.getWorldDirection(_ouvinteFrente);
@@ -4551,6 +4602,7 @@ export class Jogo {
     for (const feixe of this.feixes.values()) feixe.descartar();
     this.mochila.descartar();
     this.medidor.descartar();
+    this.achados.descartar();
     for (const rastro of this.rastros.values()) rastro.descartar();
     for (const isca of this.itemNaMao.values()) isca.descartar();
     for (const mao of this.maos) mao.luva?.descartar();

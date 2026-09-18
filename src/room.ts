@@ -18,6 +18,11 @@ export interface Superficie {
   sondada?: boolean;
 }
 
+/**
+ * Que tipo de lugar uma criatura procura para nascer. Ver `pontoDeSpawn`.
+ */
+export type Preferencia = 'alto' | 'chao' | 'movel' | 'qualquer';
+
 const ROTULOS_UTEIS = new Set(['floor', 'table', 'desk', 'couch', 'shelf', 'bed', 'other', 'seat']);
 
 /** Lado da célula do mapa de chão, em metros. */
@@ -368,6 +373,18 @@ export class Sala {
     jogador: THREE.Vector3,
     distMin = 1.0,
     distMax = 3.2,
+    /**
+     * Que tipo de lugar este bicho procura — item 3.1 do roteiro.
+     *
+     * O mapeamento da sala é a engenharia mais cara do jogo e era a que menos
+     * rendia: servia para o bicho não atravessar o sofá e para você mandá-lo
+     * subir na mesa. O cômodo vinha povoado por sorteio, e um Zubat nascia no
+     * carpete ao lado de um Diglett com a mesma probabilidade.
+     *
+     * O jogo já sabe o rótulo semântico de cada superfície — `floor`, `table`,
+     * `couch`, `bed`, `shelf` — e a altura de cada uma. Faltava perguntar.
+     */
+    procura: Preferencia = 'qualquer',
   ): { ponto: THREE.Vector3; rotulo: string } | null {
     const perto = this.superficies.filter((s) => this.cobre(s, jogador, distMax));
     if (perto.length === 0) return null;
@@ -377,7 +394,7 @@ export class Sala {
       // Célula sondada é chão genérico e existe aos montes; um plano de verdade
       // vale mais, porque veio com rótulo e com a forma certa.
       const confianca = s.sondada ? 0.5 : 1;
-      return Math.min(6, s.area) * bonus * confianca;
+      return Math.min(6, s.area) * bonus * confianca * this.afinidade(s, procura);
     };
     const total = perto.reduce((soma, s) => soma + peso(s), 0);
     if (total <= 0) return null;
@@ -405,6 +422,93 @@ export class Sala {
       if (dist >= distMin && dist <= distMax) return { ponto, rotulo: escolhida.rotulo };
     }
     return null;
+  }
+
+  /**
+   * Um ponto atrás de um móvel, visto de onde o jogador está — item 3.3.
+   *
+   * O bicho assustado fugia em linha reta numa direção sorteada, quatro metros
+   * adiante, o que num quarto quer dizer "para dentro da parede". Agora ele
+   * corre para trás do sofá, e procurar um Pokémon vira uma coisa que acontece.
+   *
+   * "Atrás" é geometria simples e é o que basta: o ponto além do centro do
+   * móvel, na direção que sai dos olhos do jogador e passa por ele. Não é
+   * oclusão de verdade — para isso precisaria de visibilidade, que o jogo não
+   * calcula —, mas num cômodo com móveis de altura de sofá acerta quase sempre,
+   * e quando erra o bicho só correu para um canto qualquer, que é o que ele
+   * fazia antes o tempo todo.
+   */
+  esconderijo(quem: THREE.Vector3, jogador: THREE.Vector3, alcance = 5): THREE.Vector3 | null {
+    let melhor: THREE.Vector3 | null = null;
+    let menorDistancia = Infinity;
+
+    for (const s of this.superficies) {
+      if (s.rotulo === 'floor' || s.sondada) continue;
+      const acima = s.altura - this.pisoY;
+      // Precisa ser alto o bastante para esconder alguma coisa, e baixo o
+      // bastante para ser um móvel e não o teto.
+      if (acima < 0.28 || acima > 1.3) continue;
+
+      const daCabeca = new THREE.Vector3(s.centro.x - jogador.x, 0, s.centro.z - jogador.z);
+      const distancia = daCabeca.length();
+      if (distancia < 0.6 || distancia > alcance) continue;
+      daCabeca.divideScalar(distancia);
+
+      // Além do móvel, pela profundidade dele mais um palmo.
+      const fundo = Math.max(s.meiaLargura, s.meiaProfundidade) + 0.25;
+      const ponto = new THREE.Vector3(
+        s.centro.x + daCabeca.x * fundo,
+        this.alturaEm(new THREE.Vector3(s.centro.x + daCabeca.x * fundo, 0, s.centro.z + daCabeca.z * fundo)),
+        s.centro.z + daCabeca.z * fundo,
+      );
+
+      // O mais perto de QUEM está fugindo, não do jogador: um bicho que corre
+      // para o outro lado da sala passando na frente de você não está se
+      // escondendo, está desfilando.
+      const perto = ponto.distanceTo(quem);
+      if (perto < menorDistancia) {
+        menorDistancia = perto;
+        melhor = ponto;
+      }
+    }
+
+    return melhor;
+  }
+
+  /**
+   * O quanto uma superfície serve a quem está procurando — 0 a ~4.
+   *
+   * É multiplicador, e não filtro, de propósito: num quarto onde o headset só
+   * achou o chão, um Zubat que EXIGISSE altura não nasceria nunca. Aqui ele
+   * prefere o armário com folga e aceita o carpete quando não há armário.
+   *
+   * A altura é medida contra o piso, e não em absoluto: `alturaEm` já sabe onde
+   * é o chão de cada ponto, e uma casa com dois níveis não deve fazer a sala de
+   * cima inteira contar como "em cima de um móvel".
+   */
+  private afinidade(s: Superficie, procura: Preferencia): number {
+    if (procura === 'qualquer') return 1;
+
+    const ehChao = s.rotulo === 'floor' || s.sondada;
+    const acimaDoChao = s.altura - this.pisoY;
+    const ehMovel = !ehChao && acimaDoChao > 0.22;
+
+    switch (procura) {
+      // Quem voa procura o alto: o armário, a estante, o topo da geladeira. É o
+      // que faz um Zubat parecer um Zubat em vez de um rato com asas.
+      case 'alto':
+        return ehMovel ? 3.2 : 0.35;
+      // Quem cava, rasteja ou é feito de pedra fica no chão. Um Diglett em cima
+      // da mesa de jantar é engraçado uma vez e errado sempre.
+      case 'chao':
+        return ehChao ? 2.4 : 0.25;
+      // Os pequenos e curiosos sobem no que houver, mas não no alto de tudo: o
+      // sofá e a mesa, não a estante.
+      case 'movel':
+        return ehMovel && acimaDoChao < 1.0 ? 2.6 : 0.6;
+      default:
+        return 1;
+    }
   }
 
   /**

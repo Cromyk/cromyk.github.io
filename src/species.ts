@@ -3,6 +3,7 @@ import { EFETIVIDADE, POKEDEX, type EntradaDex, type Tipo } from './pokedex.gen'
 import { temModelo, temShiny } from './modelos';
 import { APRENDE, GOLPES_DEX } from './golpes.gen';
 import { EVOLUI_SO_COM_PEDRA, PEDRAS, evolucaoPorPedra } from './pedras';
+import type { Preferencia } from './room';
 
 export type { Tipo } from './pokedex.gen';
 
@@ -933,6 +934,31 @@ export function chanceCaptura(
  * quem você ainda não registrou — sem esse último, completar a Pokédex viraria
  * espera, não caçada.
  */
+/**
+ * Que tipo de lugar do quarto esta espécie procura — item 3.1 do roteiro.
+ *
+ * A regra sai do que o bicho É, e nessa ordem:
+ *
+ * 1. **Quem voa procura o alto.** `voo` já existe e já diz quem paira: é o
+ *    mesmo campo que impede um Gastly de dar pulinhos. Um Zubat no topo do
+ *    armário e um Zubat no carpete são dois bichos diferentes.
+ * 2. **Quem é de terra, pedra ou cava fica no chão.** Um Diglett em cima da
+ *    mesa de jantar é engraçado uma vez e errado sempre.
+ * 3. **Os pequenos sobem no que houver** — o sofá, a mesa. É onde um gato
+ *    ficaria, e é o que faz o cômodo parecer habitado em vez de sorteado.
+ * 4. O resto fica onde der.
+ *
+ * O `alturaNaSala` do bicho é a medida de "pequeno", e não a altura real da
+ * Pokédex: com o tamanho real ligado, um Onix tem nove metros e nenhum deles
+ * cabe em cima de nada.
+ */
+export function ondeNasce(especie: Especie): Preferencia {
+  if (especie.voo > 0.001) return 'alto';
+  if (especie.tipos.includes('terra') || especie.tipos.includes('pedra')) return 'chao';
+  if (especie.altura <= 0.45) return 'movel';
+  return 'qualquer';
+}
+
 export function pesoSpawn(especie: Especie, jaCapturou: boolean, nivelJogador: number): number {
   // Convidada não nasce no quarto de ninguém. Um Sylveon passeando pela sala
   // seria a resposta errada para o pedido que o trouxe: ele entrou para ser o
