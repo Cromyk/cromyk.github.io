@@ -29,6 +29,20 @@ const RAIO = 0.045;
 const SACUDIDAS = 3;
 
 /**
+ * Quando cada sacudida acontece, em segundos desde que a bola caiu.
+ *
+ * Eram três intervalos IGUAIS de 0,85 s, e três batidas no mesmo compasso não
+ * são suspense — são um metrônomo. O ouvido acerta a terceira antes de ela
+ * acontecer, e uma coisa que se pode prever não dá aflição nenhuma.
+ *
+ * Aqui os vãos crescem: 0,62 · 0,88 · 1,30. A primeira vem rápido, quase junto
+ * com a queda; a segunda faz esperar; e a terceira demora o bastante para você
+ * achar que deu certo antes de ela vir. É o ritmo do jogo original, e o motivo
+ * de ele ser assim é exatamente esse — item 2.3 do roteiro.
+ */
+const RITMO_DA_SACUDIDA = [0.62, 1.5, 2.8] as const;
+
+/**
  * O corpo da pokébola — duas meias-esferas, faixa equatorial e o botão dos dois
  * lados —, montado em geometria como todo o resto do jogo.
  *
@@ -131,6 +145,8 @@ export class Pokebola {
   private resolvido = false;
   private tempoInerte = 0;
   private forcaSacudida = 0;
+  /** Quanto ela está achatada agora, 0 a 1. Ver aplicarElastico. */
+  private achatamento = 0;
   private pisoY: number;
 
   constructor(pisoY: number, corAcento = 0xff3b30, corBase = 0xf2f2f5) {
@@ -192,11 +208,14 @@ export class Pokebola {
     this.presa = pokemon;
     this.estado = 'soltando';
     this.cronometro = 0;
+    // O estalo do fecho vem antes do clarão: é a causa, não o efeito.
+    audio.estalo();
     audio.succao();
   }
 
   atualizar(dt: number) {
     this.cronometro += dt;
+    this.aplicarElastico(dt);
 
     switch (this.estado) {
       case 'mao':
@@ -254,7 +273,7 @@ export class Pokebola {
         this.matBotao.emissiveIntensity = 1 + Math.sin(this.cronometro * 9) * 0.7;
         this.matBotao.emissive.setHex(0xff4433);
 
-        const indice = Math.floor(this.cronometro / 0.85);
+        const indice = this.sacudidaNoTempo(this.cronometro);
         if (indice > this.sacudidaAtual && indice <= SACUDIDAS) {
           this.sacudidaAtual = indice;
           this.sacudidasRestantes--;
@@ -333,6 +352,11 @@ export class Pokebola {
     if (this.raiz.position.y - RAIO <= this.pisoY) {
       this.raiz.position.y = this.pisoY + RAIO;
       if (Math.abs(this.velocidade.y) > 0.35) {
+        // O achatamento sai da velocidade com que ela chegou: uma bola que cai
+        // de trinta centímetros amassa de leve, e uma arremessada com força
+        // amassa muito. Achatar sempre igual é o que faz um quique parecer um
+        // gif em laço — item 2.3 do roteiro.
+        this.achatamento = Math.min(0.55, Math.abs(this.velocidade.y) * 0.09);
         this.velocidade.y *= -RESTITUICAO;
         this.velocidade.x *= 0.78;
         this.velocidade.z *= 0.78;
@@ -343,6 +367,41 @@ export class Pokebola {
         this.raiz.rotation.z *= 0.9;
       }
     }
+  }
+
+  /**
+   * Squash & stretch: achata ao bater, estica ao subir, volta sozinha.
+   *
+   * O volume é conservado — o que encolhe em Y cresce em X e Z pela raiz, que
+   * é a conta que faz a coisa parecer elástica em vez de desenhada. Sem ela a
+   * bola vira uma esfera rígida que muda de tamanho, que o olho lê como
+   * defeito.
+   *
+   * Vive no `corpo` e não na `raiz`: a raiz gira, e escala em nó girado deforma
+   * no eixo errado.
+   */
+  /** Quantas sacudidas já deviam ter acontecido neste instante. */
+  private sacudidaNoTempo(segundos: number): number {
+    let quantas = 0;
+    for (const marca of RITMO_DA_SACUDIDA) {
+      if (segundos >= marca) quantas++;
+    }
+    return quantas;
+  }
+
+  private aplicarElastico(dt: number) {
+    if (this.achatamento > 0) this.achatamento = Math.max(0, this.achatamento - dt * 5.5);
+
+    // Subindo depressa, ela se alonga um pouco: é o outro lado do mesmo efeito,
+    // e é o que dá a sensação de que o quique DEVOLVEU energia.
+    const subindo =
+      this.estado === 'voando' && this.velocidade.y > 0.6
+        ? Math.min(0.18, this.velocidade.y * 0.03)
+        : 0;
+
+    const emY = 1 - this.achatamento + subindo;
+    const emXZ = 1 / Math.sqrt(Math.max(emY, 0.2));
+    this.corpo.scale.set(emXZ, emY, emXZ);
   }
 
   get acabou(): boolean {

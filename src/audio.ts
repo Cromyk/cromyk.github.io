@@ -35,6 +35,19 @@ const DUBLAGEM: Record<string, number> = {
   charmander: 2,
 };
 
+/**
+ * Um ponto do mundo, do jeito mais simples possível.
+ *
+ * De propósito não é `THREE.Vector3`: este arquivo não importa o three e não
+ * deve passar a importar por causa de três números. Um `Vector3` serve como
+ * argumento aqui sem conversão nenhuma.
+ */
+export interface Ponto {
+  x: number;
+  y: number;
+  z: number;
+}
+
 const TRILHA_BATALHA = './trilha/batalha.mp3';
 const SFX_BRILHANTE = './sfx/brilhante.mp3';
 const SFX_NIVEL = './sfx/nivel.mp3';
@@ -82,6 +95,106 @@ export class Audio {
    */
   musicaDeBatalha = true;
 
+  /**
+   * Para onde os efeitos vão neste instante — item 2.4 do roteiro.
+   *
+   * Todo som deste arquivo é sintetizado e desembocava direto no `master`, o
+   * que quer dizer que ele saía do centro da sua cabeça. Num jogo onde o bicho
+   * está atrás do sofá à sua esquerda, o grito dele vindo de lugar nenhum
+   * desperdiça a única pista que a realidade misturada dá de graça: a direção.
+   *
+   * Em vez de reescrever os vinte e poucos efeitos para receberem uma posição,
+   * há um DESVIO: `de(ponto, () => ...)` planta um `PannerNode` naquele lugar e
+   * manda tudo o que tocar dentro do bloco passar por ele. Quem não sabe nada
+   * disso continua indo para o master, no meio da cabeça — que é o certo para a
+   * interface, para a voz da Pokédex e para a trilha.
+   */
+  private destino: AudioNode | null = null;
+
+  /** A saída da vez: o desvio posicional, ou o master. */
+  private get saida(): AudioNode | null {
+    return this.destino ?? this.master;
+  }
+
+  /**
+   * Toca o que estiver dentro do bloco COMO SE viesse deste ponto do mundo.
+   *
+   * O panner é criado por chamada e se desconecta sozinho — são poucos por
+   * segundo, e um nó de áudio vivo por efeito é mais barato do que manter um
+   * grafo por Pokémon sincronizado com a cena.
+   *
+   * `refDistance` de meio metro com `distanceModel: 'inverse'` é o que dá a
+   * queda certa numa SALA: o bicho a um metro soa perto, a quatro soa longe, e
+   * nada some de vez — perder o grito de um brilhante que nasceu atrás de você
+   * por causa de uma curva de distância seria caro demais.
+   */
+  de(x: number, y: number, z: number, tocar: () => void) {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) {
+      tocar();
+      return;
+    }
+
+    const panner = ctx.createPanner();
+    panner.panningModel = 'HRTF';
+    panner.distanceModel = 'inverse';
+    panner.refDistance = 0.5;
+    panner.maxDistance = 14;
+    panner.rolloffFactor = 0.9;
+    panner.positionX.value = x;
+    panner.positionY.value = y;
+    panner.positionZ.value = z;
+    panner.connect(master);
+
+    this.destino = panner;
+    try {
+      tocar();
+    } finally {
+      this.destino = null;
+    }
+
+    // Quatro segundos cobrem o mais longo dos efeitos com folga. Desconectar
+    // antes cortaria a cauda do som; nunca desconectar deixaria um nó por
+    // grito, e uma sessão longa tem milhares deles.
+    window.setTimeout(() => panner.disconnect(), 4000);
+  }
+
+  /**
+   * Põe o ouvinte onde a cabeça está. Chamado uma vez por quadro pelo jogo.
+   *
+   * Sem isto o panner não serve para nada: ele calcula a direção do som em
+   * relação ao ouvinte, e um ouvinte parado na origem faria tudo soar como se
+   * você nunca tivesse saído do lugar onde a sessão começou — que é exatamente
+   * o defeito que o mapeamento da sala já teve uma vez.
+   */
+  ouvirDe(posicao: Ponto, frente: Ponto, cima: Ponto) {
+    const ouvinte = this.ctx?.listener;
+    if (!ouvinte) return;
+
+    // Os navegadores mais novos expõem AudioParam; os mais antigos, os métodos
+    // depreciados. O Quest tem os dois, mas escolher em runtime custa nada e
+    // evita uma sessão muda num navegador que eu não testei.
+    if (ouvinte.positionX) {
+      ouvinte.positionX.value = posicao.x;
+      ouvinte.positionY.value = posicao.y;
+      ouvinte.positionZ.value = posicao.z;
+      ouvinte.forwardX.value = frente.x;
+      ouvinte.forwardY.value = frente.y;
+      ouvinte.forwardZ.value = frente.z;
+      ouvinte.upX.value = cima.x;
+      ouvinte.upY.value = cima.y;
+      ouvinte.upZ.value = cima.z;
+      return;
+    }
+    const velho = ouvinte as unknown as {
+      setPosition?: (x: number, y: number, z: number) => void;
+      setOrientation?: (fx: number, fy: number, fz: number, ux: number, uy: number, uz: number) => void;
+    };
+    velho.setPosition?.(posicao.x, posicao.y, posicao.z);
+    velho.setOrientation?.(frente.x, frente.y, frente.z, cima.x, cima.y, cima.z);
+  }
+
   iniciar() {
     if (this.ctx) {
       void this.ctx.resume();
@@ -124,7 +237,8 @@ export class Audio {
     ganho?: number;
     atraso?: number;
   }) {
-    const { ctx, master } = this;
+    const ctx = this.ctx;
+    const master = this.saida;
     if (!ctx || !master) return;
     const { freq, freqFinal, duracao, tipo = 'sine', ganho = 0.3, atraso = 0 } = opcoes;
     const t0 = this.agora + atraso;
@@ -191,6 +305,18 @@ export class Audio {
   acerto() {
     this.tom({ freq: 420, freqFinal: 180, duracao: 0.14, tipo: 'square', ganho: 0.18 });
     this.sopro({ duracao: 0.16, corteInicial: 2200, corteFinal: 400, ganho: 0.22, q: 1.2 });
+  }
+
+  /**
+   * O estalo da bola abrindo — o "clack" do fecho, não o brilho.
+   *
+   * Curto e seco de propósito: é o som de um mecanismo destravando, e vem
+   * ANTES do clarão. A ordem importa — o estalo é a causa, a luz é o efeito, e
+   * invertê-los faz a bola parecer que acendeu e depois abriu.
+   */
+  estalo() {
+    this.tom({ freq: 1400, freqFinal: 600, duracao: 0.045, tipo: 'square', ganho: 0.16 });
+    this.sopro({ duracao: 0.07, corteInicial: 3600, corteFinal: 900, ganho: 0.2, q: 3.2 });
   }
 
   succao() {
@@ -662,7 +788,8 @@ export class Audio {
     taxa: number,
     profundidade: number,
   ) {
-    const { ctx, master } = this;
+    const ctx = this.ctx;
+    const master = this.saida;
     if (!ctx || !master) return;
     const t0 = this.agora;
 

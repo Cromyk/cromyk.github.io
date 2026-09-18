@@ -85,6 +85,12 @@ const gestoDoGolpe = (golpe: Golpe): GestoDeAtaque =>
 /** Rascunho do quadro para a origem do feixe — ver atualizarFeixe. */
 const _feixeOrigem = new THREE.Vector3();
 
+/** Rascunhos do quadro para o ouvinte do áudio. Ver atualizarOuvinte. */
+const _ouvintePos = new THREE.Vector3();
+const _ouvinteFrente = new THREE.Vector3();
+const _ouvinteCima = new THREE.Vector3();
+const _ouvinteGiro = new THREE.Quaternion();
+
 const MAX_SELVAGENS = 3;
 /**
  * Alem disto, o selvagem que ficou para tras vai embora sozinho — e abre vaga
@@ -2280,8 +2286,12 @@ export class Jogo {
     efeito.adicionarA(this.cena);
     this.efeitos.push(efeito);
     this.talvezAssinatura(atacante, golpe, defensor.centro);
-    audio.golpe(golpe.tipo);
-    audio.grito(atacante.especie.id, atacante.shiny, atacante.especie.num);
+    // O golpe soa de onde ele SAI: a boca de quem atacou. Ver audio.de.
+    const boca = atacante.boca;
+    audio.de(boca.x, boca.y, boca.z, () => {
+      audio.golpe(golpe.tipo);
+      audio.grito(atacante.especie.id, atacante.shiny, atacante.especie.num);
+    });
 
     // O dano cai junto com o impacto do efeito, não no instante do comando.
     const atraso = efeito.momentoImpacto * 1000;
@@ -2363,8 +2373,13 @@ export class Jogo {
       for (const mao of this.maos) mao.sentir(critico ? 'levou' : 'acertou');
     }
 
-    audio.impacto(efetividade);
-    if (critico) audio.critico();
+    // E o impacto soa de onde ele CHEGA — que é outro ponto da sala, e é o
+    // que faz uma briga entre dois bichos a três metros parecer acontecer lá.
+    const onde = defensor.centro;
+    audio.de(onde.x, onde.y, onde.z, () => {
+      audio.impacto(efetividade);
+      if (critico) audio.critico();
+    });
 
     const nota = textoEfetividade(efetividade);
     const linhas = [
@@ -2845,7 +2860,16 @@ export class Jogo {
       // Um encontro comum respeita o intervalo; um BRILHANTE não. Ele aparece
       // uma vez a cada milhares e pode nascer atrás de você — perder essa voz
       // por causa de um cronômetro custaria caro demais.
-      window.setTimeout(() => audio.grito(especie.id, shiny, especie.num, shiny), 300);
+      // De ONDE ele nasceu. Para um brilhante que apareceu atrás de você, a
+      // direção do grito é a única chance de saber que ele está ali.
+      const ondeNasceu = pokemon.centro.clone();
+      window.setTimeout(
+        () =>
+          audio.de(ondeNasceu.x, ondeNasceu.y, ondeNasceu.z, () =>
+            audio.grito(especie.id, shiny, especie.num, shiny),
+          ),
+        300,
+      );
 
       const novidade = !this.dex.jaCapturou(especie.id);
       this.aviso.mostrar(
@@ -3010,6 +3034,7 @@ export class Jogo {
     this.atualizarRecargaDeBolas();
     this.atualizarMaos(dt, agora);
     this.atualizarMochila(dt);
+    this.atualizarOuvinte();
     this.atualizarPedidoDeAjuda(dt);
     this.atualizarPaineis(dt);
     this.atualizarMarca(dt);
@@ -3493,6 +3518,20 @@ export class Jogo {
    * e a mochila ainda precisa animar o fechamento mesmo sem mão nenhuma em
    * cena — senão ela fica congelada meio aberta na tela para sempre.
    */
+  /**
+   * O ouvinte do áudio segue a cabeça — item 2.4 do roteiro.
+   *
+   * Sem isto o som posicional não vale nada: o panner calcula a direção em
+   * relação ao ouvinte, e um ouvinte parado na origem faria tudo soar como se
+   * você nunca tivesse saído de onde a sessão começou.
+   */
+  private atualizarOuvinte() {
+    this.camera.getWorldPosition(_ouvintePos);
+    this.camera.getWorldDirection(_ouvinteFrente);
+    _ouvinteCima.set(0, 1, 0).applyQuaternion(this.camera.getWorldQuaternion(_ouvinteGiro));
+    audio.ouvirDe(_ouvintePos, _ouvinteFrente, _ouvinteCima);
+  }
+
   private atualizarMochila(dt: number) {
     const pontos: THREE.Vector3[] = [];
     if (!this.modoPlano) {
