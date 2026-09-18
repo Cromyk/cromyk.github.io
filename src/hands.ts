@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Luva } from './glove';
+import { Placa } from './hud';
 
 interface Amostra {
   posicao: THREE.Vector3;
@@ -366,6 +367,9 @@ export class FeixeDeAlvo {
   private matPonta: THREE.MeshBasicMaterial;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
   private forca = 0;
+  /** A etiqueta de efetividade, na ponta. Ver definirEtiqueta. */
+  private etiqueta = new Placa(0.14, 0.042, 300);
+  private etiquetaAtual = '';
 
   constructor() {
     // Cilindro de comprimento 1 deitado sobre −Z, que é para onde a mão aponta;
@@ -398,8 +402,37 @@ export class FeixeDeAlvo {
     this.ponta.frustumCulled = false;
 
     this.descartaveis.push(geoHaste, this.matHaste, geoPonta, this.matPonta);
-    this.grupo.add(this.haste, this.ponta);
+    this.etiqueta.malha.visible = false;
+    this.grupo.add(this.haste, this.ponta, this.etiqueta.malha);
     this.grupo.visible = false;
+  }
+
+  /**
+   * A etiqueta da ponta do feixe: o que o seu golpe vai fazer NESTE alvo.
+   *
+   * A tabela dos dezoito tipos é o coração do combate e a coisa mais difícil de
+   * guardar de cabeça — e até agora o jogo só contava o resultado DEPOIS, no
+   * aviso que aparece quando o golpe já saiu. Informação que chega depois da
+   * decisão não é informação, é placar.
+   *
+   * Aqui ela chega enquanto o braço ainda está escolhendo, no lugar onde o olho
+   * já está: na ponta do feixe, em cima do bicho. É o mesmo princípio da pílula
+   * de condição no card do golpe — o que muda a jogada tem de estar visível
+   * antes da jogada.
+   */
+  definirEtiqueta(texto: string, cor: string) {
+    if (texto === this.etiquetaAtual) return;
+    this.etiquetaAtual = texto;
+    if (!texto) {
+      this.etiqueta.malha.visible = false;
+      return;
+    }
+    this.etiqueta.malha.visible = true;
+    this.etiqueta.escrever([{ texto, tamanho: 34, cor, peso: 700 }], {
+      raio: 12,
+      fundo: 'rgba(8, 12, 19, 0.82)',
+      borda: 'rgba(255,255,255,0.14)',
+    });
   }
 
   /**
@@ -422,6 +455,11 @@ export class FeixeDeAlvo {
     this.haste.scale.z = comprimento;
     this.ponta.position.z = -comprimento;
     this.ponta.scale.setScalar(pulso);
+
+    // A etiqueta fica logo acima da ponta, encarando quem segura o feixe: ela é
+    // filha da mão, então já nasce virada para o rosto.
+    this.etiqueta.malha.position.set(0, 0.075, -comprimento);
+    (this.etiqueta.malha.material as THREE.MeshBasicMaterial).opacity = this.forca;
   }
 
   descartar() {

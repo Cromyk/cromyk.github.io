@@ -6,6 +6,7 @@ import { criarRng, entre, type Rng } from './rng';
 import { Animador } from './anima';
 import { Chama, FOGO_POR_ESPECIE, pontaDaCadeia } from './fogo';
 import { CONDICOES, type Condicao } from './condicao';
+import { MarcaDeCondicao } from './marcaCondicao';
 
 export type Papel = 'selvagem' | 'companheiro';
 
@@ -184,6 +185,8 @@ export class Pokemon {
   private restaDaCondicao = 0;
   /** Sobra de dano por segundo, para veneno e queimadura tirarem HP inteiro. */
   private acumuladoDaCondicao = 0;
+  /** As partículas da condição, no corpo. Ver src/marcaCondicao.ts. */
+  private marcaDaCondicao: MarcaDeCondicao;
 
   private static readonly RAIO_PASSEIO = 0.85;
 
@@ -257,6 +260,11 @@ export class Pokemon {
     // que é a maioria. Ver src/anima.ts.
     this.animador = new Animador(corpo);
     this.acenderFogo();
+
+    // Na RAIZ e não no corpo: o corpo leva o squash & stretch, e partículas que
+    // esticam junto com o bicho ao pular leem como defeito.
+    this.marcaDaCondicao = new MarcaDeCondicao(corpo.altura);
+    this.raiz.add(this.marcaDaCondicao.grupo);
   }
 
   /**
@@ -1214,6 +1222,8 @@ export class Pokemon {
     // estados passam — inclusive o desmaiado, e a chama de um Charmander
     // desmaiado continua queimando.
     for (const chama of this.chamas) chama.atualizar(dt);
+    this.marcaDaCondicao.definir(this.condicao);
+    this.marcaDaCondicao.atualizar(dt);
 
     // Os ossos primeiro (clipe assado e pose procedural), o corpo inteiro
     // depois. A ordem importa: o squash abaixo escreve em `corpo.scale`, que
@@ -1288,6 +1298,7 @@ export class Pokemon {
   descartar(cena: THREE.Object3D) {
     cena.remove(this.raiz);
     for (const chama of this.chamas) chama.descartar();
+    this.marcaDaCondicao.descartar();
     this.chamas.length = 0;
     this.corpo.descartar();
     this.viva = false;

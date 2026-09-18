@@ -18,6 +18,7 @@ import {
   golpesDeStatus,
   intervaloDeAtaque,
   multEstagio,
+  multiplicador,
   textoEstagio,
   evolucaoEm,
   evolucaoDaPedra,
@@ -2129,8 +2130,30 @@ export class Jogo {
     const podeAtacar = this.temCompanheiroEmCampo && !this.escaneando && !this.escolha;
     const alvo = podeAtacar && mao.conectada ? this.selvagemNaMira(mao, ALCANCE_BATALHA + 2) : null;
     if (!alvo) {
+      feixe.definirEtiqueta('', '#ffffff');
       feixe.atualizar(dt, false, 1, 0xff6b5c, agora / 1000);
       return;
+    }
+
+    // A efetividade do golpe que VAI SAIR, contra ESTE alvo.
+    //
+    // A tabela dos dezoito tipos é o coração do combate e a coisa mais difícil
+    // de guardar de cabeça, e até agora o jogo só a contava DEPOIS — no aviso
+    // que aparece com o golpe já no ar. Informação que chega depois da decisão
+    // não é informação, é placar.
+    const companheiro = this.companheiro;
+    const golpe = companheiro ? (this.golpeDoCampo() ?? escolherGolpe(companheiro, alvo)) : null;
+    if (golpe) {
+      const m = multiplicador(golpe.tipo, alvo.especie.tipos);
+      const nota = textoEfetividade(m);
+      // Sem nota é dano normal, e dano normal não precisa ser anunciado: uma
+      // etiqueta que está sempre lá deixa de ser lida em dois minutos.
+      feixe.definirEtiqueta(
+        nota ?? '',
+        m >= 2 ? '#8ef0a8' : m === 0 ? '#6a7386' : m <= 0.5 ? '#ffb2b2' : '#ffffff',
+      );
+    } else {
+      feixe.definirEtiqueta('', '#ffffff');
     }
 
     const origem = mao.alvo.getWorldPosition(_feixeOrigem);
@@ -4119,6 +4142,8 @@ export class Jogo {
         c.altura,
         this.camera,
         c.desmaiado ? `N${nivel} · desmaiado` : `N${nivel} · seu`,
+        null,
+        c.perfilDaCondicao,
       );
     }
 
