@@ -44,6 +44,114 @@ const SACUDIDAS = 3;
 const RITMO_DA_SACUDIDA = [0.62, 1.5, 2.8] as const;
 
 /**
+ * O quanto o arremesso pode estar errado e ainda assim ser "aquele arremesso".
+ *
+ * Catorze graus é o que sobra de um gesto que você fez certo: braço na direção
+ * do bicho, força mais ou menos certa, e a bola passando de raspão. Acima disso
+ * o arremesso foi para outro lugar — e uma bola que faz a curva de trinta graus
+ * para acertar não é assistência, é teleguiada, e tira do jogador a única coisa
+ * que o arremesso tem para dar, que é ter sido ele quem acertou.
+ */
+const CONE_DE_AJUDA = THREE.MathUtils.degToRad(14);
+
+/**
+ * Quanto a bola consegue virar por segundo, em radianos.
+ *
+ * Um voo típico dura meio segundo. Com 0,9 rad/s ela fecha uns 26° nesse tempo
+ * — mais do que o cone inteiro, então dentro do cone a correção sempre dá
+ * conta, e fora dele ela nem começa. O limite existe para a curva ser suave o
+ * bastante para parecer física, e não um ímã.
+ */
+const GIRO_MAXIMO = 0.9;
+
+/**
+ * A ajuda de mira do arremesso — a única parte disto que dá para afirmar sem um
+ * headset, e por isso está fora da classe.
+ *
+ * ## Por que existe
+ *
+ * O arremesso era balístico puro: a velocidade da sua mão, gravidade, e boa
+ * sorte. Num jogo de tela isso seria uma mira; em VR é um braço humano tentando
+ * acertar um Rattata de vinte centímetros a três metros, com um controle que
+ * não tem o peso de uma bola. Errar é o caso comum — e errar aqui custa uma
+ * bola que rola para debaixo do sofá, que você vai ter de agachar para catar.
+ *
+ * ## O que ela não é
+ *
+ * Não é mira automática. A correção só age quando o arremesso já estava indo
+ * para lá (ver `CONE_DE_AJUDA`), e some suavemente na borda do cone em vez de
+ * ligar e desligar. O jogador que mirou mal continua errando; o que mirou bem e
+ * passou de raspão acerta — que era o que ele tinha feito, de qualquer forma.
+ *
+ * ## Como: só o rumo, nunca a altura
+ *
+ * A correção gira a velocidade **em torno do eixo vertical** e deixa a
+ * componente de cima intacta. Isso não é economia — é a única versão que
+ * funciona, e a primeira que escrevi não era essa.
+ *
+ * A tentação era mirar o vetor velocidade direto no alvo, em três dimensões. A
+ * simulação derrubou na primeira asserção: num arremesso balístico a velocidade
+ * NUNCA aponta para o alvo. Ela aponta acima dele na saída e abaixo dele na
+ * chegada — é isso que desenha a parábola. Uma correção que persiga a linha
+ * reta passa o voo inteiro puxando a bola para baixo no começo e para cima no
+ * fim, ou seja, achatando o arco; o arremesso perfeito, corrigido assim,
+ * ERRAVA. O teste pegou porque ele afirma primeiro o caso em cheio.
+ *
+ * E o erro que se quer perdoar é mesmo o lateral: o braço acerta bem a força e
+ * a elevação, e o que sai torto é a direção. A gravidade continua sendo a
+ * gravidade, o tempo de voo não muda, e o arco que você viu sair da sua mão é o
+ * arco que chega lá.
+ */
+export function corrigirRumo(
+  velocidade: THREE.Vector3,
+  posicao: THREE.Vector3,
+  alvo: THREE.Vector3,
+  dt: number,
+  cone = CONE_DE_AJUDA,
+  giroMaximo = GIRO_MAXIMO,
+): boolean {
+  const rapidezH = Math.hypot(velocidade.x, velocidade.z);
+  if (rapidezH < 0.2) return false;
+
+  const paraX = alvo.x - posicao.x;
+  const paraZ = alvo.z - posicao.z;
+  const distanciaH = Math.hypot(paraX, paraZ);
+  // Colada no bicho não há mais o que corrigir, e a conta do ângulo fica
+  // instável — é onde uma correção pequena viraria uma guinada.
+  if (distanciaH < 0.25) return false;
+
+  // O ângulo, COM SINAL, que leva o rumo atual ao rumo do alvo girando em torno
+  // do eixo vertical.
+  //
+  // Os dois termos saem da própria rotação do three (R_y): aplicá-la a um vetor
+  // dá `x' = x·cos + z·sen` e `z' = −x·sen + z·cos`, e disso sai que o seno do
+  // giro que se procura é `v.z·p.x − v.x·p.z` e o cosseno é `v·p`. Escrevo
+  // assim, derivado, porque a primeira versão tinha os dois sinais trocados ao
+  // mesmo tempo — e dois sinais trocados na mesma conta parecem certos até
+  // alguém simular. A bola corrigia para o lado oposto do bicho.
+  const seno = (velocidade.z * paraX - velocidade.x * paraZ) / (rapidezH * distanciaH);
+  const cosseno = (velocidade.x * paraX + velocidade.z * paraZ) / (rapidezH * distanciaH);
+  const erro = Math.atan2(seno, cosseno);
+  const tamanho = Math.abs(erro);
+  if (tamanho > cone || tamanho < 1e-4) return false;
+
+  // Na borda do cone a ajuda vale quase nada e cresce para dentro. Sem isso,
+  // dois arremessos separados por meio grau teriam destinos diferentes.
+  const peso = THREE.MathUtils.smoothstep(1 - tamanho / cone, 0, 0.6);
+  const passo = Math.min(tamanho, giroMaximo * dt * peso) * Math.sign(erro);
+  if (passo === 0) return false;
+
+  // Gira no plano do chão, preservando a rapidez horizontal e o `y` inteiro.
+  const cos = Math.cos(passo);
+  const sen = Math.sin(passo);
+  const x = velocidade.x * cos + velocidade.z * sen;
+  const z = -velocidade.x * sen + velocidade.z * cos;
+  velocidade.x = x;
+  velocidade.z = z;
+  return true;
+}
+
+/**
  * O corpo da pokébola — duas meias-esferas, faixa equatorial e o botão dos dois
  * lados —, montado em geometria como todo o resto do jogo.
  *
@@ -139,6 +247,14 @@ export class Pokebola {
   private luz: THREE.PointLight;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
 
+  /**
+   * Para quem este arremesso estava indo. Ver corrigirRumo.
+   *
+   * É um ponto e não o Pokémon porque a correção não deve perseguir: o alvo é
+   * onde ele estava quando você soltou a bola, e um bicho que se esquiva
+   * depois disso se esquivou de verdade.
+   */
+  private guia: THREE.Vector3 | null = null;
   private cronometro = 0;
   private sacudidaAtual = 0;
   private sacudidasRestantes = SACUDIDAS;
@@ -176,10 +292,11 @@ export class Pokebola {
     return RAIO;
   }
 
-  lancar(velocidade: THREE.Vector3) {
+  lancar(velocidade: THREE.Vector3, guia: THREE.Vector3 | null = null) {
     this.estado = 'voando';
     this.velocidade.copy(velocidade);
     this.cronometro = 0;
+    this.guia = guia;
     audio.arremesso(velocidade.length() * 0.2);
   }
 
@@ -225,6 +342,7 @@ export class Pokebola {
         break;
 
       case 'voando':
+        if (this.guia) corrigirRumo(this.velocidade, this.raiz.position, this.guia, dt);
         this.integrar(dt);
         // Gira no eixo do movimento — o arremesso fica muito mais legível.
         this.raiz.rotation.x += this.velocidade.z * dt * 3;

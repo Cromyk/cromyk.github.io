@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
-import { Pokebola } from '../src/orb';
+import { Pokebola, corrigirRumo } from '../src/orb';
 import { Sala } from '../src/room';
 import {
   ESPECIES,
@@ -1951,6 +1951,101 @@ console.log('29. as pedras de evolução');
 
     console.log(
       `   afeto: aguenta o golpe fatal uma vez, e a paralisia cai de ${semAfeto.toFixed(1)}s para ${comCarinho.toFixed(1)}s`,
+    );
+  }
+
+  // A ajuda de mira do arremesso: o que ela perdoa, e o que não.
+  //
+  // O arremesso era balístico puro — a velocidade da sua mão, gravidade e boa
+  // sorte —, e em VR isso quer dizer um braço humano tentando acertar um bicho
+  // de vinte centímetros a três metros com um controle que não tem o peso de
+  // uma bola. Errar custa uma bola rolando para debaixo do sofá.
+  //
+  // A afirmação é uma faixa, e ela tem os DOIS lados: sem o lado de cima isto
+  // aqui seria mira automática, e o jogador deixaria de ser quem acertou.
+  {
+    // Um arremesso de verdade: bicho a 3 m à frente, um pouco abaixo da mão.
+    const alvo = new THREE.Vector3(0, 0.45, -3);
+    const mao = new THREE.Vector3(0, 1.35, 0);
+
+    /** Simula o voo e devolve a menor distância a que a bola passou do alvo. */
+    const arremessar = (erroGraus: number, ajuda: boolean) => {
+      const para = new THREE.Vector3().subVectors(alvo, mao);
+      const tempo = 0.62;
+      // Velocidade balística que acerta em cheio no tempo dado, depois girada
+      // pelo erro: é assim que se isola a pontaria do resto.
+      const v = para
+        .clone()
+        .divideScalar(tempo)
+        .add(new THREE.Vector3(0, (9.81 * tempo) / 2, 0));
+      v.applyAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(erroGraus));
+
+      const p = mao.clone();
+      let perto = Infinity;
+      const dt = 1 / 90;
+      for (let i = 0; i < 90 * 2; i++) {
+        if (ajuda) corrigirRumo(v, p, alvo, dt);
+        v.y += -9.81 * dt;
+        p.addScaledVector(v, dt);
+        perto = Math.min(perto, p.distanceTo(alvo));
+        if (p.y < 0) break;
+      }
+      return perto;
+    };
+
+    // Um bicho pequeno: acertar é passar a menos de 22 cm do centro dele.
+    const ACERTO = 0.22;
+
+    checar(arremessar(0, true) < 0.05, 'o arremesso em cheio tem de continuar em cheio');
+    checar(arremessar(0, false) < 0.05, 'e sem ajuda também — a simulação precisa estar certa');
+
+    // O de raspão vira acerto.
+    checar(arremessar(9, false) > ACERTO, 'a 9° de erro, sem ajuda, passava longe');
+    checar(arremessar(9, true) < ACERTO, 'a 9° de erro a ajuda tinha de resolver');
+
+    // E o arremesso que foi para outro lugar continua indo para outro lugar.
+    for (const g of [22, 30, 45]) {
+      checar(arremessar(g, true) > ACERTO, `a ${g}° a bola não pode fazer a curva — vira teleguiada`);
+    }
+
+    // A fronteira, medida e não estimada.
+    let maiorPerdoado = 0;
+    for (let g = 0; g <= 40; g += 0.5) if (arremessar(g, true) < ACERTO) maiorPerdoado = g;
+    const semAjuda = (() => {
+      let m = 0;
+      for (let g = 0; g <= 40; g += 0.5) if (arremessar(g, false) < ACERTO) m = g;
+      return m;
+    })();
+    checar(maiorPerdoado > semAjuda, 'a ajuda tem de ajudar');
+    checar(maiorPerdoado < 20, 'perdoar mais de 20° já não é o seu arremesso');
+
+    // Para os dois lados, e sem mexer na altura — que é o que preserva o arco.
+    //
+    // Esta é a asserção que derrubou a primeira versão, que mirava o vetor em
+    // três dimensões: num tiro balístico a velocidade nunca aponta para o alvo
+    // (aponta acima na saída e abaixo na chegada), então perseguir a linha reta
+    // achata a parábola e faz o arremesso PERFEITO errar.
+    for (const sinal of [1, -1]) {
+      const v = new THREE.Vector3(0, 2.4, -6);
+      v.applyAxisAngle(new THREE.Vector3(0, 1, 0), sinal * THREE.MathUtils.degToRad(8));
+      const alturaAntes = v.y;
+      const rapidezHAntes = Math.hypot(v.x, v.z);
+      const mexeu = corrigirRumo(v, new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 1, -3), 1 / 90);
+      checar(mexeu, 'a 8° a ajuda devia agir dos dois lados');
+      checar(v.y === alturaAntes, 'a correção não pode mexer na altura do arremesso');
+      checar(
+        Math.abs(Math.hypot(v.x, v.z) - rapidezHAntes) < 1e-6,
+        'nem na força com que ele foi para a frente',
+      );
+      // E ela vai para o lado CERTO: o erro depois tem de ser menor.
+      const depois = Math.abs(
+        Math.atan2(v.x, -v.z) - 0,
+      );
+      checar(depois < THREE.MathUtils.degToRad(8), 'a correção foi para o lado errado');
+    }
+
+    console.log(
+      `   mira do arremesso: perdoa até ${maiorPerdoado.toFixed(1)}° (eram ${semAjuda.toFixed(1)}°) e ignora acima de 14°`,
     );
   }
 

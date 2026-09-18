@@ -1499,14 +1499,57 @@ export class Jogo {
 
     const velocidade = mao.velocidadeArremesso(performance.now());
     if (velocidade.length() < 0.8) velocidade.set(0, -0.4, 0);
-    bola.lancar(velocidade);
-    mao.sentir('acertou');
 
     const exemplar = this.bolaDeInvocacao.get(mao.indice);
+    // A bola que leva o SEU Pokémon não é guiada: ela vai onde você mandou, que
+    // é o ponto do quarto onde você quer que ele nasça. Guiá-la para um
+    // selvagem seria o jogo escolhendo por você em cima do único arremesso que
+    // não é sobre acertar ninguém.
+    bola.lancar(velocidade, exemplar ? null : this.alvoDoArremesso(velocidade));
+    mao.sentir('acertou');
+
     if (exemplar) {
       this.bolaDeInvocacao.delete(mao.indice);
       bola.raiz.userData.invocar = exemplar;
     }
+  }
+
+  /**
+   * Para quem este arremesso estava indo, se é que estava.
+   *
+   * Duas fontes, nesta ordem. A primeira é o alvo TRAVADO — aquele que você
+   * apontou com o feixe e mandou o seu Pokémon bater. Se você declarou a
+   * intenção de brigar com aquele ali, arremessar em seguida é arremessar
+   * naquele ali, e não há o que adivinhar.
+   *
+   * A segunda é geométrica: o selvagem vivo mais alinhado com a direção em que
+   * a bola saiu. Ela existe para quem joga sem travar alvo, que é o caso do
+   * modo Relaxante e de quem só quer capturar sem brigar.
+   *
+   * De qualquer forma quem decide se a ajuda vale é `corrigirRumo`: aqui só se
+   * diz de quem se está falando. Um alvo a noventa graus é devolvido do mesmo
+   * jeito e ignorado lá.
+   */
+  private alvoDoArremesso(velocidade: THREE.Vector3): THREE.Vector3 | null {
+    if (this.alvoTravado?.viva && !this.alvoTravado.desmaiado) {
+      return this.alvoTravado.centro.clone();
+    }
+
+    const rumo = velocidade.clone().normalize();
+    let melhor: THREE.Vector3 | null = null;
+    let menorErro = Infinity;
+    for (const { pokemon } of this.selvagens) {
+      if (!pokemon.viva || pokemon.desmaiado) continue;
+      const para = new THREE.Vector3().subVectors(pokemon.centro, this.posicaoJogador);
+      const distancia = para.length();
+      if (distancia < 0.3 || distancia > 8) continue;
+      const erro = Math.acos(THREE.MathUtils.clamp(para.divideScalar(distancia).dot(rumo), -1, 1));
+      if (erro < menorErro) {
+        menorErro = erro;
+        melhor = pokemon.centro.clone();
+      }
+    }
+    return melhor;
   }
 
   // ------------------------------------------------------------ gatilho
