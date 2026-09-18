@@ -244,6 +244,8 @@ export class Pokebola {
 
   private corpo: THREE.Group;
   private matBotao: THREE.MeshStandardMaterial;
+  /** Quanto a mão está perto, neste quadro. Ver `aproximar`. */
+  private chamando = 0;
   private luz: THREE.PointLight;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
 
@@ -457,9 +459,20 @@ export class Pokebola {
         this.tempoInerte += dt;
         // Um respiro de luz enquanto ela pode ser recolhida, e o apagar nos
         // últimos dez segundos — o aviso de que ela está indo embora.
+        //
+        // E, desde 18/09, ela ACENDE quando a sua mão chega: era o único alvo
+        // de grip do jogo sem nenhuma resposta à aproximação, e é o mais difícil
+        // de todos — você está agachado, com a própria mão tapando a bola.
+        //
+        // Multiplicado pelo mesmo `1 - indoEmbora` do respiro, de propósito:
+        // sem isso, aproximar a mão de uma bola a dois segundos de sumir a faria
+        // brilhar forte de novo, e o aviso de que ela vai embora morreria.
         const indoEmbora = Math.max(0, 1 - (SEGUNDOS_NO_CHAO - this.tempoInerte) / 10);
-        this.luz.intensity = (0.2 + Math.sin(this.tempoInerte * 2.4) * 0.12) * (1 - indoEmbora);
-        this.matBotao.emissiveIntensity = (0.5 + Math.sin(this.tempoInerte * 2.4) * 0.35) * (1 - indoEmbora);
+        const vivo = 1 - indoEmbora;
+        this.luz.intensity = (0.2 + Math.sin(this.tempoInerte * 2.4) * 0.12 + this.chamando * 0.5) * vivo;
+        this.matBotao.emissiveIntensity =
+          (0.5 + Math.sin(this.tempoInerte * 2.4) * 0.35 + this.chamando * 0.9) * vivo;
+        this.chamando = 0;
         break;
       }
     }
@@ -533,6 +546,17 @@ export class Pokebola {
   }
 
   /** Está parada no chão, esperando alguém pegar. */
+  /**
+   * A mão está chegando nela, com esta força (0 a 1).
+   *
+   * Escrito pelo jogo a cada quadro e consumido no próprio quadro — como o
+   * `rocar` da mão, e pelo mesmo motivo: é amplitude, não evento. NÃO mexe na
+   * escala do corpo, que é escrita inteira pelo elástico do quique.
+   */
+  aproximar(forca: number) {
+    if (forca > this.chamando) this.chamando = forca;
+  }
+
   get noChao(): boolean {
     return this.estado === 'inerte';
   }

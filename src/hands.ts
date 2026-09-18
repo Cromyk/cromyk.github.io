@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { Luva } from './glove';
 import { Placa } from './hud';
+import {
+  INTERVALO_DE_TOQUE_MS,
+  PULSO_DE_TOQUE_MS,
+  pulsoDeToque,
+} from './toque';
 
 interface Amostra {
   posicao: THREE.Vector3;
@@ -50,6 +55,12 @@ export class Mao {
   private bordas: boolean[] = [];
   /** Punho fechado na mão rastreada, para fazer as vezes do GRIP. */
   private punhoFechado = false;
+  /** A força de toque escrita neste quadro. Ver `rocar`. */
+  private toque = 0;
+  /** Quando o próximo pulso de textura pode sair, em ms de `performance.now`. */
+  private toqueAte = 0;
+  /** Até quando a textura fica calada por causa de um padrão de TATO. */
+  private mudaAte = 0;
 
   constructor(renderer: THREE.WebGLRenderer, indice: number) {
     this.indice = indice;
@@ -314,6 +325,47 @@ export class Mao {
       // padrão de duas batidas deixa de ser distinguível do de uma.
       atraso += ms + 45;
     }
+    // E a textura do toque cala em volta do padrão. Um `pulse` novo preempta o
+    // anterior, então sem isto a vibração contínua de encostar comeria o
+    // segundo pulso de `recusado` — o único padrão de duas batidas, e o que
+    // mais precisa ser inconfundível de olhos fechados.
+    this.mudaAte = performance.now() + atraso + 60;
+  }
+
+  // ------------------------------------------------------------- o toque
+
+  /**
+   * A mão está encostando em alguma coisa, com esta força (0 a 1).
+   *
+   * Ver src/toque.ts para o porquê de isto ser AMPLITUDE e não um evento novo.
+   * Vários sistemas podem escrever no mesmo quadro — a mão pode estar perto de
+   * um slot do cinto e de uma carta do painel ao mesmo tempo — e vale a MAIOR,
+   * nunca a soma: duas coisas perto não vibram o dobro, vibram como a mais
+   * perto das duas.
+   *
+   * Escrever aqui não vibra nada: quem vibra é `descarregarToque`, uma vez por
+   * quadro, depois que todo mundo já falou.
+   */
+  rocar(forca: number) {
+    if (forca > this.toque) this.toque = forca;
+  }
+
+  /**
+   * Converte o toque do quadro em vibração, e zera.
+   *
+   * Chamado uma vez por quadro, no fim de tudo. O ritmo é fixo e não depende do
+   * quadro (ver PULSO_DE_TOQUE_MS): um pulso um pouco mais longo do que o
+   * intervalo entre eles é o que faz a vibração ser CONTÍNUA, e é a diferença
+   * entre sentir uma superfície e ouvir um chiado.
+   */
+  descarregarToque(agora: number) {
+    const forca = this.toque;
+    this.toque = 0;
+    if (forca <= 0.02) return;
+    // Um padrão de TATO está tocando: a textura espera a vez dela.
+    if (agora < this.mudaAte || agora < this.toqueAte) return;
+    this.toqueAte = agora + INTERVALO_DE_TOQUE_MS;
+    this.vibrar(pulsoDeToque(forca), PULSO_DE_TOQUE_MS);
   }
 }
 

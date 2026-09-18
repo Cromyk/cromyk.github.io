@@ -80,6 +80,8 @@ sem pôr o headset a cada mudança:
 | Pôr ele no chão | **abrir a mão** |
 | Pegar a Pokédex | levar a mão **às costas** e fechar o **GRIP** |
 | Guardar a Pokédex | levar de volta às costas e fechar o **GRIP** |
+| Largar a Pokédex | **abrir a mão** — ela cai, e volta sozinha para as costas em 25 s |
+| Pegar a Pokédex do chão | **GRIP** com a mão perto dela |
 | Mandar seu Pokémon atacar | **apontar para o alvo** e tocar o GATILHO |
 | Mandar ele andar até um ponto | **segurar** o GATILHO e apontar o chão; ele vai onde você soltar — e **fica lá** |
 | Recolher para a bola | apontar para ele e apertar **A** |
@@ -158,6 +160,55 @@ Agora **agarrar só vale sobre alguma coisa**, e há coisas para agarrar:
   para o lado e o pescoço vai atrás, encostando na palma. Só o pescoço — o corpo
   fica onde está, porque um bicho que roda o tronco inteiro atrás de um carinho
   parece estar tentando escapar.
+
+
+## A sensação de toque
+
+O relato de 18/09 foi: *"a manipulação de grip e a mão encostar nos objetos,
+itens, pokémons precisa ter uma sensação melhor de toque"* — o gesto funciona e
+não convence.
+
+A causa era de arquitetura, e era uma só: **a mão só tinha canal de evento**. As
+cinquenta chamadas de vibração do jogo são consequências — *pegou*, *acertou*,
+*recusado* — e disparam depois de o gesto já ter sido cometido. Enquanto isso, o
+cinto, a mochila, o painel, a bola caída e a Pokédex calculavam a distância
+exata da sua mão a cada quadro e **jogavam o número fora**, guardando só
+`distância < alcance`. O destaque que você via era esse booleano suavizado no
+tempo: ele lê como "apareceu", nunca como "estou chegando". A mão atravessava
+uma parede invisível, e a única confirmação de contato era o clique do botão
+debaixo do seu dedo.
+
+`src/toque.ts` é a resposta, e ela é **amplitude, não evento**:
+
+- `forcaDeToque(distância, agarre, aviso)` devolve 0 fora da banda, sobe
+  linearmente enquanto o braço chega, e **satura em 1 dentro do raio em que o
+  GRIP funciona** — a saturação é o que mantém o alvo aceso em todo o raio em
+  que ele pega, em vez de criar uma faixa morta bem em cima dele;
+- `Mao.rocar(f)` é um barramento: vários sistemas escrevem no mesmo quadro e
+  vale a MAIOR das forças, nunca a soma. Quem vibra é `descarregarToque`, uma
+  vez por quadro, depois que todo mundo já falou;
+- o pulso é **contínuo**: 55 ms reemitidos a cada 45. Os 10 ms de sobreposição
+  existem porque um pulso novo preempta o anterior — é isso que faz a vibração
+  ser uma superfície e não um chiado. O ronronar do carinho, que sorteava um
+  pulso de 18 ms por quadro, vibrava 11% do tempo com meio segundo de buraco.
+
+A tentação óbvia era um sexto padrão de vibração disparado na BORDA de entrada
+no alcance. Seis auditorias independentes propuseram exatamente isso, e as seis
+precisaram emendar histerese, antirrepique e uma lista de alvos já roçados —
+porque uma borda calculada sobre distância trêmula, dentro de um campo de sete
+centímetros, **é** o chiado. Amplitude não tem borda.
+
+Nenhum raio de agarre mudou: os de aviso ficam por fora deles, dando de cinco a
+oito centímetros de curso — a meio metro por segundo de braço, 100 a 160 ms de
+antecedência. E a mesma conta alimenta os dois canais: a bola de luz cresce com
+ela e a mão vibra com ela, então a mão aprende um padrão só.
+
+De quebra, duas mentiras táteis que estavam no gesto mais frequente do jogo:
+tirar a bola do cinto disparava `pegou` e, no mesmo quadro, `marcou` — que
+preemptava o primeiro, entregando a vibração **mais fraca da tabela** ao gesto
+mais nobre. E `tirarBolaDaCinta` não tinha uma linha de áudio em sessenta e
+quatro: a bola aparecia na mão em silêncio.
+
 
 ## O laço do jogo
 

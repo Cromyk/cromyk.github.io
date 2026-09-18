@@ -58,6 +58,7 @@ import {
   cabeNoColo,
   pontoDoColo,
 } from './colo';
+import { AVISO, forcaDeToque } from './toque';
 import { Evolucao, PromptEvolucao } from './evolucao';
 import type { GestoDeAtaque } from './anima';
 import { PainelTime, type EntradaGolpe } from './menu';
@@ -676,21 +677,37 @@ export class Jogo {
    * verdade.
    */
   private pegarTablet(mao: Mao): boolean {
+    // Caída no carpete, ela não está mais nas suas costas — e sem esta guarda a
+    // mão às costas materializaria uma Pokédex que está do outro lado da sala.
+    // Quem cata do chão é `pegarTabletDoChao`.
+    if (this.tablet.noChao) return false;
     if (!this.maoNasCostas(mao)) return false;
 
+    // O toggle de guardar vem ANTES do teste de mão cheia, e a ordem importa:
+    // `maoCheia` agora conta a própria Pokédex, então invertido ele impediria a
+    // mão de guardar o que ela mesma está segurando.
     if (this.tablet.naMaoDe === mao.indice) {
       this.guardarTablet(mao);
       return true;
     }
 
+    // Mão ocupada não pega a Pokédex por cima do que já tem.
+    if (this.maoCheia(mao)) return false;
+
     this.tablet.naMaoDe = mao.indice;
+    // A mão fecha nela de verdade. Faltava, e era o "buga": a luva reabria os
+    // dedos com a carcaça flutuando presa ao punho, como se não houvesse nada
+    // ali. `limparAmostras` pelo mesmo motivo do resto — o movimento de levar o
+    // braço às costas não pode virar impulso do arremesso seguinte.
+    mao.segurando = true;
+    mao.limparAmostras();
     mao.sentir('acertou');
     audio.abrirPainel();
     this.aviso.mostrar(
       [
         { texto: 'Pokédex na mão', tamanho: 36, cor: '#ff8a8a' },
         {
-          texto: 'aponte com a outra mão · leve às costas para guardar',
+          texto: 'aponte com a outra mão · solte a mão para largar',
           tamanho: 21,
           cor: '#9aa5b8',
           peso: 500,
@@ -705,11 +722,98 @@ export class Jogo {
     if (this.tablet.naMaoDe === null) return;
     this.tablet.naMaoDe = null;
     this.tablet.grupo.removeFromParent();
-    this.cena.add(this.tablet.grupo);
+    // `attach`, e não `add`: a transformação LOCAL dela é a pose dentro do
+    // punho, e `add` a manteria — a Pokédex piscava a doze centímetros da
+    // origem do quarto antes de voltar voando para as costas.
+    this.cena.attach(this.tablet.grupo);
+    mao.segurando = false;
     mao.sentir('pegou');
     audio.clique();
     // Guardou no meio de uma ficha falada: a voz para junto.
     calar();
+  }
+
+  /**
+   * Abriu a mão com a Pokédex nela: ela CAI.
+   *
+   * ## Por que isto não existia
+   *
+   * A Pokédex tinha entrada e não tinha saída. Fechar a mão sabia dela — é a
+   * primeira coisa que `pegarBola` testa —, mas ABRIR a mão vai parar em
+   * `arremessarBola`, que só conhecia o bicho no colo e a pokébola: soltar o
+   * grip com o tablet na mão era, literalmente, um no-op. Sem som, sem
+   * vibração, sem nada. A única saída era levá-la de volta às costas, e o alvo
+   * das costas estava congelado (ver `Tablet.atualizar`). Junto, davam
+   * exatamente o relato do playtest de 18/09: "não consigo tirar da mão".
+   *
+   * ## `attach`, nunca `add`
+   *
+   * `add` só troca o pai e deixa a transformação LOCAL intacta — e a local dela
+   * é a pose dentro do punho, doze centímetros à frente da palma. Reparentar com
+   * `add` teleporta a Pokédex para doze centímetros da origem do quarto,
+   * deitada no carpete, que é o que `guardarTablet` fazia. `attach` reprojeta a
+   * pose de mundo para o pai novo, e ela sai de onde a sua mão estava.
+   */
+  private soltarTablet(mao: Mao): boolean {
+    if (this.tablet.naMaoDe !== mao.indice) return false;
+
+    this.tablet.grupo.removeFromParent();
+    this.cena.attach(this.tablet.grupo);
+
+    // A velocidade do braço, se houver. Soltar PARADO é soltar, não arremessar:
+    // um empurrãozinho para baixo é o que diz "larguei" sem virar arremesso.
+    const v = mao.velocidadeArremesso(performance.now()).clone();
+    if (v.length() < 0.8) v.set(0, -0.4, 0);
+    this.tablet.largar(v);
+
+    mao.segurando = false;
+    mao.sentir('pegou');
+    audio.clique();
+    // Largar no meio de uma ficha falada cala a voz, como guardar já fazia.
+    calar();
+
+    if (!this.jaLargouTablet) {
+      this.jaLargouTablet = true;
+      this.aviso.mostrar(
+        [
+          { texto: 'a Pokédex caiu', tamanho: 34, cor: '#ff9f9f' },
+          {
+            texto: 'feche a mão perto dela para pegar · ela volta sozinha em 25 s',
+            tamanho: 21,
+            cor: '#9aa5b8',
+            peso: 500,
+          },
+        ],
+        2.4,
+      );
+    }
+    return true;
+  }
+
+  /** Uma vez por sessão, na primeira queda: ver `soltarTablet`. */
+  private jaLargouTablet = false;
+
+  /** A Pokédex caída, perto o bastante desta mão para ser catada. */
+  private tabletNoChaoPerto(mao: Mao): boolean {
+    if (!this.tablet.noChao || !mao.conectada) return false;
+    this.tablet.posicao(this.pontoDoTablet);
+    return mao.posicaoMundo().distanceToSquared(this.pontoDoTablet) < ALCANCE_TABLET * ALCANCE_TABLET;
+  }
+
+  /**
+   * Catar a Pokédex do carpete — o mesmo gesto da bola caída, e de propósito.
+   *
+   * Uma coisa no chão se pega fechando a mão em volta dela. Se a Pokédex
+   * precisasse de um gesto próprio, seriam dois gestos para a mesma ideia.
+   */
+  private pegarTabletDoChao(mao: Mao): boolean {
+    if (this.maoCheia(mao) || !this.tabletNoChaoPerto(mao)) return false;
+    this.tablet.recolher(mao.indice);
+    mao.segurando = true;
+    mao.limparAmostras();
+    mao.sentir('acertou');
+    audio.clique();
+    return true;
   }
 
   /** Reaproveitado a cada quadro para não alocar um vetor por medição. */
@@ -1071,6 +1175,10 @@ export class Jogo {
     // único lugar do corpo onde não há mais nada para agarrar.
     if (this.pegarTablet(mao)) return;
 
+    // E a Pokédex CAÍDA: fechar a mão perto dela no carpete cata ela, o mesmo
+    // gesto da pokébola no chão.
+    if (this.pegarTabletDoChao(mao)) return;
+
     // A mochila aberta na frente: fechar a mão em volta de um item o tira de
     // lá. Vem antes do cinto e do chão porque o braço já está estendido DENTRO
     // do painel — se outra coisa respondesse primeiro, o gesto de pegar a poção
@@ -1219,7 +1327,11 @@ export class Jogo {
     // O bicho no colo conta. Sem ele nesta conta, os berços do cinto acendiam
     // embaixo de uma mão que está abraçando um Pokémon, prometendo um grip que
     // a cascata ia recusar — o braço prometendo o que não cumpre.
+    // E a Pokédex ocupa a mão INTEIRA — ela é uma placa de 34 por 45 cm. Sem
+    // isto, a mão que a segura continuava sacando pokébolas do cinto, e a bola
+    // nascia dentro da carcaça: era o "buga na mão" do playtest de 18/09.
     return (
+      this.tablet.naMaoDe === mao.indice ||
       this.bolaNaMao.has(mao.indice) ||
       this.itemNaMao.has(mao.indice) ||
       this.colo.tem(mao.indice)
@@ -1770,13 +1882,26 @@ export class Jogo {
 
     mao.segurando = true;
     mao.limparAmostras();
-    mao.sentir('marcou');
+    // Sem `sentir` aqui, e isso é um conserto.
+    //
+    // Os três lugares que chamam esta função já disparam `pegou` no mesmo
+    // quadro, logo antes. Como um pulso novo PREEMPTA o anterior, o que a mão
+    // sentia era sempre este segundo — e este era `marcou`, a vibração mais
+    // fraca da tabela, reservada para confirmações que não interrompem nada.
+    // Ou seja: tirar uma bola do braço, que é o gesto mais frequente e mais
+    // nobre do jogo, entregava o toque mais fraco que existe. Agora ele entrega
+    // `pegou` — "está na sua mão" —, que é literalmente o que aconteceu.
+    audio.sacarBola();
     // Pegou agora: a mão ainda não saiu do painel, então soltar aqui mesmo não
     // devolve nada.
     this.saiuDoPainel.delete(mao.indice);
   }
 
   private arremessarBola(mao: Mao) {
+    // A Pokédex é o que está literalmente colado no punho: ela responde
+    // primeiro. Abrir a mão com ela é largá-la, e ela cai.
+    if (this.soltarTablet(mao)) return;
+
     // Abrir a mão com um bicho nela é pôr o bicho no chão, não arremessar nada
     // — ou, com as duas mãos nele, passá-lo para a que continua fechada.
     if (this.colo.tem(mao.indice)) {
@@ -3614,6 +3739,16 @@ export class Jogo {
     this.atualizarBolas(dt);
     this.atualizarEfeitos(dt);
 
+    // O toque do quadro vira vibração aqui, e só aqui.
+    //
+    // Depois de TODO MUNDO ter falado: o cinto, a mochila, o painel, as bolas
+    // caídas e o carinho escrevem em `rocar` ao longo do quadro, e quem vibra é
+    // a maior das forças, uma vez. Antes disto, `atualizarMaos` roda lá no
+    // começo — e é justamente por isso que o dreno não pode morar lá.
+    for (const mao of this.maos) {
+      if (mao.conectada) mao.descarregarToque(agora);
+    }
+
     this.painelPulso.atualizar(
       this.dex.totalBolas,
       this.dex.totalCapturas,
@@ -3867,8 +4002,13 @@ export class Jogo {
     const cabeca = c.pontoDaCabeca();
     // O alcance acompanha o tamanho: um Onix se afaga de longe, um Diglett não.
     const alcance = Math.max(DISTANCIA_CARINHO, c.raio * 0.9 + 0.1);
+    // Onde a textura satura: doze centímetros, ou menos num bicho pequeno. O
+    // teto existe por causa do bicho GRANDE — num Onix, 40% do alcance seriam
+    // dezenas de centímetros, e a sensação de contato tem de ficar na pele.
+    const contatoDoCarinho = Math.min(0.12, alcance * 0.4);
 
     let tocando: Mao | null = null;
+    let perto = Infinity;
     const toque = new THREE.Vector3();
     for (const mao of this.maos) {
       if (!mao.conectada) continue;
@@ -3877,10 +4017,23 @@ export class Jogo {
       // infinito — e com as duas mãos, dois.
       if (this.colo.tem(mao.indice)) continue;
       mao.pontoDeToque(toque);
-      if (toque.distanceTo(cabeca) <= alcance) {
+      // A distância exata, e não só "está dentro": é ela que vira a textura na
+      // mão. O `break` saía na primeira mão que servisse e jogava o número
+      // fora — ver src/toque.ts, que é a lição deste playtest inteiro.
+      const d = toque.distanceTo(cabeca);
+      if (d < perto) {
+        perto = d;
         tocando = mao;
-        break;
       }
+    }
+
+    // Fora do alcance de afagar, mas dentro da banda de aviso: a mão já sente
+    // que está chegando nele. É o único alvo do jogo que é um BICHO, e é onde
+    // a diferença entre "encostei" e "quase" mais importa.
+    if (tocando && perto > alcance) {
+      const chegando = forcaDeToque(perto, alcance, alcance * 1.6);
+      if (chegando > 0) tocando.rocar(chegando * 0.6);
+      tocando = null;
     }
 
     if (!tocando) {
@@ -3907,14 +4060,20 @@ export class Jogo {
       c.afeto = this.exemplarEmCampo.afeto ?? 0;
     }
 
+    // O ronronar, enquanto a mão estiver lá.
+    //
+    // Era `Math.random() < dt * 6` com um pulso de 18 ms: uns seis pulsos por
+    // segundo, 11% de tempo vibrando e meio segundo de silêncio entre um e
+    // outro — que o braço lê como chiado, não como pelo. Agora é a mesma
+    // textura contínua de todo o resto do jogo (ver src/toque.ts), e ela vale
+    // em TODO quadro de contato, não só durante os quatro segundos de recarga.
+    //
+    // A força sobe conforme a mão afunda na direção da cabeça dele: encostar de
+    // leve e afagar de verdade deixam de ser a mesma coisa.
+    tocando.rocar(forcaDeToque(perto, contatoDoCarinho, alcance));
+
     if (this.recargaCarinho > 0) {
       this.recargaCarinho -= dt;
-      // Vibração fraca e constante enquanto a mão estiver lá: é o ronronar
-      // chegando pelo controle. É a única que fica fora do vocabulário de
-      // `TATO` de propósito — os padrões de lá nomeiam EVENTOS, e isto é
-      // textura contínua, que precisa ser fraca o bastante para não virar um
-      // deles por acidente.
-      if (Math.random() < dt * 6) tocando.vibrar(0.12, 18);
       return;
     }
 
@@ -4426,10 +4585,20 @@ export class Jogo {
 
   private atualizarMochila(dt: number) {
     const pontos: THREE.Vector3[] = [];
+    // As mãos entram na MESMA ordem em que saem daqui, e é isso que permite a
+    // mochila devolver um índice em vez de um objeto.
+    const quais: Mao[] = [];
     if (!this.modoPlano) {
-      for (const mao of this.maos) if (mao.conectada) pontos.push(this.pontoDoDedo(mao));
+      for (const mao of this.maos) {
+        if (!mao.conectada) continue;
+        pontos.push(this.pontoDoDedo(mao));
+        quais.push(mao);
+      }
     }
     this.mochila.atualizar(dt, pontos, (id) => this.dex.item(id));
+    // A mão que está chegando num item sente o item chegando. Ver src/toque.ts.
+    const toque = this.mochila.toqueDaVez;
+    if (toque && quais[toque.mao]) quais[toque.mao].rocar(toque.forca);
   }
 
   /**
@@ -4629,7 +4798,16 @@ export class Jogo {
       cinto.definirEstoque((id: string) => this.dex.bolas(id));
       // Quem destaca é a mão que VEM PEGAR, e ela é sempre a do outro braço.
       const quemPega = lado === 'left' ? direita : esquerda;
-      cinto.destacar(quemPega && !this.maoCheia(quemPega) ? this.pontoDeAgarre(quemPega) : null);
+      // O mesmo par de pontos que o GRIP usa para decidir o que pegar — palma e
+      // ponta do dedo (ver `slotSobAMao`). E a força volta como VIBRAÇÃO na mão
+      // que está chegando: é o que transforma "vejo que acendeu" em "sinto que
+      // encostei". Ver src/toque.ts.
+      const podePegar = quemPega !== undefined && !this.maoCheia(quemPega);
+      const forca = cinto.destacar(
+        podePegar ? this.pontoDeAgarre(quemPega!) : null,
+        podePegar ? this.pontoDoDedo(quemPega!) : null,
+      );
+      if (forca > 0 && quemPega) quemPega.rocar(forca);
       cinto.atualizar(dt);
     }
 
@@ -4699,6 +4877,12 @@ export class Jogo {
       direita ? this.pontoDoDedo(direita) : null,
       Jogo.ALCANCE_PAINEL,
     );
+    // E a mão que está chegando SENTE a carta chegando — só pela proximidade,
+    // nunca pelo raio de mira. Ver src/toque.ts.
+    if (direita && this.painelTime.aberto) {
+      const forca = this.painelTime.forcaDoToque(Jogo.ALCANCE_PAINEL);
+      if (forca > 0) direita.rocar(forca);
+    }
     // O mostrador pequeno acompanha o mesmo pulso, em pé — e se apaga quando o
     // painel grande abre: os dois no mesmo braço, ao mesmo tempo, era o
     // empilhamento que fazia o conjunto parecer uma torre.
@@ -4733,7 +4917,24 @@ export class Jogo {
       this.tablet.naMaoDe === null
         ? null
         : (this.maos.find((m) => m.indice === this.tablet.naMaoDe) ?? null);
-    this.tablet.atualizar(dt, this.camera, quemSegura?.punho ?? null);
+    this.tablet.atualizar(dt, this.camera, quemSegura?.punho ?? null, this.sala);
+
+    // A mão que vai às costas SENTE a Pokédex chegando.
+    //
+    // É o alvo onde isso mais importa, e de longe: você pega às cegas, atrás do
+    // corpo, sem nenhuma pista visual — não há como acender nada ali. A
+    // vibração é a única resposta possível, e é a diferença entre saber que a
+    // mão chegou e tatear. Depois do `atualizar`, porque é ele que acabou de
+    // recalcular onde as costas estão.
+    if (this.tablet.naMaoDe === null && !this.tablet.noChao) {
+      this.tablet.pontoGuardado(this.pontoDoTablet);
+      for (const mao of this.maos) {
+        if (!mao.conectada || this.maoCheia(mao)) continue;
+        const d = mao.posicaoMundo().distanceTo(this.pontoDoTablet);
+        const forca = forcaDeToque(d, ALCANCE_TABLET, AVISO.tablet);
+        if (forca > 0) mao.rocar(forca);
+      }
+    }
 
     // Quem aponta na Pokédex é a mão LIVRE — a outra está segurando o tablet.
     const livre = this.maos.find(
@@ -4914,6 +5115,23 @@ export class Jogo {
   }
 
   private atualizarBolas(dt: number) {
+    // As bolas caídas respondem à mão que chega: acendem, e a mão sente. Antes
+    // do laço principal porque `aproximar` é consumido dentro de `atualizar`,
+    // no mesmo quadro.
+    if (!this.modoPlano) {
+      for (const bola of this.bolas) {
+        if (!bola.noChao) continue;
+        for (const mao of this.maos) {
+          if (!mao.conectada || this.maoCheia(mao) || this.colo.tem(mao.indice)) continue;
+          const d = this.pontoDeAgarre(mao).distanceTo(bola.posicao);
+          const forca = forcaDeToque(d, ALCANCE_DO_CHAO, AVISO.bolaNoChao);
+          if (forca <= 0) continue;
+          mao.rocar(forca);
+          bola.aproximar(forca);
+        }
+      }
+    }
+
     for (const bola of [...this.bolas]) {
       const anterior = bola.posicao.clone();
       bola.atualizar(dt);

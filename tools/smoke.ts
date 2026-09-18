@@ -62,6 +62,8 @@ import { Mochila, disporGrade } from '../src/mochila';
 import { MEDIDAS_TIME, disporTime } from '../src/menu';
 import { classificarPelaAltura } from '../src/room';
 import { ALTURA_DE_ABRACO, Colo, alcanceDoColo, cabeNoColo, pontoDoColo } from '../src/colo';
+import { Tablet, ALCANCE_TABLET } from '../src/tablet';
+import { forcaDeToque, pulsoDeToque } from '../src/toque';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
 import { GOLPES_DEX } from '../src/golpes.gen';
@@ -2845,6 +2847,132 @@ console.log('\n30. o colo, com uma mão e com duas');
   const novo = nascer(porId('onix')!, 'companheiro');
   novo.raiz.scale.setScalar(0.001);
   checar(!novo.pegarNoColo() || novo.estado !== 'colo', 'um Onix de 8 mm entrou no colo');
+}
+
+
+// --- 31. a Pokédex: o ponto das costas, a queda e a volta ---
+//
+// O relato de 18/09 foi "quando agarro a pokedex, ele buga na mão e não consigo
+// tirar da mão". Eram três defeitos somados, e dois deles se afirmam aqui sem
+// navegador. O terceiro — o grip que não larga — mora em `Jogo`, que precisa de
+// um WebGLRenderer; esse se confere no headset.
+console.log('\n31. a Pokédex: as costas, a queda e a volta');
+{
+  const camera = new THREE.PerspectiveCamera();
+  const chao = { alturaEm: () => 0 };
+
+  // (1) O PONTO DAS COSTAS SEGUE A CABEÇA MESMO COM ELA NA MÃO.
+  //
+  // Este é o defeito que fazia "não consigo guardar": o alvo de guardar
+  // congelava no ponto do quarto onde as costas estavam no instante do agarre.
+  // Ande três passos e o gesto de levar a mão às costas deixava de existir.
+  const tablet = new Tablet();
+  tablet.naMaoDe = 0;
+  camera.position.set(0, 1.6, 0);
+  camera.quaternion.identity();
+  camera.updateMatrixWorld(true);
+  tablet.atualizar(1 / 72, camera, null, chao);
+  const antes = tablet.pontoGuardado(new THREE.Vector3());
+
+  camera.position.set(2.5, 1.6, -1);
+  camera.quaternion.setFromEuler(new THREE.Euler(0, Math.PI, 0, 'YXZ'));
+  camera.updateMatrixWorld(true);
+  tablet.atualizar(1 / 72, camera, null, chao);
+  const depois = tablet.pontoGuardado(new THREE.Vector3());
+
+  checar(
+    antes.distanceTo(depois) > ALCANCE_TABLET,
+    `o ponto das costas não seguiu a cabeça: andou ${antes.distanceTo(depois).toFixed(2)} m com o jogador andando 2,7 m`,
+  );
+  checar(
+    Math.hypot(depois.x - camera.position.x, depois.z - camera.position.z) < 0.3,
+    'o ponto das costas ficou longe das costas de quem andou',
+  );
+
+  // (2) ELA CAI, PARA EM CIMA DO PISO, E NUNCA ATRAVESSA.
+  const caindo = new Tablet();
+  caindo.grupo.position.set(0, 1.4, -0.5);
+  caindo.largar(new THREE.Vector3(0.2, -0.4, 0));
+  checar(caindo.noChao, 'largar não pôs a Pokédex em queda');
+  let afundou = 0;
+  for (let i = 0; i < 180; i++) {
+    caindo.atualizar(1 / 72, camera, null, chao);
+    if (caindo.grupo.position.y < -0.001) afundou++;
+  }
+  checar(afundou === 0, `a Pokédex atravessou o chão em ${afundou} quadros`);
+  checar(
+    Number.isFinite(caindo.grupo.position.y) && caindo.grupo.position.y <= 0.02,
+    `ela parou a ${caindo.grupo.position.y.toFixed(3)} m do chão em vez de pousar nele`,
+  );
+
+  // (3) ELA POUSA EM CIMA DO MÓVEL, e não dentro dele. Uma Pokédex que afunda
+  // no sofá é uma Pokédex perdida.
+  const mesa = { alturaEm: () => 0.74 };
+  const naMesa = new Tablet();
+  naMesa.grupo.position.set(0, 1.4, -0.5);
+  naMesa.largar(new THREE.Vector3(0, -0.4, 0));
+  for (let i = 0; i < 180; i++) naMesa.atualizar(1 / 72, camera, null, mesa);
+  checar(
+    naMesa.grupo.position.y >= 0.74 && naMesa.grupo.position.y <= 0.78,
+    `ela parou em ${naMesa.grupo.position.y.toFixed(2)} m com a mesa a 0,74 — não pousou em cima`,
+  );
+
+  // (4) ELA VOLTA SOZINHA. O jogo não pode ficar sem Pokédex: uma que rolou
+  // para debaixo do sofá levaria junto metade do jogo.
+  let voltou = 0;
+  for (let i = 0; i < 72 * 40; i++) {
+    naMesa.atualizar(1 / 72, camera, null, mesa);
+    if (!naMesa.noChao) {
+      voltou = i;
+      break;
+    }
+  }
+  checar(voltou > 0, 'a Pokédex ficou caída para sempre');
+  const segundos = voltou / 72;
+  checar(
+    segundos > 20 && segundos < 30,
+    `ela voltou em ${segundos.toFixed(1)} s, fora da janela de 25 s`,
+  );
+  console.log(
+    `   Pokédex: cai, pousa em cima do apoio e volta sozinha em ${segundos.toFixed(0)} s`,
+  );
+
+  // (5) RECOLHER cancela a volta e a põe na mão.
+  const catada = new Tablet();
+  catada.largar(new THREE.Vector3(0, -0.4, 0));
+  catada.recolher(1);
+  checar(!catada.noChao && catada.naMaoDe === 1, 'catar a Pokédex do chão não a pôs na mão');
+}
+
+{
+  // A RAMPA DO TOQUE, que é a peça nova do retorno tátil (src/toque.ts).
+  //
+  // Três coisas têm de valer, e as três já quebraram em rascunho: saturar DENTRO
+  // do raio de agarre (senão nasce uma faixa morta bem em cima do alvo), ser
+  // zero fora da banda de aviso, e ser monótona no meio.
+  checar(forcaDeToque(0.0, 0.075, 0.13) === 1, 'encostado no alvo, a força não é cheia');
+  checar(forcaDeToque(0.075, 0.075, 0.13) === 1, 'no limite do agarre, a força não saturou');
+  checar(forcaDeToque(0.13, 0.075, 0.13) === 0, 'na borda do aviso, a força não é zero');
+  checar(forcaDeToque(0.5, 0.075, 0.13) === 0, 'longe do alvo, ainda há força');
+  let anterior = -1;
+  for (let d = 0.13; d >= 0; d -= 0.005) {
+    const f = forcaDeToque(d, 0.075, 0.13);
+    checar(f >= anterior - 1e-9, `a rampa do toque desceu ao se aproximar, em ${d.toFixed(3)} m`);
+    anterior = f;
+  }
+  // E o pulso nunca sai do lugar em que ele não se confunde com um TATO.
+  for (let f = 0; f <= 1.0001; f += 0.05) {
+    const p = pulsoDeToque(f);
+    checar(p >= 0.1 && p <= 0.3001, `o pulso de toque saiu da faixa: ${p.toFixed(2)} para f=${f.toFixed(2)}`);
+  }
+  // Meia banda tem de dar MAIS da metade da força: é a curva compressiva, e é o
+  // que faz a metade de fora ser sentida.
+  const meio = pulsoDeToque(forcaDeToque(0.1025, 0.075, 0.13));
+  checar(meio > 0.1 + 0.2 * 0.5, 'a curva do pulso não é compressiva — a banda de fora some');
+  console.log(
+    `   toque: rampa de ${(0.13 * 100).toFixed(0)} a ${(0.075 * 100).toFixed(1)} cm, pulso de ` +
+      `${pulsoDeToque(0).toFixed(2)} a ${pulsoDeToque(1).toFixed(2)}`,
+  );
 }
 
   console.log(

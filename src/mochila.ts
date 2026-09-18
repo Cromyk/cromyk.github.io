@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Placa } from './hud';
 import { ITENS, type TipoItem } from './itens';
 import { ItemNaMao } from './isca';
+import { AVISO, forcaDeToque } from './toque';
 
 /**
  * A mochila aberta no ar: os itens como COISAS, que você alcança e pega.
@@ -107,6 +108,14 @@ export class Mochila {
   private tempo = 0;
   /** 0 fechada, 1 aberta. A abertura é animada; `aberta` é a intenção. */
   private forca = 0;
+  /**
+   * Qual mão está mais perto de um item, e quanto — para o jogo vibrar aquela.
+   *
+   * Escrito durante `atualizar` e lido logo depois. Guardar o ÍNDICE da mão, e
+   * não só a menor distância, é o que faz a vibração sair na mão que está
+   * chegando em vez de nas duas.
+   */
+  private maisPerto: { mao: number; forca: number } | null = null;
   private aberta = false;
 
   /**
@@ -220,8 +229,12 @@ export class Mochila {
    * continua mostrando um item que não existe mais, e você fecha a mão nele.
    */
   atualizar(dt: number, maos: readonly THREE.Vector3[], quanto: (id: string) => number) {
-    if (!this.grupo.visible) return;
+    if (!this.grupo.visible) {
+      this.maisPerto = null;
+      return;
+    }
     this.tempo += dt;
+    this.maisPerto = null;
 
     this.forca += ((this.aberta ? 1 : 0) - this.forca) * Math.min(1, dt * 12);
     if (!this.aberta && this.forca < 0.02) {
@@ -237,12 +250,26 @@ export class Mochila {
         this.escreverCarta(slot);
       }
 
-      // Mão mais próxima deste item.
+      // Mão mais próxima deste item — e QUAL delas, que é o que faltava: sem
+      // guardar quem é, não há como vibrar a mão certa.
       const centro = slot.item.grupo.getWorldPosition(_mundo);
       let perto = Infinity;
-      for (const mao of maos) perto = Math.min(perto, mao.distanceTo(centro));
+      let deQuem = -1;
+      for (let m = 0; m < maos.length; m++) {
+        const d = maos[m].distanceTo(centro);
+        if (d < perto) {
+          perto = d;
+          deQuem = m;
+        }
+      }
+      // A força é contínua (ver src/toque.ts): o item começa a reagir a oito
+      // centímetros, e satura dentro do raio em que o GRIP funciona.
+      const forca = quantidade > 0 ? forcaDeToque(perto, Mochila.ALCANCE, AVISO.item) : 0;
+      if (forca > (this.maisPerto?.forca ?? 0) && deQuem >= 0) {
+        this.maisPerto = { mao: deQuem, forca };
+      }
+      slot.destaque += (forca - slot.destaque) * Math.min(1, dt * 14);
       const sobAMao = quantidade > 0 && perto < Mochila.ALCANCE;
-      slot.destaque += ((sobAMao ? 1 : 0) - slot.destaque) * Math.min(1, dt * 14);
 
       // Item vazio fica parado e apagado: um frasco que gira e brilha convida a
       // pegar, e não há o que pegar.
@@ -256,14 +283,22 @@ export class Mochila {
       slot.item.grupo.scale.setScalar(this.forca * (1 + slot.destaque * 0.3));
 
       this.escala(slot.carta.malha, this.forca);
-      if (slot.destaque > 0.5 !== slot.carta.malha.userData.aceso) {
-        slot.carta.malha.userData.aceso = slot.destaque > 0.5;
+      // O repaint da carta segue o BOOLEANO, e não a rampa: redesenhar canvas e
+      // subir textura é a coisa mais cara desta classe, e uma mão parada perto
+      // do meio da rampa repintaria todo quadro.
+      if (sobAMao !== slot.carta.malha.userData.aceso) {
+        slot.carta.malha.userData.aceso = sobAMao;
         this.escreverCarta(slot);
       }
     }
 
     this.escala(this.titulo.malha, this.forca);
     if (this.fundo) this.fundo.scale.set(this.forca, this.forca, 1);
+  }
+
+  /** A mão que está encostando num item, e quanto. Ver `maisPerto`. */
+  get toqueDaVez(): { mao: number; forca: number } | null {
+    return this.maisPerto;
   }
 
   private escala(malha: THREE.Object3D, f: number) {

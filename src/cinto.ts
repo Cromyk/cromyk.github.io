@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Holobola } from './holo';
 import { BOLAS, type TipoBola } from './balls';
+import { AVISO, forcaDeToque } from './toque';
 
 /**
  * O cinto de pokébolas, um em cada antebraço.
@@ -113,6 +114,8 @@ export class Cinto {
   private tempo = 0;
   /** O slot sob a mão neste quadro, para ele crescer e o resto não. */
   private destacado = -1;
+  /** Quanto a mão está encostando nele, de 0 a 1. Ver `destacar`. */
+  private forca = 0;
 
   constructor(lado: 'left' | 'right' = 'left') {
     const guardar = <T extends THREE.BufferGeometry | THREE.Material>(x: T): T => {
@@ -196,23 +199,48 @@ export class Cinto {
     return melhor?.tipo ?? null;
   }
 
-  /** O mesmo alcance do `slotSob`, para o jogo desenhar o destaque certo. */
-  destacar(ponto: THREE.Vector3 | null, alcance = ALCANCE_SLOT) {
-    if (!ponto) {
-      this.destacado = -1;
-      return;
-    }
-    const centro = new THREE.Vector3();
-    let menor = alcance * alcance;
+  /**
+   * Qual slot a mão está alcançando, e QUANTO — de 0 a 1.
+   *
+   * Recebe os dois pontos da mão, e não um: é o mesmo par que `slotSobAMao`
+   * usa para decidir o que o GRIP pega — o centro da palma primeiro, a ponta do
+   * dedo como segunda chance. Passar só a palma abria uma casca de uns seis
+   * centímetros em que o grip levava um slot que NUNCA tinha acendido; o que
+   * acende passa a ser, por construção, o que o grip leva.
+   *
+   * A força devolvida alimenta as duas coisas ao mesmo tempo: a bola de luz
+   * cresce com ela e a mão vibra com ela (ver src/toque.ts). Um destaque que só
+   * liga e desliga lê como "apareceu"; este lê como "estou chegando".
+   */
+  destacar(agarre: THREE.Vector3 | null, dedo: THREE.Vector3 | null = null): number {
     this.destacado = -1;
+    if (!agarre && !dedo) return 0;
+
+    const centro = new THREE.Vector3();
+    let menor = Infinity;
     for (let i = 0; i < this.slots.length; i++) {
       this.slots[i].base.getWorldPosition(centro);
-      const d = centro.distanceToSquared(ponto);
+      const d = Math.min(
+        agarre ? centro.distanceTo(agarre) : Infinity,
+        dedo ? centro.distanceTo(dedo) : Infinity,
+      );
       if (d < menor) {
         menor = d;
         this.destacado = i;
       }
     }
+    if (this.destacado < 0) return 0;
+
+    const slot = this.slots[this.destacado];
+    // Slot vazio ou com a bola na sua mão não vibra e não acende: o lugar dela
+    // continua ali, mas não há o que pegar.
+    if (slot.quantidade <= 0 || slot.aberto) {
+      this.destacado = -1;
+      return 0;
+    }
+    this.forca = forcaDeToque(menor, ALCANCE_SLOT, AVISO.slot);
+    if (this.forca <= 0) this.destacado = -1;
+    return this.forca;
   }
 
   atualizar(dt: number) {
@@ -231,7 +259,7 @@ export class Cinto {
       //   para cá que ela volta se você mudar de ideia.
       const pulso = slot.aberto ? 0.1 + Math.abs(Math.sin(this.tempo * 3)) * 0.14 : 0;
       slot.bola.definirCheia(slot.aberto ? pulso : vazio ? 0.1 : 1);
-      slot.bola.atualizar(dt, this.tempo, i === this.destacado && temBola);
+      slot.bola.atualizar(dt, this.tempo, i === this.destacado && temBola ? this.forca : 0);
     }
   }
 

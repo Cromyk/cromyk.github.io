@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { audio } from './audio';
 
 /**
  * A carcaça da Pokédex: um tablet de plástico que você carrega nas costas.
@@ -47,6 +48,51 @@ const GUARDADA = new THREE.Vector3(0, -0.16, 0.22);
 /** Quão perto a mão precisa chegar das costas para agarrar. */
 export const ALCANCE_TABLET = 0.22;
 
+/**
+ * A queda, desde 18/09.
+ *
+ * O relato foi: *"quando agarro a pokedex, ele buga na mão e não consigo tirar
+ * da mão, quero soltar o grip e o item cair"*. Ela tinha entrada e não tinha
+ * saída — abrir a mão era literalmente um no-op —, e agora ela cai.
+ *
+ * Os números saem da Pokébola (src/orb.ts) para o peso ser o mesmo do resto do
+ * jogo, e os que MUDAM mudam por um motivo físico: uma placa de plástico não
+ * quica como uma esfera nem escorrega como uma. Daí a restituição de 0,15
+ * contra os 0,42 dela, e o atrito que mata a corrida lateral em três quiques.
+ */
+const GRAVIDADE = -9.81;
+const RESTITUICAO = 0.15;
+const ATRITO = 0.6;
+/** Abaixo desta velocidade vertical ela para em vez de quicar de novo. */
+const PARADA = 0.35;
+/**
+ * Quanto tempo ela fica no carpete antes de voltar sozinha para as costas.
+ *
+ * Ela NÃO PODE sumir: sem Pokédex não há Pokédex, e uma que rolou para debaixo
+ * do sofá levaria junto metade do jogo. Vinte e cinco segundos é tempo de você
+ * decidir se vai buscá-la, e os cinco últimos piscam a luzinha do símbolo para
+ * dizer que ela está voltando.
+ */
+const SEGUNDOS_CAIDA = 25;
+const AVISO_DE_VOLTA = 5;
+/** A escala em que ela vive na mão e no chão. */
+const ESCALA = 0.62;
+/** Meia espessura já escalada: é o que separa a tela do carpete. */
+const MEIA_ESPESSURA = ESPESSURA * ESCALA * 0.5;
+/** Caída, ela tomba até ficar deitada, tela para cima. */
+const DEITADA = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+
+/**
+ * O que a queda precisa saber do quarto: a altura do apoio sob um ponto.
+ *
+ * Interface estrutural, e não `import { Sala }`, para este arquivo continuar
+ * construível em `tools/smoke.ts` sem arrastar o mapeamento inteiro. `Sala` já
+ * a satisfaz.
+ */
+export interface Apoio {
+  alturaEm(ponto: THREE.Vector3): number;
+}
+
 export class Tablet {
   readonly grupo = new THREE.Group();
   /** Onde as placas da Pokédex entram: o grupo da tela. */
@@ -54,6 +100,11 @@ export class Tablet {
 
   /** Quem está segurando, pelo índice da mão. null = está nas costas. */
   naMaoDe: number | null = null;
+  /** Ela foi largada e está caindo, ou parada no carpete. Ver `largar`. */
+  private caida = false;
+  private velocidade = new THREE.Vector3();
+  private tempoNoChao = 0;
+  private luzinha: THREE.Mesh | null = null;
 
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
   private posicaoGuardada = new THREE.Vector3();
@@ -142,6 +193,7 @@ export class Tablet {
       ),
     );
     luzinha.rotation.x = Math.PI * 0.5;
+    this.luzinha = luzinha;
     simbolo.add(bolacha, meiaVermelha, faixa, miolo, luzinha);
     this.grupo.add(simbolo);
 
@@ -159,7 +211,41 @@ export class Tablet {
    * inclinação também, olhar para o chão faria a Pokédex subir pelas suas
    * costas. Costas não fazem isso.
    */
-  atualizar(dt: number, camera: THREE.Camera, punho: THREE.Object3D | null) {
+  /** Você abriu a mão: ela sai dali com a velocidade que o braço tinha. */
+  largar(velocidade: THREE.Vector3) {
+    this.naMaoDe = null;
+    this.caida = true;
+    this.tempoNoChao = 0;
+    this.velocidade.copy(velocidade);
+  }
+
+  /** Catada do carpete. É o mesmo par `lancar`/`recolher` da pokébola. */
+  recolher(maoIndice: number) {
+    this.caida = false;
+    this.tempoNoChao = 0;
+    this.velocidade.set(0, 0, 0);
+    this.naMaoDe = maoIndice;
+  }
+
+  /** Ela está caída no chão — e portanto não está nas suas costas. */
+  get noChao(): boolean {
+    return this.caida;
+  }
+
+  atualizar(dt: number, camera: THREE.Camera, punho: THREE.Object3D | null, apoio?: Apoio) {
+    // O ponto das costas é recalculado SEMPRE, inclusive com ela na mão.
+    //
+    // Este bloco ficava depois do `return` de quem está segurando, e isso
+    // quebrava a promessa escrita em `pontoGuardado`: "o ponto nas costas onde
+    // ela vai voltar, MESMO com ela na sua mão". Na prática, o alvo de guardar
+    // congelava no ponto do quarto onde as suas costas estavam no instante em
+    // que você a pegou — ande três passos ou gire meia volta e a Pokédex não
+    // tinha mais como ser guardada. Era metade do "não consigo tirar da mão".
+    camera.getWorldPosition(this.aux);
+    this.auxGiro.setFromQuaternion(camera.quaternion, 'YXZ');
+    this.giroGuardado.setFromEuler(new THREE.Euler(0, this.auxGiro.y, 0, 'YXZ'));
+    this.posicaoGuardada.copy(GUARDADA).applyQuaternion(this.giroGuardado).add(this.aux);
+
     if (this.naMaoDe !== null) {
       // Na mão quem manda é a mão: o grupo é filho do punho e não se move aqui.
       if (punho && this.grupo.parent !== punho) {
@@ -168,21 +254,65 @@ export class Tablet {
         // quem está lendo o próprio celular.
         this.grupo.position.set(0, 0.03, -0.12);
         this.grupo.rotation.set(-1.15, 0, 0);
-        this.grupo.scale.setScalar(0.62);
+        this.grupo.scale.setScalar(ESCALA);
       }
       return;
     }
 
-    camera.getWorldPosition(this.aux);
-    this.auxGiro.setFromQuaternion(camera.quaternion, 'YXZ');
-    this.giroGuardado.setFromEuler(new THREE.Euler(0, this.auxGiro.y, 0, 'YXZ'));
+    // CAINDO, ou parada no carpete.
+    //
+    // Este ramo tem de vir antes do laço de volta às costas, e não é detalhe: o
+    // `lerp` de baixo reescreve posição e rotação todo quadro, então sem um
+    // terceiro estado a Pokédex "cairia" voando para as suas costas em três
+    // décimos de segundo.
+    if (this.caida) {
+      this.velocidade.y += GRAVIDADE * dt;
+      this.grupo.position.addScaledVector(this.velocidade, dt);
+      // Tomba até ficar deitada, tela para cima: é como uma placa cai.
+      this.grupo.quaternion.slerp(DEITADA, Math.min(1, dt * 5));
+      // `attach` reprojeta a transformação de mundo para local, então a escala
+      // local vira a de mundo — reescrever por quadro impede que ela derive.
+      this.grupo.scale.setScalar(ESCALA);
 
-    this.posicaoGuardada.copy(GUARDADA).applyQuaternion(this.giroGuardado).add(this.aux);
+      // O apoio sob ela, e não um piso fixo: ela pousa EM CIMA da mesa e do
+      // sofá. Uma Pokédex que afunda dentro do sofá é uma Pokédex perdida.
+      const piso = apoio ? apoio.alturaEm(this.grupo.position) : 0;
+      if (this.grupo.position.y - MEIA_ESPESSURA <= piso) {
+        this.grupo.position.y = piso + MEIA_ESPESSURA;
+        if (Math.abs(this.velocidade.y) > PARADA) {
+          this.velocidade.y *= -RESTITUICAO;
+          this.velocidade.x *= ATRITO;
+          this.velocidade.z *= ATRITO;
+          audio.quique();
+        } else {
+          this.velocidade.set(0, 0, 0);
+        }
+      }
+
+      if (this.velocidade.lengthSq() === 0) {
+        this.tempoNoChao += dt;
+        const faltam = SEGUNDOS_CAIDA - this.tempoNoChao;
+        if (this.luzinha) {
+          const mat = this.luzinha.material as THREE.MeshStandardMaterial;
+          // Nos últimos cinco segundos a luzinha do símbolo pisca: é o aviso de
+          // que ela está voltando sozinha para as suas costas.
+          mat.emissiveIntensity =
+            faltam < AVISO_DE_VOLTA ? 0.8 + Math.abs(Math.sin(this.tempoNoChao * 7)) * 1.6 : 0.8;
+        }
+        if (faltam <= 0) {
+          this.caida = false;
+          if (this.luzinha) {
+            (this.luzinha.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.8;
+          }
+        }
+      }
+      return;
+    }
 
     const k = Math.min(1, dt * 9);
     this.grupo.position.lerp(this.posicaoGuardada, k);
     this.grupo.quaternion.slerp(this.giroGuardado, k);
-    this.grupo.scale.setScalar(0.62);
+    this.grupo.scale.setScalar(ESCALA);
   }
 
   /** Onde ela está agora, para medir a mão contra isso. */

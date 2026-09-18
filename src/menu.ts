@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
 import { Holobola } from './holo';
+import { AVISO, forcaDeToque } from './toque';
 import { AFETO, TIPOS, textoEstagio, type Especie, type Estagios } from './species';
 import { BOLAS, type TipoBola } from './balls';
 import { ITENS, type TipoItem } from './itens';
@@ -252,6 +253,8 @@ export class PainelTime {
   /** Onde o conteúdo da página principal termina, para cima. Ver reposicionar. */
   private topoDaPagina = 0.2;
   private raycaster = new THREE.Raycaster();
+  /** A distância da mão à carta mais perto no último `alcancado`. */
+  private distanciaDaMao = Infinity;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
 
   constructor() {
@@ -1250,7 +1253,9 @@ export class PainelTime {
     this.tempo += dt;
     for (let i = 0; i < this.bolasTime.length; i++) {
       const sobAMao = this.destacado?.tipo === 'criatura' && this.destacado.indice === i;
-      this.bolasTime[i].atualizar(dt, this.tempo, sobAMao, this.abertura);
+      // Contínuo, e não liga-desliga: a bola cresce enquanto o braço chega, com
+      // a mesma conta que faz a mão vibrar. Ver src/toque.ts.
+      this.bolasTime[i].atualizar(dt, this.tempo, sobAMao ? this.forcaDoToque() : 0, this.abertura);
       this.etiquetas[i].opacidade = this.abertura;
     }
     saltar(this.cardsBola, 'bola', 0.014);
@@ -1338,7 +1343,20 @@ export class PainelTime {
         melhor = alvo.userData as { tipo: Selecao['tipo']; indice: number };
       }
     }
+    this.distanciaDaMao = melhor ? menorDistancia : Infinity;
     return melhor;
+  }
+
+  /**
+   * Quanto a mão está encostando na carta mais perto, de 0 a 1.
+   *
+   * Só do caminho de PROXIMIDADE, nunca do raycast: vibrar porque o laser da
+   * outra mão varreu uma carta a meio metro de distância seria mentira tátil —
+   * a mão que sente é a que está chegando, não a que está apontando.
+   */
+  forcaDoToque(alcance = 0.09): number {
+    if (this.abertura < 0.6) return 0;
+    return forcaDeToque(this.distanciaDaMao, alcance, AVISO.carta);
   }
 
   descartar() {

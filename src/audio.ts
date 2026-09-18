@@ -302,6 +302,25 @@ export class Audio {
     this.tom({ freq: 150, freqFinal: 80, duracao: 0.1, tipo: 'triangle', ganho: 0.14 });
   }
 
+  /**
+   * A bola saindo do cinto do antebraço.
+   *
+   * O gesto mais frequente do jogo não tinha som NENHUM — sessenta e quatro
+   * linhas de `tirarBolaDaCinta` sem uma chamada de áudio. Você via a bola
+   * aparecer na mão e não ouvia nada, o que em MR lê como coisa que não
+   * aconteceu de verdade.
+   *
+   * Modelado no `quique`, uma oitava acima: o piso de 190 Hz existe porque os
+   * alto-falantes abertos do Quest 3 caem forte abaixo de uns 150, e a camada
+   * grave sumiria inteira. Sessenta milissegundos porque contato é rápido, e
+   * ganho 0,14 para ficar acima do clique e abaixo do acerto — que é a
+   * hierarquia certa entre pegar uma bola, tocar num menu e bater em alguém.
+   */
+  sacarBola() {
+    this.tom({ freq: 300, freqFinal: 190, duracao: 0.06, tipo: 'triangle', ganho: 0.14 });
+    this.sopro({ duracao: 0.05, corteInicial: 2400, corteFinal: 700, ganho: 0.1, q: 2.5 });
+  }
+
   acerto() {
     this.tom({ freq: 420, freqFinal: 180, duracao: 0.14, tipo: 'square', ganho: 0.18 });
     this.sopro({ duracao: 0.16, corteInicial: 2200, corteFinal: 400, ganho: 0.22, q: 1.2 });

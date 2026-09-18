@@ -167,11 +167,19 @@ export class Holobola {
    * `escala` deixa o painel inteiro nascer e sumir junto: o painel abre em
    * décimos de segundo e as bolas crescem com ele em vez de aparecerem prontas.
    */
-  atualizar(dt: number, tempo: number, destaque: boolean, escala = 1) {
+  atualizar(dt: number, tempo: number, destaque: boolean | number, escala = 1) {
     if (!this.grupo.visible) return;
 
+    // O destaque virou NÚMERO em 18/09 (ver src/toque.ts): ele já não é 'a mão
+    // está dentro do alcance', é 'quanto ela está encostando', de 0 a 1 — e a
+    // mesma conta alimenta a vibração. Nada aqui embaixo mudou: giro, escala,
+    // lavagem de branco, opacidades e o aro já eram todos contínuos.
+    //
+    // O lerp continua, e com alvo contínuo ele é MAIS necessário: é o filtro do
+    // tremor da mão rastreada.
+    const alvo = destaque === true ? 1 : destaque === false ? 0 : destaque;
     const k = Math.min(1, dt * 14);
-    this.destaque += ((destaque ? 1 : 0) - this.destaque) * k;
+    this.destaque += (alvo - this.destaque) * k;
 
     // Flutuar e girar, cada uma fora de fase — quatro bolas subindo juntas são
     // um elevador; quatro subindo em tempos diferentes são quatro bolas.
