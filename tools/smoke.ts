@@ -1954,6 +1954,56 @@ console.log('29. as pedras de evolução');
     );
   }
 
+  // As fichas da Pokédex: todas dizem alguma coisa.
+  //
+  // A ficha é o prêmio de ter capturado — ela só aparece depois de o bicho ser
+  // seu. Por isso 54 das 156 estarem assim era pior do que parecia:
+  //
+  //     Metapod · Casulo · 0,7 m · 9,9 kg
+  //     Casulo. 0,7 m, 9,9 kg.
+  //
+  // A segunda linha repetia a primeira, palavra por palavra. E o padrão de
+  // quem faltava conta a história: eram quase todas EVOLUÇÕES — quem escreveu a
+  // tabela cobriu os básicos e parou. Ou seja, justo o bicho que você mais
+  // lutou para ter era o que não tinha o que dizer.
+  //
+  // Isto aqui existe para que a próxima espécie que entrar não passe batida: o
+  // gerador preenche com a ficha técnica quando não acha texto escrito, e um
+  // preenchimento silencioso é exatamente o tipo de buraco que ninguém vê.
+  {
+    // "Casulo. 0,7 m, 9,9 kg." — gênero, altura e peso, que a linha de cima da
+    // ficha já mostra.
+    const soAFichaTecnica = /^[^.]{1,30}\.\s*\d+[,.]\d+\s*m,\s*\d+[,.]\d+\s*kg\.?$/;
+
+    let menor = Infinity;
+    let curta = '';
+    for (const e of ESPECIES) {
+      checar(
+        !soAFichaTecnica.test(e.descricao),
+        `a ficha de ${e.nome} só repete altura e peso: "${e.descricao}"`,
+      );
+      checar(e.descricao.length >= 24, `a ficha de ${e.nome} é curta demais para dizer algo`);
+      // Duas linhas de ~78 caracteres na placa da ficha. Acima disso o canvas
+      // corta, e ninguém vê o fim da frase.
+      checar(e.descricao.length <= 150, `a ficha de ${e.nome} não cabe na placa`);
+      // O nome da própria espécie na ficha dela é sinal de texto de catálogo
+      // ("Ivysaur é a evolução de Bulbasaur"), não de ficha.
+      checar(
+        !e.descricao.includes(e.nome),
+        `a ficha de ${e.nome} fala dele na terceira pessoa pelo nome`,
+      );
+      if (e.descricao.length < menor) {
+        menor = e.descricao.length;
+        curta = e.nome;
+      }
+    }
+
+    const media = ESPECIES.reduce((s, e) => s + e.descricao.length, 0) / ESPECIES.length;
+    console.log(
+      `   fichas: ${ESPECIES.length} escritas, média de ${media.toFixed(0)} caracteres · a mais curta é a de ${curta} (${menor})`,
+    );
+  }
+
   // O ciclo de dia e noite.
   //
   // O sorteio de quem nasce só olhava para dentro do save — mesma população às

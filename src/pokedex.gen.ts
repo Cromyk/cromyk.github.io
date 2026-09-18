@@ -504,7 +504,7 @@ export const POKEDEX: readonly EntradaDex[] = [
       "nivel": 10
     },
     "genero": "Casulo",
-    "descricao": "Casulo. 0,7 m, 9,9 kg.",
+    "descricao": "Por dentro é quase líquido. A casca é dura porque o que ela guarda não é.",
     "convidada": false
   },
   {
@@ -529,7 +529,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Borboleta",
-    "descricao": "Borboleta. 1,1 m, 32,0 kg.",
+    "descricao": "Acha mel a dez quilômetros. As asas repelem água e ele voa na chuva.",
     "convidada": false
   },
   {
@@ -585,7 +585,7 @@ export const POKEDEX: readonly EntradaDex[] = [
       "nivel": 10
     },
     "genero": "Casulo",
-    "descricao": "Casulo. 0,6 m, 10,0 kg.",
+    "descricao": "Quase não se mexe, mas está fervendo por dentro. Esquenta na sua mão.",
     "convidada": false
   },
   {
@@ -610,7 +610,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Abelha Venenosa",
-    "descricao": "Abelha Venenosa. 1,0 m, 29,5 kg.",
+    "descricao": "Vem em bando e não desiste. Os três ferrões injetam de verdade.",
     "convidada": false
   },
   {
@@ -666,7 +666,7 @@ export const POKEDEX: readonly EntradaDex[] = [
       "nivel": 36
     },
     "genero": "Pássaro",
-    "descricao": "Pássaro. 1,1 m, 30,0 kg.",
+    "descricao": "Marca um território enorme e passa o dia patrulhando as bordas dele.",
     "convidada": false
   },
   {
@@ -691,7 +691,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Pássaro",
-    "descricao": "Pássaro. 1,5 m, 39,5 kg.",
+    "descricao": "Abre as asas e o vento deita o mato. A crista muda de cor no voo.",
     "convidada": false
   },
   {
@@ -742,7 +742,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Rato",
-    "descricao": "Rato. 0,7 m, 18,5 kg.",
+    "descricao": "Os dentes crescem depressa demais; ele rói pedra para desgastá-los.",
     "convidada": false
   },
   {
@@ -795,7 +795,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Bico",
-    "descricao": "Bico. 1,2 m, 38,0 kg.",
+    "descricao": "O bico comprido entra na terra e na água. Voa o dia inteiro sem pousar.",
     "convidada": false
   },
   {
@@ -846,7 +846,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Naja",
-    "descricao": "Naja. 3,5 m, 65,0 kg.",
+    "descricao": "O desenho da barriga assusta de propósito, e não há dois iguais.",
     "convidada": false
   },
   {
@@ -948,7 +948,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Rato",
-    "descricao": "Rato. 1,0 m, 29,5 kg.",
+    "descricao": "Enrola-se numa bola de espinhos e desce a ladeira rolando.",
     "convidada": false
   },
   {
@@ -1002,7 +1002,7 @@ export const POKEDEX: readonly EntradaDex[] = [
       "nivel": 28
     },
     "genero": "Poison Pin",
-    "descricao": "Poison Pin. 0,8 m, 20,0 kg.",
+    "descricao": "Recolhe os espinhos perto da cria, para não machucar sem querer.",
     "convidada": false
   },
   {
@@ -1027,7 +1027,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Furadeira",
-    "descricao": "Furadeira. 1,3 m, 60,0 kg.",
+    "descricao": "A couraça endurece quando ela está protegendo alguém.",
     "convidada": false
   },
   {
@@ -1081,7 +1081,7 @@ export const POKEDEX: readonly EntradaDex[] = [
       "nivel": 28
     },
     "genero": "Poison Pin",
-    "descricao": "Poison Pin. 0,9 m, 19,5 kg.",
+    "descricao": "O chifre fura diamante. As orelhas abrem como antena ao menor barulho.",
     "convidada": false
   },
   {
@@ -1106,7 +1106,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Furadeira",
-    "descricao": "Furadeira. 1,4 m, 62,0 kg.",
+    "descricao": "Um golpe de cauda derruba uma torre de metal. Ele mede a força — às vezes.",
     "convidada": false
   },
   {
@@ -1157,7 +1157,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Fada",
-    "descricao": "Fada. 1,3 m, 40,0 kg.",
+    "descricao": "Escuta um alfinete cair a um quilômetro e some antes de você chegar.",
     "convidada": false
   },
   {
@@ -1261,7 +1261,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Balão",
-    "descricao": "Balão. 1,0 m, 12,0 kg.",
+    "descricao": "Enche-se de ar até ficar maior que o adversário. O pelo é macio demais.",
     "convidada": false
   },
   {
@@ -1314,7 +1314,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Morcego",
-    "descricao": "Morcego. 1,6 m, 55,0 kg.",
+    "descricao": "Bebe tanto que fica pesado e volta voando torto.",
     "convidada": false
   },
   {
@@ -1367,7 +1367,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Erva",
-    "descricao": "Erva. 0,8 m, 8,6 kg.",
+    "descricao": "O cheiro gruda em você por dois dias. Ele não sente e não entende a bronca.",
     "convidada": false
   },
   {
@@ -1392,7 +1392,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Flor",
-    "descricao": "Flor. 1,2 m, 18,6 kg.",
+    "descricao": "As maiores pétalas do mundo, e o pólen que elas sacodem é tóxico.",
     "convidada": false
   },
   {
@@ -1445,7 +1445,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Cogumelo",
-    "descricao": "Cogumelo. 1,0 m, 29,5 kg.",
+    "descricao": "Quem manda é o cogumelo. O inseto só carrega, e há tempos.",
     "convidada": false
   },
   {
@@ -1498,7 +1498,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Poison Moth",
-    "descricao": "Poison Moth. 1,5 m, 12,5 kg.",
+    "descricao": "As escamas soltam no ar ao bater as asas. Respirar perto delas é o veneno.",
     "convidada": false
   },
   {
@@ -1549,7 +1549,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Toupeira",
-    "descricao": "Toupeira. 0,7 m, 33,3 kg.",
+    "descricao": "Três cabeças, um bicho só. Cavam a cem quilômetros por hora.",
     "convidada": false
   },
   {
@@ -1597,7 +1597,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Classy Cat",
-    "descricao": "Classy Cat. 1,0 m, 32,0 kg.",
+    "descricao": "A joia da testa vale uma fortuna, e ele não gosta de mão perto dela.",
     "convidada": false
   },
   {
@@ -1648,7 +1648,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Pato",
-    "descricao": "Pato. 1,7 m, 76,6 kg.",
+    "descricao": "Nada mais rápido que um campeão olímpico sem parecer estar tentando.",
     "convidada": false
   },
   {
@@ -1699,7 +1699,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Macaco-Porco",
-    "descricao": "Macaco-Porco. 1,0 m, 32,0 kg.",
+    "descricao": "Acorda bravo e dorme bravo. Persegue até um dos dois cair.",
     "convidada": false
   },
   {
@@ -1750,7 +1750,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Lendário",
-    "descricao": "Lendário. 1,9 m, 155,0 kg.",
+    "descricao": "Corre dez mil quilômetros num dia. Já estava nas pinturas antigas.",
     "convidada": false
   },
   {
@@ -1801,7 +1801,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Girino",
-    "descricao": "Girino. 1,0 m, 20,0 kg.",
+    "descricao": "A pele vive molhada. A espiral da barriga hipnotiza quem olha demais.",
     "convidada": false
   },
   {
@@ -1826,7 +1826,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Girino",
-    "descricao": "Girino. 1,3 m, 54,0 kg.",
+    "descricao": "Braço de músculo puro: atravessa o oceano sem parar para descansar.",
     "convidada": false
   },
   {
@@ -1958,7 +1958,7 @@ export const POKEDEX: readonly EntradaDex[] = [
       "nivel": 32
     },
     "genero": "Superforça",
-    "descricao": "Superforça. 1,5 m, 70,5 kg.",
+    "descricao": "O cinturão segura a força dele. Sem ele, não controla o próprio braço.",
     "convidada": false
   },
   {
@@ -1982,7 +1982,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Superforça",
-    "descricao": "Superforça. 1,6 m, 130,0 kg.",
+    "descricao": "Quatro braços e quatro socos por segundo. Perde tempo amarrando o sapato.",
     "convidada": false
   },
   {
@@ -2038,7 +2038,7 @@ export const POKEDEX: readonly EntradaDex[] = [
       "nivel": 28
     },
     "genero": "Flycatcher",
-    "descricao": "Flycatcher. 1,0 m, 6,4 kg.",
+    "descricao": "Pendura-se num galho e espera parado. O que encostar, entra.",
     "convidada": false
   },
   {
@@ -2063,7 +2063,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Flycatcher",
-    "descricao": "Flycatcher. 1,7 m, 15,5 kg.",
+    "descricao": "O cheiro de mel é a armadilha. Lá dentro, o ácido resolve em dois dias.",
     "convidada": false
   },
   {
@@ -2116,7 +2116,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Água-Viva",
-    "descricao": "Água-Viva. 1,6 m, 55,0 kg.",
+    "descricao": "Oitenta tentáculos que se esticam e agarram. As joias piscam antes.",
     "convidada": false
   },
   {
@@ -2172,7 +2172,7 @@ export const POKEDEX: readonly EntradaDex[] = [
       "nivel": 32
     },
     "genero": "Pedra",
-    "descricao": "Pedra. 1,0 m, 105,0 kg.",
+    "descricao": "Desce a montanha rolando e não desvia de nada. Come pedra no caminho.",
     "convidada": false
   },
   {
@@ -2197,7 +2197,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Megaton",
-    "descricao": "Megaton. 1,4 m, 300,0 kg.",
+    "descricao": "Troca a casca uma vez por ano. Aguenta dinamite sem trincar.",
     "convidada": false
   },
   {
@@ -2248,7 +2248,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Cavalo de Fogo",
-    "descricao": "Cavalo de Fogo. 1,7 m, 95,0 kg.",
+    "descricao": "Dez segundos para chegar aos duzentos. Adora quando alguém tenta acompanhar.",
     "convidada": false
   },
   {
@@ -2298,7 +2298,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Hermit Crab",
-    "descricao": "Hermit Crab. 1,6 m, 78,5 kg.",
+    "descricao": "O Shellder na cauda mudou tudo — e ele ainda não reparou direito.",
     "convidada": false
   },
   {
@@ -2351,7 +2351,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Ímã",
-    "descricao": "Ímã. 1,0 m, 60,0 kg.",
+    "descricao": "Três colados. Perto deles a bússola gira sozinha e o rádio morre.",
     "convidada": false
   },
   {
@@ -2429,7 +2429,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Triple Bird",
-    "descricao": "Triple Bird. 1,8 m, 85,2 kg.",
+    "descricao": "Três cabeças e três humores. Duas dormem enquanto a terceira vigia.",
     "convidada": false
   },
   {
@@ -2481,7 +2481,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Sea Lion",
-    "descricao": "Sea Lion. 1,7 m, 120,0 kg.",
+    "descricao": "Dorme na água gelada e acorda quando o sol bate. A pele guarda o calor.",
     "convidada": false
   },
   {
@@ -2532,7 +2532,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Sludge",
-    "descricao": "Sludge. 1,2 m, 30,0 kg.",
+    "descricao": "Onde ele passa, nada cresce por um tempo. O cheiro derruba de longe.",
     "convidada": false
   },
   {
@@ -2584,7 +2584,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Bivalve",
-    "descricao": "Bivalve. 1,5 m, 132,5 kg.",
+    "descricao": "A concha é mais dura que diamante, e ninguém viu o que tem dentro.",
     "convidada": false
   },
   {
@@ -2741,7 +2741,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Hipnose",
-    "descricao": "Hipnose. 1,6 m, 75,6 kg.",
+    "descricao": "O pêndulo faz o serviço. Come sonho, e às vezes leva junto quem sonhava.",
     "convidada": false
   },
   {
@@ -2792,7 +2792,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Pinça",
-    "descricao": "Pinça. 1,3 m, 60,0 kg.",
+    "descricao": "A pinça grande tem dez mil cavalos, e é pesada demais para ele erguer.",
     "convidada": false
   },
   {
@@ -2843,7 +2843,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Bola",
-    "descricao": "Bola. 1,2 m, 66,6 kg.",
+    "descricao": "Guarda eletricidade até não caber mais. Explode por qualquer motivo.",
     "convidada": false
   },
   {
@@ -2896,7 +2896,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Coco",
-    "descricao": "Coco. 2,0 m, 120,0 kg.",
+    "descricao": "Cada cabeça pensa por si. Quando uma cai, ela sai andando sozinha.",
     "convidada": false
   },
   {
@@ -2947,7 +2947,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Guardião do Osso",
-    "descricao": "Guardião do Osso. 1,0 m, 45,0 kg.",
+    "descricao": "O osso é arma e é lembrança. Ele acerta de longe, sem olhar duas vezes.",
     "convidada": false
   },
   {
@@ -3070,7 +3070,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Gás Venenoso",
-    "descricao": "Gás Venenoso. 1,2 m, 9,5 kg.",
+    "descricao": "Dois corpos num só, cheios de gás. Quanto mais lixo por perto, melhor.",
     "convidada": false
   },
   {
@@ -3123,7 +3123,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Furadeira",
-    "descricao": "Furadeira. 1,9 m, 120,0 kg.",
+    "descricao": "O chifre fura diamante. Anda em duas pernas e esquece o que ia fazer.",
     "convidada": false
   },
   {
@@ -3246,7 +3246,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Dragão",
-    "descricao": "Dragão. 1,2 m, 25,0 kg.",
+    "descricao": "Os espinhos das costas são venenosos. Dorme enroscado no coral.",
     "convidada": false
   },
   {
@@ -3297,7 +3297,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Peixe Dourado",
-    "descricao": "Peixe Dourado. 1,3 m, 39,0 kg.",
+    "descricao": "Cava o ninho na pedra do rio com o chifre e defende até o fim.",
     "convidada": false
   },
   {
@@ -3349,7 +3349,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Misterioso",
-    "descricao": "Misterioso. 1,1 m, 80,0 kg.",
+    "descricao": "O núcleo do meio brilha em sete cores. Dizem que ele fala com o céu.",
     "convidada": false
   },
   {
@@ -3797,7 +3797,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Espiral",
-    "descricao": "Espiral. 1,0 m, 35,0 kg.",
+    "descricao": "Os tentáculos prendiam a presa. A concha cresceu até ele não se mexer mais.",
     "convidada": false
   },
   {
@@ -3850,7 +3850,7 @@ export const POKEDEX: readonly EntradaDex[] = [
     "lendario": false,
     "evolui": null,
     "genero": "Molusco",
-    "descricao": "Molusco. 1,3 m, 40,5 kg.",
+    "descricao": "As lâminas cortam e sugam. Era rápido na água; em terra não dura muito.",
     "convidada": false
   },
   {
