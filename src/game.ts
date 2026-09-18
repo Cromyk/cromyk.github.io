@@ -270,7 +270,6 @@ export class Jogo {
   private painelDex = new PainelDex();
   /** O PC: a caixa e a edição da equipe. Abre com o botão Y. */
   private pc = new PainelPc();
-  private pulsoAnexado = false;
 
   /** Existe só até você escolher o parceiro inicial. */
   private escolha: EscolhaInicial | null = null;
@@ -334,6 +333,7 @@ export class Jogo {
     this.sala.usarFallback();
 
     this.cena.add(this.painelTime.grupo, this.pc.grupo, this.mochila.grupo, this.centro.grupo);
+    this.cena.add(this.painelPulso.grupo);
     this.cena.add(this.pegadas.grupo);
     // A Pokédex não entra solta na cena: as placas dela são a TELA do tablet,
     // e é a carcaça que anda pelo mundo.
@@ -4106,10 +4106,11 @@ export class Jogo {
         }
       }
 
-      if (!this.pulsoAnexado && mao.lado === 'left') {
-        mao.punho.add(this.painelPulso.grupo);
-        this.pulsoAnexado = true;
-      }
+      // O painel do pulso NÃO é mais filho do punho: ele acompanha o pulso pela
+      // posição e fica em pé sozinho (ver PainelPulso.posicionar). Pendurado no
+      // punho, ele herdava a torção do antebraço e virava de lado toda vez que
+      // a mão girava — metade da queixa de "painel inclinado" do playtest de
+      // 18/09. Ele entra na cena uma vez, em `montarCena`.
 
       // Um cinto por antebraço, criado quando aquele punho aparece. Um controle
       // sem lado declarado (`none`) não ganha cinto: sem saber o lado, o cinto
@@ -4212,6 +4213,11 @@ export class Jogo {
       direita ? this.pontoDoDedo(direita) : null,
       Jogo.ALCANCE_PAINEL,
     );
+    // O mostrador pequeno acompanha o mesmo pulso, em pé — e se apaga quando o
+    // painel grande abre: os dois no mesmo braço, ao mesmo tempo, era o
+    // empilhamento que fazia o conjunto parecer uma torre.
+    this.painelPulso.posicionar(dt, esquerda?.punho ?? null, this.camera, !this.painelTime.aberto);
+
     if (this.painelTime.aberto && !estavaAberto) audio.abrirPainel();
     if (this.painelTime.mudouDestaque) {
       this.painelTime.mudouDestaque = false;

@@ -413,16 +413,62 @@ export class BarraVida {
   }
 }
 
-/** Painel pequeno preso ao pulso: pokébolas e progresso. */
+/**
+ * O mostrador do pulso: quantas bolas, quantas capturas, quanto da sala.
+ *
+ * ## Em pé, e não tombado
+ *
+ * Ele era uma placa de 14 × 9 cm presa ao punho, inclinada 57° para trás. Preso
+ * ao punho, ele herdava TODO giro do antebraço: bastava virar a mão para o
+ * painel ficar de lado, de cabeça para baixo, ou de esguelha. Somada à
+ * inclinação fixa, essa era a coisa que o playtest de 18/09 chamou de "painel
+ * inclinado para frente, projetando".
+ *
+ * Agora ele vive no mundo, não no punho: acompanha o pulso esquerdo em POSIÇÃO
+ * e gira só em torno do eixo vertical, para ficar em pé e virado para você
+ * qualquer que seja a torção do braço. É a mesma regra do painel do time (ver
+ * src/menu.ts) — os dois são a mesma superfície, e duas regras diferentes para
+ * dois painéis no mesmo braço era o que fazia o conjunto parecer torto.
+ *
+ * ## E menor
+ *
+ * 10,5 × 5 cm no lugar de 14 × 9, e duas linhas no lugar de quatro. O número
+ * gigante de pokébolas saiu: desde que o cinto do antebraço existe, as bolas
+ * estão ALI, em objeto, contadas pelo próprio olho — repetir a conta em
+ * oitenta pixels era gastar metade do painel com o que já se vê.
+ */
 export class PainelPulso {
   readonly grupo = new THREE.Group();
-  private placa = new Placa(0.14, 0.09, 384);
+  private placa = new Placa(0.105, 0.05, 340);
   private ultimo = '';
+  private alvo = new THREE.Vector3();
+  private olho = new THREE.Vector3();
 
   constructor() {
-    this.placa.malha.position.set(0, 0.035, -0.02);
-    this.placa.malha.rotation.x = -Math.PI * 0.32;
     this.grupo.add(this.placa.malha);
+  }
+
+  /**
+   * Segue o pulso esquerdo, em pé.
+   *
+   * Seis centímetros acima do punho: acima da luva e abaixo de onde o painel do
+   * time começa a crescer, para os dois nunca se cobrirem.
+   */
+  posicionar(dt: number, punho: THREE.Object3D | null, camera: THREE.Camera, visivel: boolean) {
+    this.grupo.visible = visivel && punho !== null;
+    if (!punho || !visivel) return;
+
+    punho.getWorldPosition(this.alvo);
+    this.alvo.y += 0.06;
+    // Suave: o pulso treme, e um painel que copia o tremor é ilegível.
+    this.grupo.position.lerp(this.alvo, Math.min(1, dt * 12));
+
+    camera.getWorldPosition(this.olho);
+    this.grupo.rotation.set(
+      0,
+      Math.atan2(this.olho.x - this.grupo.position.x, this.olho.z - this.grupo.position.z),
+      0,
+    );
   }
 
   atualizar(
@@ -449,24 +495,23 @@ export class PainelPulso {
 
     this.placa.escrever(
       [
-        { texto: `${bolas}`, tamanho: 82, cor: bolas > 0 ? '#ff7a6e' : '#7f8ba0', peso: 700 },
-        { texto: 'pokébolas', tamanho: 25, cor: '#8b97ab', peso: 500, espaco: 8 },
         {
-          texto: `${capturas} capturas · ${especies}/${total} espécies`,
-          tamanho: 23,
-          cor: '#b9c4d6',
-          peso: 500,
+          texto: `${bolas} bolas · ${capturas} capturas`,
+          tamanho: 27,
+          cor: bolas > 0 ? '#eef2f8' : '#ff9f9f',
+          peso: 700,
         },
         brilhante
-          ? { texto: brilhante, tamanho: 21, cor: '#ffd76a', peso: 700 }
+          ? { texto: brilhante, tamanho: 20, cor: '#ffd76a', peso: 700, espaco: 4 }
           : {
-              texto: `${mapeadas} superfícies mapeadas`,
-              tamanho: 21,
-              cor: '#7fd6a8',
+              texto: `${especies}/${total} espécies · ${mapeadas} sup.`,
+              tamanho: 20,
+              cor: '#8b97ab',
               peso: 500,
+              espaco: 4,
             },
       ],
-      { raio: 22 },
+      { raio: 16 },
     );
   }
 

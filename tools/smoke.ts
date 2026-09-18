@@ -59,6 +59,7 @@ import { fatorDoHorario, habitoDe, noturnidade } from '../src/hora';
 import { Aviso } from '../src/hud';
 import { ITENS } from '../src/itens';
 import { Mochila, disporGrade } from '../src/mochila';
+import { MEDIDAS_TIME, disporTime } from '../src/menu';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
 import { GOLPES_DEX } from '../src/golpes.gen';
@@ -2589,6 +2590,58 @@ console.log('29. as pedras de evolução');
     console.log(
       `   mochila: ${ITENS.length} itens, vizinhos a ${maisPerto.toFixed(2)} m, ` +
         `alcance da mão ${Mochila.ALCANCE} m`,
+    );
+  }
+
+
+  // O painel do pulso, depois de o time virar bolas de luz (18/09).
+  //
+  // Três coisas têm de valer ao mesmo tempo, e elas puxam para lados opostos:
+  // a bola precisa ser PEGÁVEL (vizinhas longe o bastante para a mão não
+  // disputar), a etiqueta precisa ser LEGÍVEL (sem invadir a bola de baixo), e
+  // o conjunto precisa ser MENOR do que as cartas que ele substituiu — que foi
+  // o pedido que originou tudo isto.
+  {
+    const vagas = 6;
+    const yBase = MEDIDAS_TIME.raio + MEDIDAS_TIME.alturaEtiqueta + 0.008;
+    const lugares = disporTime(vagas, yBase);
+    checar(lugares.length === vagas, 'o arranjo do time perdeu uma vaga pelo caminho');
+
+    let maisPerto = Infinity;
+    for (let i = 0; i < lugares.length; i++) {
+      for (let j = i + 1; j < lugares.length; j++) {
+        maisPerto = Math.min(maisPerto, lugares[i].distanceTo(lugares[j]));
+      }
+    }
+    // O mesmo critério do cinto: a mão que vem pegar tapa o alvo, e a precisão
+    // exigida é metade da distância entre vizinhas.
+    checar(
+      maisPerto / 2 >= 0.03,
+      `duas bolas do time exigem ${((maisPerto / 2) * 100).toFixed(1)} cm de precisão, e menos de 3 cm é mais do que um braço no ar entrega`,
+    );
+
+    // A etiqueta pendura abaixo da bola: ela não pode nem descer abaixo do
+    // pulso (onde ficaria atrás do antebraço) nem encostar na bola de cima.
+    const fundo = lugares[0].y - MEDIDAS_TIME.quedaDaEtiqueta - MEDIDAS_TIME.alturaEtiqueta / 2;
+    checar(fundo >= 0, `a etiqueta da primeira linha desce ${(fundo * 100).toFixed(1)} cm abaixo do pulso`);
+    const folga =
+      MEDIDAS_TIME.passoY -
+      MEDIDAS_TIME.raio -
+      MEDIDAS_TIME.quedaDaEtiqueta -
+      MEDIDAS_TIME.alturaEtiqueta / 2;
+    checar(folga > 0, `a etiqueta de cima invade a bola de baixo em ${(-folga * 100).toFixed(1)} cm`);
+
+    // E o painel encolheu de verdade: as cartas que saíram tinham 11,4 cm de
+    // altura por linha e 9,2 de largura.
+    const alturaDoTime = (lugares[vagas - 1].y + MEDIDAS_TIME.raio) - fundo;
+    checar(
+      alturaDoTime < 2 * 0.114,
+      `o time ocupa ${(alturaDoTime * 100).toFixed(1)} cm, mais do que as duas fileiras de cartas que ele substituiu`,
+    );
+    const larguraDoTime = MEDIDAS_TIME.porLinha * MEDIDAS_TIME.passoX;
+    console.log(
+      `   time em bolas de luz: ${MEDIDAS_TIME.porLinha} por linha, vizinhas a ${(maisPerto * 100).toFixed(1)} cm, ` +
+        `${(larguraDoTime * 100).toFixed(0)} × ${(alturaDoTime * 100).toFixed(0)} cm (eram 30 × 24)`,
     );
   }
 

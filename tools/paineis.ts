@@ -132,7 +132,7 @@ const secoes: Array<{ titulo: string; pecas: Peca[] }> = [];
     { canvas: (painel.cardPc as { canvas: Canvas }).canvas, rotulo: 'PC' },
   ];
   for (const [nome, lista] of [
-    ['time', painel.cards],
+    ['etiqueta do time', painel.etiquetas],
     ['bolas', painel.cardsBola],
     ['itens', painel.cardsItem],
     ['golpes', painel.cardsGolpe],

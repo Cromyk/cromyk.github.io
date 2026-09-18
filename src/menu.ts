@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
+import { Holobola } from './holo';
 import { AFETO, TIPOS, textoEstagio, type Especie, type Estagios } from './species';
 import { BOLAS, type TipoBola } from './balls';
 import { ITENS, type TipoItem } from './itens';
@@ -78,45 +79,60 @@ export type Selecao =
   | { tipo: 'interruptor'; entrada: EntradaInterruptor };
 
 /**
- * As medidas do painel, depois do playtest de 18/09.
+ * As medidas do painel, depois do segundo playtest de 18/09.
  *
- * ## O que estava errado
+ * ## O que estava errado, desta vez
  *
- * As seis cartas do time ficavam numa FILEIRA só: seis vezes dez centímetros
- * mais os vãos dão **sessenta e seis centímetros** de painel, pendurados a
- * catorze centímetros acima do punho. Da ponta esquerda à direita era mais que
- * a envergadura confortável de um braço — as cartas das pontas ficavam longe do
- * braço que as carrega, e o conjunto lia como coisa espalhada em vez de um
- * painel.
+ * O relato foi direto: *"o painel do braço esquerdo está inclinado para frente,
+ * projetando; ele precisa ser menor, completamente na vertical, com ângulo reto
+ * para cima — diminuir e compactar as informações"*.
  *
- * E ele crescia para BAIXO: título em cima, time no meio, bolas, itens e golpes
- * descendo até vinte e um centímetros abaixo do centro — ou seja, abaixo do
- * próprio antebraço, no vazio à frente do corpo.
+ * São três defeitos, e eles têm causas diferentes:
+ *
+ * 1. **Inclinado.** O painel fazia `lookAt` na cabeça. Com o braço na altura do
+ *    peito, encarar a cabeça quer dizer TOMBAR para trás uns trinta graus — e
+ *    um painel tombado, em MR, lê como uma folha caindo. Agora ele gira só em
+ *    torno do eixo vertical: fica sempre em pé, em ângulo reto com o chão,
+ *    virado para você. Ver `atualizar`.
+ * 2. **Grande.** Com o time em cartas de 9 × 11 cm, mais bolas, itens, golpes e
+ *    título, o painel tinha meio metro de altura saindo do pulso.
+ * 3. **Cheio.** Cada carta do time repetia nome, tipo, barra de vida, XP,
+ *    nível, afeto e estágios.
  *
  * ## O que mudou
  *
- * As cartas encolheram um pouco e o time virou uma **grade de três por duas**:
- * a mesma informação em 0,30 m de largura em vez de 0,66 m. Todas as fileiras
- * passaram a ter a mesma largura útil de ~0,30 m, o que dá ao painel uma borda
- * reta dos dois lados em vez de um contorno serrilhado.
+ * O time deixou de ser seis cartas e virou **seis pokébolas de luz** (ver
+ * src/holo.ts), cada uma com uma etiqueta fina embaixo. A mesma informação
+ * essencial em 8 cm de altura por linha em vez de 12, e — o que importa mais —
+ * uma COISA que a mão pega, em vez de um retângulo que se aponta. Era o outro
+ * pedido do mesmo playtest.
  *
- * E ele passou a ser montado **de baixo para cima**, com a base logo acima do
- * punho — ver `reposicionar`. Nada mais fica abaixo do braço.
+ * Os itens zerados saíram da página principal: eles continuam na mochila (B),
+ * que foi feita para isso, e "0 poções" ocupava uma carta para dizer uma coisa
+ * que a mochila já diz melhor.
  *
- * As cartas não encolheram mais do que isto de propósito: a largura mínima aqui
- * não é a de ler, é a de ACERTAR com a mão no ar, e abaixo de uns oito
- * centímetros escolher a carta certa vira sorte.
+ * Resultado: ~0,34 m de altura por 0,25 m de largura, contra 0,50 × 0,30.
+ *
+ * As bolas e as cartas não encolheram mais do que isto de propósito: a medida
+ * mínima aqui não é a de LER, é a de ACERTAR com a mão no ar — abaixo de uns
+ * sete centímetros de passo, escolher a bola certa vira sorte.
  */
-const LARGURA_CARD = 0.092;
-const ALTURA_CARD = 0.114;
+/** Raio da bola de luz do time. A bola de verdade tem 4,5 cm; esta é menor. */
+const RAIO_TIME = 0.026;
+/** Passo entre bolas do time. Sete centímetros e meio é o mínimo da mão. */
+const PASSO_TIME_X = 0.079;
+const PASSO_TIME_Y = 0.082;
+/** A etiqueta fina que fica sob cada bola. */
+const LARGURA_ETIQUETA = 0.074;
+const ALTURA_ETIQUETA = 0.024;
 const LARGURA_BOLA = 0.069;
 const ALTURA_BOLA = 0.06;
-const LARGURA_ITEM = 0.05;
-const ALTURA_ITEM = 0.046;
-const LARGURA_GOLPE = 0.143;
-const ALTURA_GOLPE = 0.05;
+const LARGURA_ITEM = 0.042;
+const ALTURA_ITEM = 0.038;
+const LARGURA_GOLPE = 0.118;
+const ALTURA_GOLPE = 0.042;
 /** Largura útil do painel. Toda fileira se centra dentro dela. */
-const LARGURA_PAINEL = 0.296;
+const LARGURA_PAINEL = 0.25;
 const LARGURA_MODO = 0.122;
 const ALTURA_MODO = 0.056;
 const LARGURA_DIF = 0.122;
@@ -126,6 +142,48 @@ const ALTURA_CHAVE = 0.042;
 const LADO_ENGRENAGEM = 0.042;
 const LADO_PC = 0.042;
 const ESPACO = 0.012;
+
+/** Quantas bolas do time por linha. Três é o que cabe na largura útil. */
+const TIME_POR_LINHA = 3;
+
+/**
+ * Onde fica cada bola do time, em coordenadas do painel.
+ *
+ * Função pura e exportada pelo mesmo motivo de `disporGrade`, na mochila: a
+ * `PainelTime` não pode ser construída fora do navegador (as etiquetas são
+ * `Placa`, e `Placa` quer um `<canvas>`), então esta é a parte do arranjo que
+ * `tools/smoke.ts` consegue conferir. E o que ela confere importa: duas bolas
+ * mais perto entre si do que o alcance da mão disputam o mesmo gesto, e uma
+ * etiqueta que desce demais acaba atrás do próprio antebraço.
+ *
+ * `yBase` é a altura da PRIMEIRA linha, medida do pulso para cima.
+ */
+export function disporTime(quantasVagas: number, yBase: number): THREE.Vector2[] {
+  const saida: THREE.Vector2[] = [];
+  for (let i = 0; i < quantasVagas; i++) {
+    const linha = Math.floor(i / TIME_POR_LINHA);
+    const nestaLinha = Math.min(TIME_POR_LINHA, quantasVagas - linha * TIME_POR_LINHA);
+    saida.push(
+      new THREE.Vector2(
+        ((i % TIME_POR_LINHA) - (nestaLinha - 1) / 2) * PASSO_TIME_X,
+        yBase + linha * PASSO_TIME_Y,
+      ),
+    );
+  }
+  return saida;
+}
+
+/** As medidas que o smoke usa para conferir o arranjo do time. */
+export const MEDIDAS_TIME = {
+  raio: RAIO_TIME,
+  passoX: PASSO_TIME_X,
+  passoY: PASSO_TIME_Y,
+  alturaEtiqueta: ALTURA_ETIQUETA,
+  larguraEtiqueta: LARGURA_ETIQUETA,
+  porLinha: TIME_POR_LINHA,
+  /** Quanto a etiqueta pendura abaixo do centro da bola. */
+  quedaDaEtiqueta: RAIO_TIME + ALTURA_ETIQUETA / 2 + 0.005,
+} as const;
 
 /** Como cada categoria de golpe se identifica no card. */
 const CATEGORIA = {
@@ -161,7 +219,10 @@ export class PainelTime {
   /** Falso na página principal, verdadeiro na dos ajustes. */
   nosAjustes = false;
 
-  private cards: Placa[] = [];
+  /** O time, uma bola de luz por vaga. Ver src/holo.ts. */
+  private bolasTime: Holobola[] = [];
+  /** A etiqueta fina sob cada bola: nome, nível e vida. */
+  private etiquetas: Placa[] = [];
   private cardsBola: Placa[] = [];
   private cardsItem: Placa[] = [];
   private cardsModo: Placa[] = [];
@@ -172,7 +233,7 @@ export class PainelTime {
   /** O atalho para o PC: a caixa inteira e a equipe, ver src/pc.ts. */
   private cardPc = new Placa(LADO_PC, LADO_PC, 128);
   private alvos: THREE.Mesh[] = [];
-  private titulo = new Placa(0.3, 0.038, 512);
+  private titulo = new Placa(0.24, 0.032, 448);
 
   /** Uma por vaga do time; `null` onde a vaga está vazia. */
   private entradas: Array<EntradaTime | null> = [];
@@ -186,6 +247,8 @@ export class PainelTime {
   private destacado: { tipo: Selecao['tipo']; indice: number } | null = null;
   private assinatura = '';
   private abertura = 0;
+  /** Relógio próprio, para as bolas flutuarem e girarem. */
+  private tempo = 0;
   /** Onde o conteúdo da página principal termina, para cima. Ver reposicionar. */
   private topoDaPagina = 0.2;
   private raycaster = new THREE.Raycaster();
@@ -209,10 +272,20 @@ export class PainelTime {
     };
 
     for (let i = 0; i < TAMANHO_TIME; i++) {
-      const card = new Placa(LARGURA_CARD, ALTURA_CARD, 300);
-      this.cards.push(card);
-      this.grupo.add(card.malha);
-      novoAlvo('criatura', i, LARGURA_CARD, ALTURA_CARD);
+      // Fora de fase por vaga: seis bolas boiando no mesmo compasso são uma
+      // engrenagem, seis fora de compasso são seis bolas.
+      const bola = new Holobola(RAIO_TIME, i * 1.9);
+      this.bolasTime.push(bola);
+      this.grupo.add(bola.grupo);
+
+      const etiqueta = new Placa(LARGURA_ETIQUETA, ALTURA_ETIQUETA, 240);
+      this.etiquetas.push(etiqueta);
+      this.grupo.add(etiqueta.malha);
+
+      // O alvo é do tamanho da BOLA, não da etiqueta: o que a mão procura é a
+      // esfera. Um alvo do tamanho do conjunto faria a mão "pegar" a bola de
+      // cima ao passar pelo nome da de baixo.
+      novoAlvo('criatura', i, RAIO_TIME * 2.2, RAIO_TIME * 2.2);
     }
 
     for (let i = 0; i < BOLAS.length; i++) {
@@ -278,7 +351,11 @@ export class PainelTime {
   ) {
     this.entradas = entradas.slice(0, TAMANHO_TIME);
     this.bolas = bolas;
-    this.itens = itens;
+    // Só o que você TEM. O painel do pulso mostrava os três básicos sempre, na
+    // conta de que "0 poções" é informação — e é, mas ela já está na mochila
+    // (B), que desde 17/09 é onde os itens moram de verdade. Aqui a mesma linha
+    // custava trinta e oito milímetros de painel para repetir um zero.
+    this.itens = itens.filter((i) => i.quantidade > 0);
     this.golpes = golpes.slice(0, this.cardsGolpe.length);
     this.modoAtivo = modoAtivo;
     this.dificuldadeAtiva = dificuldadeAtiva;
@@ -369,7 +446,7 @@ export class PainelTime {
   }
 
   private reposicionar() {
-    const baseBola = this.cards.length;
+    const baseBola = this.bolasTime.length;
     const baseItem = baseBola + this.cardsBola.length;
     const baseGolpe = baseItem + this.cardsItem.length;
     const baseModo = baseGolpe + this.cardsGolpe.length;
@@ -417,26 +494,44 @@ export class PainelTime {
     y += (linhasDeItem - 1) * (ALTURA_ITEM + ESPACO * 0.7);
     y += ALTURA_ITEM / 2 + 0.012 + ALTURA_BOLA / 2;
 
-    this.grade(this.cardsBola, baseBola, this.bolas.length, LARGURA_BOLA, ALTURA_BOLA, y, principal, 4, -1);
-    const linhasDeBola = Math.max(1, Math.ceil(this.bolas.length / 4));
-    y += (linhasDeBola - 1) * (ALTURA_BOLA + ESPACO * 0.7);
-    y += ALTURA_BOLA / 2 + 0.016 + ALTURA_CARD / 2;
+    // A fileira de bolas de estoque só aparece se alguém a preencher — hoje
+    // ninguém preenche, porque as bolas moram no antebraço (src/cinto.ts). Sem
+    // esta guarda, a lista vazia ainda empurrava quatro centímetros e meio de
+    // vão para o meio do painel.
+    if (this.bolas.length > 0) {
+      this.grade(this.cardsBola, baseBola, this.bolas.length, LARGURA_BOLA, ALTURA_BOLA, y, principal, 4, -1);
+      const linhasDeBola = Math.max(1, Math.ceil(this.bolas.length / 4));
+      y += (linhasDeBola - 1) * (ALTURA_BOLA + ESPACO * 0.7);
+      y += ALTURA_BOLA / 2 + 0.016;
+    }
 
-    // O time numa GRADE de três por duas, e não numa fileira de seis: são os
-    // mesmos seis bichos em 0,30 m em vez de 0,66 m.
-    const linhasDeTime = this.grade(
-      this.cards,
-      0,
-      this.entradas.length,
-      LARGURA_CARD,
-      ALTURA_CARD,
-      y,
-      principal,
-      3,
-      -1,
-    );
-    y += (linhasDeTime - 1) * (ALTURA_CARD + ESPACO * 0.7);
-    this.topoDaPagina = y + ALTURA_CARD / 2 + 0.03;
+    // --- o time, em bolas de luz, três por linha ---
+    //
+    // A base da primeira linha tem de deixar espaço para a ETIQUETA, que
+    // pendura abaixo da bola: sem isso o nome do primeiro Pokémon cairia atrás
+    // do próprio antebraço.
+    y += RAIO_TIME + ALTURA_ETIQUETA + 0.008;
+    const linhasDeTime = Math.max(1, Math.ceil(this.entradas.length / TIME_POR_LINHA));
+    const lugares = disporTime(this.entradas.length, y);
+    for (let i = 0; i < this.bolasTime.length; i++) {
+      const visivel = principal && i < this.entradas.length;
+      this.bolasTime[i].visivel = visivel;
+      this.etiquetas[i].malha.visible = visivel && this.entradas[i] !== null;
+      const alvo = this.alvos[i];
+      alvo.visible = visivel;
+      if (!visivel) continue;
+
+      const lugar = lugares[i];
+      this.bolasTime[i].grupo.position.set(lugar.x, lugar.y, 0);
+      this.etiquetas[i].malha.position.set(
+        lugar.x,
+        lugar.y - MEDIDAS_TIME.quedaDaEtiqueta,
+        0.001,
+      );
+      alvo.position.set(lugar.x, lugar.y, 0);
+    }
+    y += (linhasDeTime - 1) * PASSO_TIME_Y;
+    this.topoDaPagina = y + RAIO_TIME + 0.026;
 
     // --- página de ajustes, do topo para baixo dentro do mesmo espaço ---
     //
@@ -505,7 +600,7 @@ export class PainelTime {
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.font = fonte(30, 700);
+    ctx.font = fonte(26, 700);
     ctx.fillStyle = COR.texto;
     ctx.fillText(this.nosAjustes ? 'ajustes' : 'seu time', 20, canvas.height * 0.5);
 
@@ -520,7 +615,7 @@ export class PainelTime {
     const perto = proximo && proximo.faltam <= 5;
 
     ctx.textAlign = 'right';
-    ctx.font = fonte(21, 600);
+    ctx.font = fonte(18, 600);
     ctx.fillStyle = perto ? '#ffd98a' : COR.textoFraco;
     ctx.fillText(
       this.nosAjustes
@@ -602,112 +697,122 @@ export class PainelTime {
     this.cardPc.marcarSujo();
   }
 
+  /**
+   * O time: a cor e o brilho de cada bola, e a etiqueta que fica sob ela.
+   *
+   * ## O que cabe numa etiqueta de sete centímetros
+   *
+   * A carta antiga tinha nome, tipo, nível, barra de vida, barra de XP, número
+   * exato de HP, corações de afeto e estágios de buff — oito coisas, num painel
+   * que o jogador abre no meio de uma briga. Aqui ficaram as três que mudam a
+   * decisão de quem vai estender o braço: QUEM é, em que NÍVEL está e quanta
+   * VIDA tem. O resto foi para onde ele já estava disponível: o tipo é a cor da
+   * própria bola, o número exato de HP e o XP estão no PC, e os estágios
+   * aparecem na linha de baixo só de quem está em campo — que é o único momento
+   * em que um buff existe.
+   */
   private redesenharTime() {
     for (let i = 0; i < this.entradas.length; i++) {
       const e = this.entradas[i];
-      const card = this.cards[i];
-      const { ctx, canvas } = card;
+      const bola = this.bolasTime[i];
+      const etiqueta = this.etiquetas[i];
       const sobMira = this.destacado?.tipo === 'criatura' && this.destacado.indice === i;
-      // Vaga vazia: um retângulo apagado com o número dela, e nada mais. O
-      // buraco é informação — é onde cabe o próximo, e é o que diz que o time
-      // não está cheio.
+
+      // Vaga vazia: a bola continua ali, quase apagada, e não há etiqueta. O
+      // buraco é informação — é onde cabe o próximo, e é o que mantém a ordem
+      // do time (que é escolha sua) de pé quando um Pokémon vai para o PC.
       if (!e) {
-        const { ctx: c2, canvas: cv } = card;
-        c2.clearRect(0, 0, cv.width, cv.height);
-        cartao(c2, 2, 2, cv.width - 4, cv.height - 4, { sobMira, apagado: true });
-        c2.textAlign = 'center';
-        c2.textBaseline = 'middle';
-        c2.font = fonte(30, 700);
-        c2.fillStyle = COR.textoApagado;
-        c2.fillText(String(i + 1), cv.width / 2, cv.height / 2);
-        card.marcarSujo();
+        bola.definirCores(0x37405a, 0x2a3142);
+        bola.definirCheia(0.12);
+        etiqueta.malha.visible = false;
         continue;
       }
+
       const desmaiado = e.hp <= 0;
       const corTipo = TIPOS[e.especie.tipo].cor;
+      const fracao = e.hp / Math.max(1, e.hpMax);
 
+      // A cor da bola é a do TIPO: é o que faz reconhecer o Charmander pelo
+      // laranja antes de ler o nome. Desmaiado apaga para cinza, brilhante
+      // troca a metade de baixo por dourado.
+      bola.definirCores(desmaiado ? 0x4a4f5e : corTipo, e.shiny ? 0xffd982 : 0xdfe7f2);
+      // Vida baixa faz a bola apagar junto: a barra da etiqueta diz o número, a
+      // bola diz o estado pelo canto do olho.
+      bola.definirCheia(desmaiado ? 0.16 : 0.55 + fracao * 0.45);
+      etiqueta.malha.visible = true;
+
+      const { ctx, canvas } = etiqueta;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, {
-        sobMira,
-        ativo: e.emCampo,
-        apagado: desmaiado,
-        acento: corTipo,
-      });
-
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.font = fonte(27, 700);
-      ctx.fillStyle = desmaiado ? COR.textoApagado : e.shiny ? '#ffe08a' : COR.texto;
-      // Centralizado, então a estrela do brilhante entra na conta da largura: o
-      // nome é medido primeiro e o conjunto inteiro é que fica no meio.
-      ctx.textAlign = 'left';
-      const largura = Math.min(
-        ctx.measureText(e.especie.nome).width + (e.shiny ? 23 : 0),
-        canvas.width - 28,
+      cartao(
+        ctx,
+        1,
+        1,
+        canvas.width - 2,
+        canvas.height - 2,
+        { sobMira, ativo: e.emCampo, apagado: desmaiado, acento: corTipo },
+        RAIO.pequeno,
       );
-      nomeComBrilho(ctx, e.especie.nome, e.shiny, (canvas.width - largura) / 2, 30, 27, largura);
-      ctx.textAlign = 'center';
 
-      // Os corações do afeto, no canto do card.
-      //
-      // Estão aqui porque a lição da rodada anterior foi essa: uma mecânica que
-      // não aparece em lugar nenhum é uma mecânica que ninguém encontra. Sem os
-      // corações, o carinho voltaria a ser uma carícia que o jogo aceita e
-      // esquece — só que agora com efeitos escondidos, que é pior.
-      //
-      // Três níveis e não uma barra: o afeto não é um recurso que se gerencia,
-      // é uma relação. "Um coração" e "três corações" dizem o suficiente.
-      if (e.afeto > 0.08) {
-        const cheios = e.afeto >= 0.85 ? 3 : e.afeto >= AFETO.limiarParaAguentar ? 2 : 1;
+      // Linha de cima: o nome à esquerda, o nível à direita. O nível é curto e
+      // fixo, então ele é que cede a largura ao nome, e não o contrário.
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'right';
+      ctx.font = fonte(21, 700);
+      ctx.fillStyle = desmaiado ? COR.textoApagado : '#c8d4e6';
+      const textoNivel = `N${e.nivel}`;
+      ctx.fillText(textoNivel, canvas.width - 10, 24);
+      const larguraNivel = ctx.measureText(textoNivel).width;
+
+      ctx.textAlign = 'left';
+      ctx.font = fonte(23, 700);
+      ctx.fillStyle = desmaiado ? COR.textoApagado : e.shiny ? '#ffe08a' : COR.texto;
+      nomeComBrilho(
+        ctx,
+        e.especie.nome,
+        e.shiny,
+        10,
+        24 - 11,
+        22,
+        canvas.width - 26 - larguraNivel,
+      );
+
+      // O coração aparece a partir de dois: é o limiar em que ele passa a
+      // aguentar um golpe por você (ver AFETO), e antes disso não muda nada.
+      if (e.afeto >= AFETO.limiarParaAguentar) {
         ctx.textAlign = 'right';
-        ctx.font = fonte(15, 700);
-        // Aceso a partir de dois: é o limiar em que ele passa a aguentar um
-        // golpe por você, e a cor precisa marcar essa passagem.
-        ctx.fillStyle = cheios >= 2 ? '#ff9ec4' : '#8a6b78';
-        ctx.fillText('♥'.repeat(cheios), canvas.width - 10, 12);
-        ctx.textAlign = 'center';
+        ctx.font = fonte(14, 700);
+        ctx.fillStyle = '#ff9ec4';
+        ctx.fillText('♥', canvas.width - 10 - larguraNivel - 5, 24);
       }
 
-      ctx.font = fonte(20, 700);
-      ctx.fillStyle = desmaiado ? COR.textoApagado : hex(corTipo);
-      ctx.fillText(
-        e.especie.tipos.map((t) => TIPOS[t].nome).join('/').toUpperCase(),
-        canvas.width / 2,
-        62,
-        canvas.width - 20,
-      );
-
-      const larguraBarra = canvas.width - 40;
-      const yVida = 96;
-      barra(ctx, 20, yVida, larguraBarra, 13, e.hp / Math.max(1, e.hpMax), corDaVida(e.hp / Math.max(1, e.hpMax)));
-      barra(ctx, 20, yVida + 18, larguraBarra, 5, e.progresso, COR.xp, {
-        trilho: 'rgba(255,255,255,0.1)',
-      });
-
-      ctx.font = fonte(19, 600);
-      ctx.fillStyle = COR.textoFraco;
-      ctx.fillText(desmaiado ? 'desmaiado' : `${Math.ceil(e.hp)}/${e.hpMax}`, canvas.width / 2, yVida + 28);
-
-      ctx.textAlign = 'left';
-      ctx.font = fonte(20, 700);
-      ctx.fillStyle = desmaiado ? COR.textoApagado : '#c8d4e6';
-      ctx.fillText(`N${e.nivel}`, 16, 30);
-
-      // Os estágios de quem está em campo: a soma dos buffs e debuffs ativos.
-      // É a única forma de o jogador saber que o Escudo que ele usou há dez
-      // segundos ainda está valendo.
+      // Linha de baixo: a vida, em barra. Quem está em campo com buff ativo
+      // CEDE metade da linha para eles — escrever por cima da barra deixa as
+      // duas coisas ilegíveis, e um buff que ninguém vê é um buff que não
+      // existe.
+      const yBarra = canvas.height - 18;
+      const marcas: string[] = [];
       if (e.emCampo && e.estagios) {
-        const marcas: string[] = [];
         if (e.estagios.ataque) marcas.push(`ATQ${textoEstagio(e.estagios.ataque)}`);
         if (e.estagios.defesa) marcas.push(`DEF${textoEstagio(e.estagios.defesa)}`);
         if (e.estagios.velocidade) marcas.push(`VEL${textoEstagio(e.estagios.velocidade)}`);
-        ctx.textAlign = 'center';
-        ctx.font = fonte(17, 700);
-        ctx.fillStyle = COR.bom;
-        ctx.fillText(marcas.length ? marcas.join(' ') : 'EM CAMPO', canvas.width / 2, yVida + 50);
       }
 
-      card.marcarSujo();
+      const larguraBarra = marcas.length ? (canvas.width - 20) * 0.52 : canvas.width - 20;
+      barra(ctx, 10, yBarra, larguraBarra, 8, fracao, corDaVida(fracao));
+
+      if (marcas.length) {
+        ctx.textAlign = 'right';
+        ctx.font = fonte(15, 700);
+        ctx.fillStyle = COR.bom;
+        ctx.fillText(
+          textoAjustado(ctx, marcas.join(' '), canvas.width - larguraBarra - 26),
+          canvas.width - 10,
+          yBarra + 4,
+        );
+      }
+
+      ctx.textBaseline = 'top';
+      etiqueta.marcarSujo();
     }
   }
 
@@ -1059,7 +1164,26 @@ export class PainelTime {
       // jogador acabou de olhar para abri-lo.
       posicao.y += 0.04;
       this.grupo.position.lerp(posicao, Math.min(1, dt * 14));
-      this.grupo.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+
+      // Em pé, sempre. Ele gira em torno do eixo VERTICAL para ficar de frente
+      // para você e não inclina nunca — nem para cima, nem para baixo, nem de
+      // lado.
+      //
+      // Era um `lookAt` na cabeça, e é isso que o playtest de 18/09 chamou de
+      // "inclinado para frente": com o braço na altura do peito e a cabeça meio
+      // metro acima, encarar a cabeça significa deitar o painel uns trinta
+      // graus para trás. Num monitor isso é invisível; em realidade misturada,
+      // onde o painel divide a cena com as paredes de verdade do seu quarto, um
+      // retângulo tombado lê como um papel caindo — e, pior, a mão que vem
+      // pegar uma bola tem de vir de baixo, por um ângulo que ela não vê.
+      //
+      // O preço é conhecido: quem abre o painel com o braço muito acima ou
+      // muito abaixo dos olhos passa a ver o painel de esguelha. É o preço
+      // certo. Um painel preso ao corpo não precisa encarar o rosto — precisa
+      // ficar em pé, como um relógio no pulso fica.
+      const olho = camera.getWorldPosition(new THREE.Vector3());
+      const rumo = Math.atan2(olho.x - posicao.x, olho.z - posicao.z);
+      this.grupo.rotation.set(0, rumo, 0);
     }
     this.grupo.scale.setScalar(0.6 + this.abertura * 0.4);
 
@@ -1121,7 +1245,14 @@ export class PainelTime {
         m.position.z += (alvoZ - m.position.z) * Math.min(1, dt * 12);
       }
     };
-    saltar(this.cards, 'criatura', 0.016);
+    // O time não "salta": a bola de luz tem o destaque dela, que cresce, gira
+    // mais rápido e acende um aro. Ver Holobola.atualizar.
+    this.tempo += dt;
+    for (let i = 0; i < this.bolasTime.length; i++) {
+      const sobAMao = this.destacado?.tipo === 'criatura' && this.destacado.indice === i;
+      this.bolasTime[i].atualizar(dt, this.tempo, sobAMao, this.abertura);
+      this.etiquetas[i].opacidade = this.abertura;
+    }
     saltar(this.cardsBola, 'bola', 0.014);
     saltar(this.cardsItem, 'item', 0.012);
     saltar(this.cardsGolpe, 'golpe', 0.014);
@@ -1211,8 +1342,9 @@ export class PainelTime {
   }
 
   descartar() {
+    for (const bola of this.bolasTime) bola.descartar();
     for (const card of [
-      ...this.cards,
+      ...this.etiquetas,
       ...this.cardsBola,
       ...this.cardsItem,
       ...this.cardsModo,

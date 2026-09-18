@@ -122,12 +122,18 @@ tocava.
 
 Agora **agarrar só vale sobre alguma coisa**, e há coisas para agarrar:
 
-- **As bolas ficam no seu antebraço esquerdo**, em miniatura, flutuando em
-  berços — uma por tipo. A mão direita vai lá e pega AQUELA em que os dedos
-  estão. Tirar deixa o berço piscando, que é o que diz para onde ela volta:
-  devolver é pôr a mão no mesmo slot e abrir. A cintura seria o lugar de um
-  treinador, mas o Quest não rastreia o seu quadril — rastreia as suas mãos, e o
-  antebraço é rastreado de verdade.
+- **As bolas flutuam ao lado dos seus antebraços**, uma por tipo, feitas de luz
+  — um cinto em cada braço, e a mão que pega é sempre a do braço oposto. A mão
+  vai lá e pega AQUELA em que os dedos estão. Tirar deixa o lugar dela pulsando,
+  que é o que diz para onde ela volta: devolver é pôr a mão no mesmo slot e
+  abrir. A cintura seria o lugar de um treinador, mas o Quest não rastreia o seu
+  quadril — rastreia as suas mãos, e o antebraço é rastreado de verdade.
+- **O seu time são seis pokébolas de luz** no painel do pulso esquerdo: gire o
+  pulso como quem vê as horas e elas aparecem, cada uma na cor do tipo do bicho,
+  com o nome e a vida numa etiqueta fina embaixo. Estenda o braço e feche o GRIP
+  em volta de uma: aquele Pokémon vira o ativo e a bola DELE já sai na sua mão,
+  pronta para o arremesso. Eram cartas de dez centímetros até 18/09 — o painel
+  tinha meio metro de altura e se lia em vez de se pegar.
 - **A bola que falhou fica no carpete** por um minuto e meio, respirando uma luz
   fraca, e volta para a mão com um GRIP. Uma captura que não deu custa a
   tentativa, não a bola.

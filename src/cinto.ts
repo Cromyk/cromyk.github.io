@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { montarCorpoDeBola } from './orb';
+import { Holobola } from './holo';
 import { BOLAS, type TipoBola } from './balls';
 
 /**
@@ -35,10 +35,28 @@ import { BOLAS, type TipoBola } from './balls';
  * translúcida: o lugar continua lá, porque saber que a Bola Lacuna existe e
  * acabou é informação, e um buraco no cinto não conta isso.
  *
- * Quando você tira uma bola dali, o slot fica **aberto** — a miniatura some e o
- * berço pisca de leve. É o que diz para onde devolver, e é o que permite ao
- * jogo distinguir "guardei de volta" de "abri a mão no ar", que são o mesmo
+ * Quando você tira uma bola dali, o slot fica **aberto** — a bola de luz cai
+ * para um fantasma que pulsa. É o que diz para onde devolver, e é o que permite
+ * ao jogo distinguir "guardei de volta" de "abri a mão no ar", que são o mesmo
  * gesto em lugares diferentes.
+ *
+ * ## De plástico para luz, em 18/09
+ *
+ * As quatro bolas eram objetos sólidos, com a mesma geometria da bola de
+ * verdade, encostadas no antebraço. O pedido do playtest foi *"quero pokébolas
+ * flutuantes do tipo holograma para poder alcançar com a mão e pegar"*, e ele
+ * aponta dois problemas reais:
+ *
+ * - **Coladas.** A dois centímetros do braço, a bola some sob a própria luva
+ *   quando a outra mão chega — você fecha o grip sobre uma coisa que já não vê.
+ *   Agora elas flutuam a quatro centímetros, fora da silhueta do antebraço.
+ * - **Opacas.** Uma bola de plástico no braço tapa o seu quarto e fica com cara
+ *   de adesivo. Feita de luz (ver src/holo.ts), ela brilha por cima do
+ *   passthrough e deixa ver o que está atrás — que é o que uma projeção presa
+ *   ao braço deveria parecer.
+ *
+ * A bola de verdade continua sólida: ela existe quando está na sua mão e
+ * quando voa. O cinto mostra a PROJEÇÃO do que você tem guardado.
  */
 
 /** Raio da miniatura. A bola de verdade tem 4,5 cm; esta é pouco mais da metade. */
@@ -77,11 +95,10 @@ export const ALCANCE_SLOT = 0.075;
 
 interface Slot {
   tipo: TipoBola;
-  /** O berço, que fica no lugar mesmo com a bola na sua mão. */
+  /** O lugar dele no antebraço. Fica onde está mesmo com a bola na sua mão. */
   base: THREE.Group;
-  /** A bola em miniatura, que some enquanto você a segura. */
-  bola: THREE.Group;
-  materiais: THREE.Material[];
+  /** A bola de luz, que vira fantasma enquanto você a segura. */
+  bola: Holobola;
   quantidade: number;
   /** Você tirou esta bola e ainda não devolveu. */
   aberto: boolean;
@@ -108,66 +125,35 @@ export class Cinto {
     // que você vê ao levantar o braço, e é onde as bolas ficam.
     const ladoDoDorso = lado === 'left' ? -1 : 1;
 
-    const geoBerco = guardar(new THREE.TorusGeometry(RAIO * 1.15, RAIO * 0.16, 8, 20));
-
     for (let i = 0; i < BOLAS.length; i++) {
       const tipo = BOLAS[i];
 
       const base = new THREE.Group();
-      base.position.set(ladoDoDorso * 0.022, 0.012, INICIO_SLOT + i * PASSO_SLOT);
-
-      // O berço: um anel raso, como o encaixe de um cinto de verdade. Ele é o
-      // que continua ali quando a bola está na sua mão.
+      // Quatro centímetros para fora do antebraço, e não dois.
       //
-      // Um material POR berço, e não um para os quatro: é ele que pisca quando
-      // o slot está esperando a bola de volta, e material compartilhado faria
-      // os quatro piscarem juntos.
-      const anel = new THREE.Mesh(
-        geoBerco,
-        guardar(
-          new THREE.MeshStandardMaterial({
-            color: 0x2a3142,
-            roughness: 0.6,
-            metalness: 0.3,
-            transparent: true,
-            opacity: 0.85,
-          }),
-        ),
-      );
-      anel.rotation.x = Math.PI * 0.5;
-      base.add(anel);
+      // A conta é a da mão que vem pegar: a luva tem uns quatro centímetros de
+      // meia-largura, então uma bola a dois centímetros do eixo do braço nasce
+      // DENTRO da silhueta da própria luva. Ela aparecia enquanto o braço
+      // estava sozinho e sumia no instante em que a outra mão chegava — que é
+      // justamente o instante em que você precisa vê-la.
+      base.position.set(ladoDoDorso * 0.04, 0.015, INICIO_SLOT + i * PASSO_SLOT);
 
-      const { grupo: bola } = montarCorpoDeBola(RAIO, tipo.corTopo, tipo.corBase, guardar);
-      // A bola do cinto fica com a faixa de pé, como uma bola pousada no berço:
-      // deitada, ela vira um disco e some do canto do olho.
-      bola.rotation.x = Math.PI * 0.5;
-      base.add(bola);
+      // Cada uma fora de fase: quatro bolas subindo juntas viram um elevador,
+      // e quatro subindo em tempos diferentes viram quatro bolas.
+      const bola = new Holobola(RAIO, i * 1.7);
+      bola.definirCores(tipo.corTopo, tipo.corBase);
+      // Deitada, a faixa vira um disco e some do canto do olho; de pé, ela é o
+      // que faz a silhueta ler como pokébola.
+      bola.grupo.rotation.x = Math.PI * 0.5;
+      base.add(bola.grupo);
 
       this.grupo.add(base);
-      this.slots.push({
-        tipo,
-        base,
-        bola,
-        materiais: [],
-        quantidade: 0,
-        aberto: false,
-        // Cada uma flutua fora de fase: quatro bolas subindo juntas viram um
-        // elevador, e quatro subindo em tempos diferentes viram quatro bolas.
-        fase: i * 1.7,
-      });
+      this.slots.push({ tipo, base, bola, quantidade: 0, aberto: false, fase: i * 1.7 });
     }
 
-    // Os materiais de cada bola, para o slot vazio poder apagar só a dele.
-    for (const slot of this.slots) {
-      const vistos = new Set<THREE.Material>();
-      slot.bola.traverse((o) => {
-        const malha = o as THREE.Mesh;
-        if (!malha.isMesh) return;
-        const mats = Array.isArray(malha.material) ? malha.material : [malha.material];
-        for (const m of mats) vistos.add(m);
-      });
-      slot.materiais = [...vistos];
-    }
+    // `guardar` continua existindo para quem vier depois precisar de geometria
+    // própria; hoje a bola de luz cuida dos materiais dela.
+    void guardar;
   }
 
   /** Quantas bolas de cada tipo o cinto mostra. */
@@ -237,39 +223,20 @@ export class Cinto {
       const vazio = slot.quantidade <= 0;
       const temBola = !vazio && !slot.aberto;
 
-      // Aberto, a bola está na sua mão e não pode estar nos dois lugares.
-      // Vazia, ela fica de fantasma: o lugar continua, a bola não.
-      slot.bola.visible = !slot.aberto;
-      for (const m of slot.materiais) {
-        const mat = m as THREE.MeshStandardMaterial;
-        mat.transparent = vazio;
-        mat.opacity = vazio ? 0.16 : 1;
-      }
-
-      // Flutuar e girar. É o que separa uma bola guardada de uma bola colada
-      // no braço — e é o convite para a outra mão vir buscar.
-      const t = this.tempo * 1.6 + slot.fase;
-      slot.bola.position.y = Math.sin(t) * 0.004;
-      slot.bola.rotation.y = this.tempo * 0.7 + slot.fase;
-
-      const alvo = i === this.destacado && temBola ? 1.22 : 1;
-      const atual = slot.bola.scale.x;
-      const k = 1 - Math.pow(0.001, dt);
-      slot.bola.scale.setScalar(atual + (alvo - atual) * k);
-
-      // O berço pisca enquanto o slot está esperando a bola de volta.
-      const anel = slot.base.children[0] as THREE.Mesh;
-      const mat = anel.material as THREE.MeshStandardMaterial;
-      if (slot.aberto) {
-        mat.emissive = new THREE.Color(0x3f7dff);
-        mat.emissiveIntensity = 0.35 + Math.sin(this.tempo * 6) * 0.25;
-      } else {
-        mat.emissiveIntensity = 0;
-      }
+      // Três estados, e cada um é uma coisa diferente:
+      //
+      // - cheia: a bola de luz inteira, brilhando;
+      // - vazia: um fantasma parado — o LUGAR dela continua, a bola não;
+      // - aberta: você está segurando esta bola. O fantasma pulsa, porque é
+      //   para cá que ela volta se você mudar de ideia.
+      const pulso = slot.aberto ? 0.1 + Math.abs(Math.sin(this.tempo * 3)) * 0.14 : 0;
+      slot.bola.definirCheia(slot.aberto ? pulso : vazio ? 0.1 : 1);
+      slot.bola.atualizar(dt, this.tempo, i === this.destacado && temBola);
     }
   }
 
   descartar() {
+    for (const slot of this.slots) slot.bola.descartar();
     this.grupo.removeFromParent();
     for (const d of this.descartaveis) d.dispose();
     this.descartaveis = [];
