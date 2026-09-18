@@ -1888,6 +1888,67 @@ console.log('29. as pedras de evolução');
     console.log('   caixa da pose: 1×2×1 em qualquer escala, e segue o osso');
   }
 
+  // O afeto: a carícia que passou a valer alguma coisa.
+  //
+  // O que se afirma aqui é o efeito que vira CENA — aguentar o golpe que
+  // derrubaria. Os outros dois (crítico e pressa na condição) são graus; este é
+  // binário, e é o único que o jogador conta para alguém depois.
+  {
+    const especie = porId('charmander')!;
+    const jogador = new THREE.Vector3(0, 1.6, 0);
+
+    const comAfeto = (afeto: number) => {
+      const p = new Pokemon(especie, corpoFalso(0.6), new THREE.Vector3(0, 0, -1), 0, 'companheiro', 20);
+      p.afeto = afeto;
+      return p;
+    };
+
+    // Sem afeto, o golpe fatal derruba.
+    const frio = comAfeto(0);
+    frio.receberDano(frio.hpMax * 10);
+    checar(frio.hp === 0, 'sem afeto, o golpe fatal devia derrubar');
+
+    // Com afeto, ele fica com um ponto de vida — uma vez.
+    const querido = comAfeto(1);
+    querido.receberDano(querido.hpMax * 10);
+    checar(querido.hp === 1, 'com afeto alto, ele devia aguentar com 1 de vida');
+    checar(querido.aguentou, 'o jogo precisa saber que ele aguentou, para mostrar o momento');
+    querido.aguentou = false;
+    querido.receberDano(querido.hpMax * 10);
+    checar(querido.hp === 0, 'aguentar é UMA vez por ida a campo, senão vira regra e não momento');
+
+    // Aguentar exige estar de pé: com 1 de vida já não é um momento.
+    const quaseCaindo = comAfeto(1);
+    quaseCaindo.hp = 1;
+    quaseCaindo.receberDano(50);
+    checar(quaseCaindo.hp === 0, 'com 1 de vida não há o que aguentar');
+
+    // E vale só para o SEU: um selvagem que se recusa a cair viraria loteria.
+    const selvagem = new Pokemon(especie, corpoFalso(0.6), new THREE.Vector3(0, 0, -1), 0, 'selvagem', 20);
+    selvagem.afeto = 1;
+    selvagem.receberDano(selvagem.hpMax * 10);
+    checar(selvagem.hp === 0, 'o afeto não pode impedir a captura de um selvagem');
+
+    // A condição some mais rápido em quem gosta de você.
+    const medir = (afeto: number) => {
+      const p = comAfeto(afeto);
+      p.aplicarCondicao('paralisia');
+      let t = 0;
+      while (p.condicao && t < 60) {
+        p.atualizar(1 / 60, jogador);
+        t += 1 / 60;
+      }
+      return t;
+    };
+    const semAfeto = medir(0);
+    const comCarinho = medir(1);
+    checar(comCarinho < semAfeto * 0.8, 'o afeto devia encurtar a condição de forma sentida');
+
+    console.log(
+      `   afeto: aguenta o golpe fatal uma vez, e a paralisia cai de ${semAfeto.toFixed(1)}s para ${comCarinho.toFixed(1)}s`,
+    );
+  }
+
   // O instinto do selvagem: ele lê quem está em campo contra ele.
   //
   // A conta compara os DOIS lados — o melhor golpe de cada um contra o outro —

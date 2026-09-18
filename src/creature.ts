@@ -6,6 +6,7 @@ import { criarRng, entre, type Rng } from './rng';
 import { Animador } from './anima';
 import { Chama, FOGO_POR_ESPECIE, pontaDaCadeia } from './fogo';
 import { CONDICOES, type Condicao } from './condicao';
+import { AFETO } from './species';
 import { MarcaDeCondicao } from './marcaCondicao';
 
 export type Papel = 'selvagem' | 'companheiro';
@@ -183,6 +184,8 @@ export class Pokemon {
    */
   condicao: Condicao | null = null;
   private restaDaCondicao = 0;
+  /** Verdadeiro no quadro em que ele aguentou por você. O jogo lê e zera. */
+  aguentou = false;
   /** Sobra de dano por segundo, para veneno e queimadura tirarem HP inteiro. */
   private acumuladoDaCondicao = 0;
   /** As partículas da condição, no corpo. Ver src/marcaCondicao.ts. */
@@ -201,6 +204,18 @@ export class Pokemon {
    * sem nenhuma consequência visível antes do primeiro golpe.
    */
   private ameaca = 0;
+
+  /**
+   * O quanto ele gosta de você, 0 a 1. Copiado do Exemplar ao entrar em campo.
+   */
+  afeto = 0;
+  /**
+   * Se ele já aguentou um golpe fatal NESTA ida a campo.
+   *
+   * Uma vez por vez em campo, e não uma por briga: se fosse sempre, o momento
+   * — que é o ponto todo — viraria uma regra, e o jogador pararia de reparar.
+   */
+  private jaAguentou = false;
 
   private static readonly RAIO_PASSEIO = 0.85;
 
@@ -525,7 +540,8 @@ export class Pokemon {
     if (!this.condicao) return;
     const perfil = CONDICOES[this.condicao];
 
-    this.restaDaCondicao -= dt;
+    // Quem gosta de você se sacode mais depressa. Ver AFETO em species.ts.
+    this.restaDaCondicao -= dt * (1 + this.afeto * AFETO.pressaNaCondicao);
     if (this.restaDaCondicao <= 0) {
       this.limparCondicao();
       return;
@@ -558,8 +574,32 @@ export class Pokemon {
     this.recuo.copy(fora.normalize().multiplyScalar(distancia));
   }
 
+  /**
+   * Ele aguenta este golpe fatal por sua causa? Ver  em species.ts.
+   *
+   * Só o SEU Pokémon: um selvagem que se recusa a cair porque gosta de alguém
+   * não faz sentido nenhum, e faria capturar virar uma loteria.
+   */
+  private aguentaPorVoce(quantidade: number): boolean {
+    if (this.papel !== 'companheiro' || this.jaAguentou) return false;
+    if (this.afeto < AFETO.limiarParaAguentar) return false;
+    // Só quando o golpe DERRUBARIA, e só se ele estava de pé: aguentar com um
+    // ponto de vida quando já se tinha um ponto de vida não é um momento.
+    if (this.hp <= 1 || this.hp - quantidade > 0) return false;
+    this.jaAguentou = true;
+    return true;
+  }
+
   receberDano(quantidade: number) {
     if (this.desmaiado) return;
+    if (this.aguentaPorVoce(quantidade)) {
+      this.hp = 1;
+      this.tremor = 1;
+      this.impacto = 1;
+      this.animador.disparar('apanhar');
+      this.aguentou = true;
+      return;
+    }
     this.hp = Math.max(0, this.hp - quantidade);
     this.tremor = 1;
     // Achatado pelo golpe, como quem leva o baque. O mesmo campo que a queda

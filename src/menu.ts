@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
-import { TIPOS, textoEstagio, type Especie, type Estagios } from './species';
+import { AFETO, TIPOS, textoEstagio, type Especie, type Estagios } from './species';
 import { BOLAS, type TipoBola } from './balls';
 import { ITENS, type TipoItem } from './itens';
 import { MODOS, type Modo, type ModoId } from './modos';
@@ -35,6 +35,8 @@ export interface EntradaTime {
   emCampo: boolean;
   /** Os estágios de quem está em campo, para o painel mostrar os buffs. */
   estagios?: Estagios;
+  /** 0 a 1. Ver AFETO em src/species.ts. */
+  afeto: number;
 }
 
 export interface EntradaBola {
@@ -631,6 +633,26 @@ export class PainelTime {
       nomeComBrilho(ctx, e.especie.nome, e.shiny, (canvas.width - largura) / 2, 30, 27, largura);
       ctx.textAlign = 'center';
 
+      // Os corações do afeto, no canto do card.
+      //
+      // Estão aqui porque a lição da rodada anterior foi essa: uma mecânica que
+      // não aparece em lugar nenhum é uma mecânica que ninguém encontra. Sem os
+      // corações, o carinho voltaria a ser uma carícia que o jogo aceita e
+      // esquece — só que agora com efeitos escondidos, que é pior.
+      //
+      // Três níveis e não uma barra: o afeto não é um recurso que se gerencia,
+      // é uma relação. "Um coração" e "três corações" dizem o suficiente.
+      if (e.afeto > 0.08) {
+        const cheios = e.afeto >= 0.85 ? 3 : e.afeto >= AFETO.limiarParaAguentar ? 2 : 1;
+        ctx.textAlign = 'right';
+        ctx.font = fonte(15, 700);
+        // Aceso a partir de dois: é o limiar em que ele passa a aguentar um
+        // golpe por você, e a cor precisa marcar essa passagem.
+        ctx.fillStyle = cheios >= 2 ? '#ff9ec4' : '#8a6b78';
+        ctx.fillText('♥'.repeat(cheios), canvas.width - 10, 12);
+        ctx.textAlign = 'center';
+      }
+
       ctx.font = fonte(20, 700);
       ctx.fillStyle = desmaiado ? COR.textoApagado : hex(corTipo);
       ctx.fillText(
@@ -1043,7 +1065,7 @@ export class PainelTime {
         .map((e) =>
           e === null
             ? 'vazia'
-            : `${e.especie.id}:${Math.ceil(e.hp)}:${e.nivel}:${e.emCampo ? 1 : 0}:` +
+            : `${e.especie.id}:${Math.ceil(e.hp)}:${e.nivel}:${e.emCampo ? 1 : 0}:${Math.round(e.afeto * 10)}:` +
               `${e.estagios ? `${e.estagios.ataque},${e.estagios.defesa},${e.estagios.velocidade}` : ''}`,
         )
         .join(','),

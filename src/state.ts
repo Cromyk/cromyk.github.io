@@ -26,6 +26,19 @@ export interface Exemplar {
    * quando ele sobe — que é exatamente o comportamento do jogo original.
    */
   recusouEvoluirEm?: number;
+  /**
+   * O quanto ele gosta de você, de 0 a 1.
+   *
+   * Sobe com carinho — a mão encostada na cabeça — e um pouco a cada briga
+   * vencida ao seu lado. É a única coisa neste jogo que só cresce porque você
+   * quis: nada do laço de captura exige fazer carinho em ninguém.
+   *
+   * Em Pokémon a amizade é central desde a segunda geração, e aqui ela vale
+   * ainda mais, porque a interação que a alimenta é a que só a realidade
+   * misturada tem: você estica o braço e encosta no bicho. Ver `AFETO`, em
+   * src/species.ts, para o que ele faz.
+   */
+  afeto?: number;
 }
 
 /** O que a Pokédex sabe de uma espécie, tenha você capturado ou não. */
@@ -167,6 +180,7 @@ export class Dex {
           shiny: e.shiny ?? false,
           capturadoEm: e.capturadoEm ?? Date.now(),
           recusouEvoluirEm: e.recusouEvoluirEm,
+          afeto: e.afeto ?? 0,
         }));
 
       this.estoque = new Map(
@@ -546,6 +560,21 @@ export class Dex {
     this.exemplares.push(exemplar);
     this.ativo = this.exemplares.length - 1;
     this.escolheuInicial = true;
+    this.salvar();
+  }
+
+  /**
+   * Acrescenta afeto e grava. Ver  em src/species.ts.
+   *
+   * Satura em 1 e nunca desce: o jogo não tem — e não vai ter — um mecanismo de
+   * PERDER a amizade de um bicho. Afeto que cai puniria quem passou uma semana
+   * sem jogar, e o carinho existe para ser o lado gentil deste jogo.
+   */
+  ganharAfeto(exemplar: Exemplar, quanto: number) {
+    const antes = exemplar.afeto ?? 0;
+    const depois = Math.min(1, antes + quanto);
+    if (depois === antes) return;
+    exemplar.afeto = depois;
     this.salvar();
   }
 

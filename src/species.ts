@@ -770,6 +770,11 @@ export interface Combatente {
   nivel: number;
   /** Os estágios acumulados na briga. Ausente = tudo zerado. */
   estagios?: Estagios;
+  /**
+   * O quanto ele gosta de você, 0 a 1. Ausente = zero, e o jogo fica
+   * exatamente como era antes de o afeto existir. Ver `AFETO`.
+   */
+  afeto?: number;
 }
 
 /** Só os que causam dano. É a lista de onde a escolha automática sai. */
@@ -813,6 +818,44 @@ export function intervaloDeAtaque(combatente: Combatente): number {
   return THREE.MathUtils.clamp(4.4 - vel * 0.016, 1.9, 4.2);
 }
 
+/**
+ * O que o afeto faz, e por que estes três efeitos e não outros.
+ *
+ * O carinho já existia e era bonito: você encosta a mão na cabeça, ele fecha os
+ * olhos, solta corações e, depois de dez segundos, comemora. E não levava a
+ * nada — nenhum número, nenhuma consequência, nada guardado. Era uma carícia
+ * que o jogo aceitava e esquecia.
+ *
+ * Os três efeitos abaixo são os clássicos da amizade em Pokémon, e estão aqui
+ * na ordem do que eles fazem pelo JOGADOR:
+ *
+ * 1. **Aguentar o golpe que derrubaria**, com um ponto de vida sobrando. É o
+ *    momento que a série usa para dizer que o bicho não queria decepcionar
+ *    você, e é o único dos três que se sente como uma cena em vez de um
+ *    modificador. Uma vez por ida a campo — se fosse sempre, deixaria de ser um
+ *    momento e viraria uma regra.
+ * 2. **Sair da condição mais depressa.** Quem gosta de você se sacode.
+ * 3. **Acertar crítico um pouco mais.** O menos visível dos três, e por isso o
+ *    menor: ele existe para o afeto valer também em quem nunca chega a quase
+ *    cair.
+ *
+ * Nenhum deles é punitivo na ausência: sem afeto, o jogo é exatamente o de
+ * antes. Afeto só ADICIONA — é um carinho que vira vantagem, não um imposto de
+ * carinho que vira obrigação.
+ */
+export const AFETO = {
+  /** A partir de quanto o bicho pode aguentar um golpe fatal. */
+  limiarParaAguentar: 0.55,
+  /** Quanto o crítico sobe com afeto cheio: de 8% para 13%. */
+  criticoExtra: 0.05,
+  /** O quanto a condição corre mais rápido com afeto cheio. */
+  pressaNaCondicao: 0.6,
+  /** Quanto um segundo de carinho acrescenta. Dez segundos dão 0,12. */
+  porSegundoDeCarinho: 0.012,
+  /** Quanto uma captura ao lado dele acrescenta. */
+  porVitoria: 0.05,
+} as const;
+
 export function calcularDano(
   atacante: Combatente,
   defensor: Combatente,
@@ -833,7 +876,10 @@ export function calcularDano(
   const defesa =
     (especial ? sd.defesaEsp : sd.defesa) * multEstagio(defensor.estagios?.defesa ?? 0);
 
-  const critico = Math.random() < 0.08;
+  // O afeto entra no crítico: 8% sem nenhum, até 13% com ele cheio. É o menor
+  // dos três efeitos e o menos visível, e existe para o carinho valer também em
+  // quem nunca chega a quase cair. Ver AFETO.
+  const critico = Math.random() < 0.08 + (atacante.afeto ?? 0) * AFETO.criticoExtra;
   const variacao = 0.85 + Math.random() * 0.15;
   const mesmoTipo = atacante.especie.tipos.includes(golpe.tipo) ? 1.5 : 1;
 

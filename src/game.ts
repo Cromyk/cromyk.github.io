@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Pokemon } from './creature';
 import {
+  AFETO,
   ESPECIES,
   INICIAIS,
   NIVEL_MAXIMO,
@@ -2355,6 +2356,23 @@ export class Jogo {
     }
     defensor.receberDano(dano);
 
+    // Ele aguentou o golpe que o derrubaria, por sua causa. É o momento que a
+    // série usa para dizer que o bicho não queria decepcionar você — e aqui ele
+    // custou uma semana de carinho, não um item.
+    if (defensor.aguentou) {
+      defensor.aguentou = false;
+      const onde = defensor.centro;
+      audio.de(onde.x, onde.y, onde.z, () => audio.sucesso());
+      for (const mao of this.maos) mao.sentir('levou');
+      this.aviso.mostrar(
+        [
+          { texto: `${defensor.especie.nome} aguentou por você!`, tamanho: 36, cor: '#ff9ec4' },
+          { texto: 'ele não queria te decepcionar', tamanho: 22, cor: '#9aa5b8', peso: 500 },
+        ],
+        2.8,
+      );
+    }
+
     // O golpe acerta alguém — item 2.1 do roteiro.
     //
     // Antes daqui o combate funcionava e não sentia: o golpe saía, o dano era
@@ -3369,6 +3387,12 @@ export class Jogo {
     // acompanha, encostando na palma.
     c.seguirCarinho(toque);
     this.tempoDeCarinho += dt;
+    // O carinho vira AFETO, e o afeto fica no bicho para sempre. Ver AFETO em
+    // src/species.ts: era a única carícia que o jogo aceitava e esquecia.
+    if (this.exemplarEmCampo) {
+      this.dex.ganharAfeto(this.exemplarEmCampo, AFETO.porSegundoDeCarinho * dt);
+      c.afeto = this.exemplarEmCampo.afeto ?? 0;
+    }
 
     if (this.recargaCarinho > 0) {
       this.recargaCarinho -= dt;
@@ -3979,6 +4003,7 @@ export class Jogo {
         nivel: this.dex.nivelDe(exemplar),
         progresso: this.dex.progressoNivel(exemplar),
         shiny: exemplar.shiny,
+        afeto: exemplar.afeto ?? 0,
         emCampo,
         estagios: emCampo ? this.companheiro!.estagios : undefined,
       };
@@ -4296,6 +4321,9 @@ export class Jogo {
       presa.shiny,
     );
     this.dex.premiarCaptura();
+    // Uma captura ao lado dele aproxima os dois — menos que o carinho, e sem
+    // pedir nada: é o afeto que nasce de fazer as coisas juntos.
+    if (this.exemplarEmCampo) this.dex.ganharAfeto(this.exemplarEmCampo, AFETO.porVitoria);
     // `forcar`: o bicho acabou de virar seu, e é ele quem assina o momento.
     audio.grito(presa.especie.id, presa.shiny, presa.especie.num, true);
 
@@ -4410,6 +4438,8 @@ export class Jogo {
       exemplar.shiny,
     );
     pokemon.hp = Math.max(1, Math.min(exemplar.hp, pokemon.hpMax));
+    // O afeto atravessa a bola: é do BICHO, não da ida a campo.
+    pokemon.afeto = exemplar.afeto ?? 0;
     pokemon.raiz.visible = false;
     this.cena.add(pokemon.raiz);
     this.companheiro = pokemon;
