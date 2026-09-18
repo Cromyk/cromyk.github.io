@@ -434,3 +434,84 @@ eleitas eram vértices inalcançáveis, fora do componente conexo.
 **Estado: a luva continua não entrando no jogo.** `public/maos/*.glb` seguem
 sendo o `generic-hand`. O que mudou é que agora há um caminho que funciona, com
 o passo mais difícil já vencido.
+
+---
+
+# Playtest de 18/09/2026 — seis pedidos de quem estava com o headset na cabeça
+
+Seis itens, soltos, no meio da sessão. Cinco viraram código no mesmo dia; o
+sexto não existe no aparelho, e a parte dele que existe virou uma janela.
+
+**Nenhum destes foi visto rodando por mim.** O que segue é o que saiu e o que
+cada um precisa que VOCÊ confira.
+
+## 1 ✅ "o painel do braço esquerdo está inclinado para frente"
+
+Dois painéis, duas causas. O grande fazia `lookAt` na cabeça — com o braço na
+altura do peito, encarar a cabeça é deitar o painel uns 30° para trás. O
+pequeno era filho do PUNHO, e herdava toda torção do antebraço, mais 57° fixos.
+Agora os dois giram só em torno do eixo vertical: em pé, em ângulo reto com o
+chão, virados para você.
+
+- **Confira:** vire o pulso em qualquer ângulo — o painel não deve tombar nunca.
+
+## 2 ✅ "quero pokébolas flutuantes do tipo holograma"
+
+O time deixou de ser seis cartas de 9 × 11 cm e virou seis **bolas de luz** de 5
+cm, com uma etiqueta fina embaixo (nome, nível, vida). O painel foi de 50 × 30
+cm para 34 × 25. As bolas do cinto vieram junto, e saíram de 2 para 4 cm do eixo
+do braço — a dois centímetros elas nasciam dentro da silhueta da própria luva.
+
+- **Confira:** a bola certa acende quando a mão chega? O GRIP pega aquela?
+- **E o custo:** são 4 desenhos por bola. Ligue o contador de quadros na
+  engrenagem e veja quanto o painel aberto tira — é a primeira medida de
+  performance que este projeto vai ter.
+
+## 3 ✅ "não é o problema de posição e sim de rotação e encaixe"
+
+Virou calibração no headset: o interruptor **Calibrar a mão** põe os dois
+analógicos a girar e recuar a mão, com os números no painel do pulso. Esquerdo
+gira o punho e levanta; direito abre e recua; **A** zera.
+
+- **Confira:** ache o seu número e me diga qual é. Ele vira o padrão.
+
+## 4 ✅ "andar sem definir uma escala de cômodo, em tempo real"
+
+A sessão passa a pedir `unbounded` — o espaço de referência de quem anda pela
+casa — como opcional, e diz no fim do mapeamento qual conseguiu.
+
+- **Confira:** o aviso diz "sem limite de área"? Se a grade azul ainda aparecer
+  quando você anda, é o **Guardião do sistema**, não o jogo: desligue em
+  *Segurança do dispositivo → Limite*.
+
+## 5 ⚠️ "modo widget" — o que dá e o que não dá
+
+**Não dá** para soltar o Pokémon no Horizon Home. App imersivo no Quest é
+exclusivo, e não há API pública (WebXR ou nativa) para um app de terceiros
+desenhar 3D no Home ou por cima de outro app.
+
+**Dá** para ele ficar numa JANELA, que é o que o Quest deixa conviver com o
+resto. O modo widget abre a janela do jogo com só o companheiro dentro, sem
+selvagem nenhum, para ficar ao lado do navegador. Botão na tela inicial, ou
+`?widget` no fim do endereço.
+
+- **Confira:** é isso que você queria, ou você queria mesmo o bicho solto no
+  Home? Se for o segundo, a resposta honesta é que só a Meta pode fazer.
+
+## 6 ✅ "mapeamento dinâmico, reconhecendo chão, mesa, cadeira, pessoas"
+
+- **A malha do quarto** (`mesh-detection`) passou a ser lida — estava na lista
+  de features desde sempre e nunca tinha sido usada. Cada objeto que o Quest
+  escaneia vira uma superfície.
+- **As paredes** entraram: o bicho para de nascer meio dentro do gesso.
+- **A cadeira** não existe na lista de rótulos do Quest — então ela sai da
+  ALTURA: assento 22–58 cm, mesa 58–88, bancada até 1,25 m, acima é lugar alto.
+- **Pessoas** não existem em WebXR. O que existe é `depth-sensing`, e ele não
+  precisa saber o que a coisa é para tapar o que está atrás: o interruptor
+  **Sumir atrás das coisas** liga isso.
+
+- **Confira:** o aviso do fim do mapeamento diz o que achou ("2 mesas · 1 sofá ·
+  1 assento")? Bate com o seu quarto?
+- **E o arriscado:** ligue "Sumir atrás das coisas" e peça para alguém passar na
+  frente. Se tudo sumir, desligue — é o modo de falhar conhecido, e por isso
+  ele nasce desligado. Com controle na mão, a luva pode piscar.

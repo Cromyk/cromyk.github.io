@@ -551,6 +551,34 @@ Duas consequências práticas:
   testa o raio contra cada superfície conhecida e fica com a mais próxima; o
   Pokémon sobe no móvel em rampa, ao longo do percurso.
 
+## Modo widget: o companheiro fora do jogo
+
+O pedido foi *"poder invocar o meu Pokémon fora do jogo e usar as outras funções
+do Meta Quest com o meu companheiro"*. A parte de "fora do jogo" merece uma
+resposta honesta antes da solução:
+
+**Não dá para soltar o bicho no Horizon Home.** No Quest, um app imersivo é
+exclusivo — enquanto ele roda, nada mais roda — e não existe API pública, nem em
+WebXR nem no SDK nativo, que permita a um app de terceiros desenhar um objeto 3D
+solto no Home ou por cima de outro app. Os widgets espaciais do sistema são da
+Meta, e nenhum jogo web chega lá.
+
+**O que o Quest deixa conviver são janelas.** Várias, lado a lado, enquanto você
+navega, assiste alguma coisa ou mexe nas configurações. E uma janela é uma coisa
+que este jogo já sabe ser: a PWA instalada, aberta fora da realidade misturada, é
+uma janela do Home como qualquer outra.
+
+Então o modo widget é a janela do jogo mostrando **só o seu companheiro** —
+vivo, andando, reagindo ao carinho —, para ficar aberta ao lado do que você
+estiver fazendo. Nenhum selvagem nasce, não há mapeamento a esperar, não há
+briga: sobra o bicho e o que se faz com ele.
+
+Abre pelo botão *modo widget* na tela inicial, ou pelo endereço com `?widget` no
+fim — que é o que se fixa numa janela do Home para ela já abrir assim. Mouse
+olha, WASD anda em volta, **V** faz carinho, **C** chama, **B** faz acenar e
+**Q** troca de Pokémon.
+
+
 ## A isca: chamar de longe
 
 Distância era um problema de mão única. O selvagem nasce longe, passeia em volta

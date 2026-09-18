@@ -337,6 +337,8 @@ export class Jogo {
   private tempoDeCarinho = 0;
 
   private modoPlano = false;
+  /** Ver `ativarModoWidget`: a janela com o companheiro, sem jogo em volta. */
+  private modoWidget = false;
   private carregando = 0;
 
   constructor(renderer: THREE.WebGLRenderer) {
@@ -450,6 +452,80 @@ export class Jogo {
     this.camera.add(luva.grupo);
     this.cena.add(this.camera);
     this.luvaPlana = luva;
+  }
+
+  /**
+   * O modo widget: só o seu companheiro, numa janela.
+   *
+   * ## O que foi pedido, e o que o aparelho deixa fazer
+   *
+   * O pedido do playtest de 18/09 foi: *"quero modo widget — poder invocar o meu
+   * Pokémon fora do jogo e usar as outras funções do Meta Quest com o meu
+   * companheiro"*.
+   *
+   * A parte de "fora do jogo" não tem como ser o que ela parece, e é melhor
+   * dizer de uma vez: no Quest, um app imersivo é EXCLUSIVO — enquanto ele roda,
+   * nada mais roda —, e não há API pública, nem em WebXR nem no SDK nativo, que
+   * permita a um app de terceiros desenhar um objeto 3D solto no Horizon Home ou
+   * por cima de outro app. Os widgets espaciais do sistema são da Meta.
+   *
+   * O que o Quest deixa conviver são JANELAS. Várias, lado a lado, enquanto você
+   * usa o navegador, assiste alguma coisa, mexe nas configurações. E uma janela
+   * é o que este jogo já sabe ser: a PWA instalada, aberta fora da realidade
+   * misturada, é uma janela do Home como qualquer outra.
+   *
+   * Então o modo widget é isso: a janela do jogo mostrando SÓ o seu companheiro,
+   * vivo, andando e reagindo, para ficar aberta ao lado do que você estiver
+   * fazendo. Não é o bicho solto na sua sala — é o bicho numa janela na sua
+   * sala, que é o mais perto que dá para chegar sem ser a Meta.
+   *
+   * ## O que ele desliga
+   *
+   * Tudo o que é jogo: nenhum selvagem nasce, não há mapeamento a esperar, não
+   * há briga. O que sobra é o companheiro e as coisas que se fazem com ele —
+   * carinho, chamar, acenar, ouvir o nome.
+   */
+  async ativarModoWidget() {
+    this.ativarModoPlano();
+    this.modoWidget = true;
+    // Sem sala a mapear: numa janela não há quarto nenhum para ler, e esperar
+    // seis superfícies que nunca vêm seguraria o companheiro para sempre.
+    this.escaneando = false;
+    this.sala.usarFallback(new THREE.Vector3(0, 0, 0));
+    this.camera.position.set(0, 1.3, 0);
+    await this.trazerCompanheiroDoSave();
+  }
+
+  /**
+   * Põe em campo o primeiro Pokémon vivo do seu time, sem bola e sem arremesso.
+   *
+   * É o gesto que o modo widget precisa e que o jogo não tinha: em campo, um
+   * Pokémon só entra saindo de uma pokébola que você jogou. Aqui ele já está
+   * lá quando a janela abre — é o companheiro de quem abriu a janela para ver o
+   * companheiro.
+   */
+  private async trazerCompanheiroDoSave() {
+    const time = this.dex.timeVivo;
+    if (time.length === 0) return;
+    const exemplar = this.dex.exemplarAtivo ?? time[0];
+    const especie = porId(exemplar.id);
+    if (!especie) return;
+
+    if (!(await garantir(especie.id, exemplar.shiny))) return;
+    const corpo = instanciar(
+      especie.id,
+      this.alturaDe(especie),
+      exemplar.shiny,
+      this.ajustes.tamanhoReal,
+    );
+    if (!corpo) return;
+
+    // A 1,4 m da câmera e virado para ela: a distância de quem cabe inteiro na
+    // janela sem encostar no vidro.
+    const onde = new THREE.Vector3(0, this.sala.pisoY, -1.4);
+    const bicho = this.porEmCampo(especie, corpo, exemplar, onde, this.sala.pisoY);
+    bicho.raiz.rotation.y = Math.PI;
+    audio.grito(especie.id, exemplar.shiny, especie.num);
   }
 
   // ------------------------------------------------------------ tamanho
@@ -3281,7 +3357,7 @@ export class Jogo {
 
     // No Relaxante ninguém nasce: o modo existe justamente para a sala ficar
     // sua e do seu Pokémon.
-    if (this.ajustes.modoAtual.spawnAutomatico) {
+    if (this.ajustes.modoAtual.spawnAutomatico && !this.modoWidget) {
       this.proximoSpawn -= dt;
       if (this.proximoSpawn <= 0 && this.selvagens.length < MAX_SELVAGENS) {
         const [minimo, maximo] = this.ajustes.modoAtual.intervaloSpawn;

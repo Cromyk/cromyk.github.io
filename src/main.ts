@@ -4,6 +4,7 @@ import { audio } from './audio';
 
 const botaoEntrar = document.getElementById('enter') as HTMLButtonElement;
 const botaoPlano = document.getElementById('flat') as HTMLButtonElement;
+const botaoWidget = document.getElementById('widget') as HTMLButtonElement;
 const nota = document.getElementById('note') as HTMLParagraphElement;
 const ui = document.getElementById('ui') as HTMLDivElement;
 
@@ -180,7 +181,17 @@ function iniciarModoPlano() {
   audio.iniciar();
   jogo.ativarModoPlano();
   jogo.aoEntrarNaSessao();
+  prepararTeclasDoPlano();
+}
 
+/**
+ * Mouse, teclado e o passo do jogador — o que faz um navegador virar controle.
+ *
+ * Separado de `iniciarModoPlano` porque o modo widget usa exatamente isto e
+ * mais nada dele: lá o jogo em volta não existe, mas andar em torno do
+ * companheiro e fazer carinho nele continuam sendo mouse e tecla.
+ */
+function prepararTeclasDoPlano() {
   const tecla = new Set<string>();
   let guinada = 0;
   let inclinacao = 0;
@@ -259,6 +270,30 @@ function iniciarModoPlano() {
 }
 
 botaoPlano.addEventListener('click', iniciarModoPlano);
+
+// ---------------------------------------------------------- modo widget
+
+/**
+ * A janela com o companheiro, para ficar aberta ao lado do resto do Quest.
+ *
+ * Ver `Jogo.ativarModoWidget`, que explica por que ele é uma JANELA e não um
+ * bicho solto no Horizon Home. Reaproveita o modo de tela inteiro — mouse para
+ * olhar, WASD para andar em volta — e só desliga o jogo que existe em volta do
+ * companheiro.
+ *
+ * O `?widget` na URL faz a mesma coisa sem passar pelo menu: é o endereço que
+ * se fixa numa janela do Home para ela abrir já com ele.
+ */
+function iniciarModoWidget() {
+  ui.style.display = 'none';
+  audio.iniciar();
+  void jogo.ativarModoWidget();
+  jogo.aoEntrarNaSessao();
+  prepararTeclasDoPlano();
+}
+
+botaoWidget.addEventListener('click', iniciarModoWidget);
+if (new URLSearchParams(location.search).has('widget')) iniciarModoWidget();
 
 // ---------------------------------------------------------------- loop
 
