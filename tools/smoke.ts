@@ -32,6 +32,7 @@ import {
   arsenal,
   golpesDeDano,
   golpesNoNivel,
+  mudancaDeArsenal,
   intervaloDeAtaque,
   multEstagio,
   golpesDeStatus,
@@ -1947,6 +1948,63 @@ console.log('29. as pedras de evolução');
     console.log(
       `   afeto: aguenta o golpe fatal uma vez, e a paralisia cai de ${semAfeto.toFixed(1)}s para ${comCarinho.toFixed(1)}s`,
     );
+  }
+
+  // "Aprendeu um golpe novo!" — a diferença entre dois arsenais.
+  //
+  // O que se afirma aqui não é que a conta some: é que ela é HONESTA. Anunciar
+  // um golpe que já estava na mão, ou anunciar duas vezes o mesmo golpe quando
+  // se sobe dois níveis de uma vez, gasta o cartão que só vale enquanto for
+  // verdade.
+  {
+    const semAviso = (id: string, ate: number) => {
+      const e = porId(id)!;
+      let mudancas = 0;
+      for (let n = 2; n <= ate; n++) if (mudancaDeArsenal(e, n - 1, n).aprendeu.length > 0) mudancas++;
+      return mudancas;
+    };
+
+    // Todo inicial aprende alguma coisa no caminho do 1 ao 40: se este número
+    // fosse zero, o cartão nunca apareceria e o recurso não existiria.
+    for (const id of ['charmander', 'squirtle', 'bulbasaur', 'pikachu', 'eevee']) {
+      checar(semAviso(id, 40) >= 2, `${id} devia aprender golpes subindo até o nível 40`);
+    }
+
+    // Nada de anunciar o que já se tinha.
+    const charmander = porId('charmander')!;
+    for (let n = 2; n <= NIVEL_MAXIMO; n++) {
+      const { aprendeu, esqueceu } = mudancaDeArsenal(charmander, n - 1, n);
+      const tinha = new Set(golpesNoNivel(charmander, n - 1).map((g) => g.nome));
+      for (const g of aprendeu) checar(!tinha.has(g.nome), `${g.nome} já estava na mão no nível ${n - 1}`);
+      for (const g of esqueceu) {
+        checar(
+          !aprendeu.some((a) => a.nome === g.nome),
+          `${g.nome} não pode ser aprendido e esquecido no mesmo nível`,
+        );
+      }
+    }
+
+    // O salto: subir do 5 direto ao 25 conta cada golpe UMA vez, e diz o mesmo
+    // que a soma dos passos diria — nem mais nem menos.
+    const umPasso = new Set<string>();
+    for (let n = 6; n <= 25; n++) for (const g of mudancaDeArsenal(charmander, n - 1, n).aprendeu) umPasso.add(g.nome);
+    const salto = mudancaDeArsenal(charmander, 5, 25).aprendeu;
+    checar(new Set(salto.map((g) => g.nome)).size === salto.length, 'o salto não pode repetir um golpe');
+    for (const g of salto) checar(umPasso.has(g.nome), `o salto anunciou ${g.nome}, que passo a passo não aparece`);
+
+    // Parado no mesmo nível, ninguém aprende nada.
+    checar(mudancaDeArsenal(charmander, 12, 12).aprendeu.length === 0, 'sem subir, não se aprende');
+
+    const exemplo = (() => {
+      for (let n = 2; n <= 40; n++) {
+        const m = mudancaDeArsenal(charmander, n - 1, n);
+        if (m.aprendeu.length > 0 && m.esqueceu.length > 0) {
+          return `nível ${n}: aprendeu ${m.aprendeu[0].nome}, esqueceu ${m.esqueceu[0].nome}`;
+        }
+      }
+      return 'sem troca até o nível 40';
+    })();
+    console.log(`   golpe novo: Charmander avisa ${semAviso('charmander', 40)}x até o nível 40 · ${exemplo}`);
   }
 
   // O instinto do selvagem: ele lê quem está em campo contra ele.

@@ -18,6 +18,7 @@ import {
   golpesDeDano,
   golpesDeStatus,
   intervaloDeAtaque,
+  mudancaDeArsenal,
   multEstagio,
   multiplicador,
   textoEstagio,
@@ -271,6 +272,16 @@ export class Jogo {
   private auras: Aura[] = [];
   /** Golpe escolhido à mão no painel. Só o modo Batalha usa. */
   private golpeArmado: string | null = null;
+  /**
+   * Os golpes que ele acabou de aprender e ainda não usou.
+   *
+   * Dura a sessão e não vai para o save de propósito: a marca é o rastro do
+   * aviso que passou, e depois de fechar o jogo o aviso já não está na cabeça
+   * de ninguém para ser rastreado. Esvazia quando o golpe sai pela primeira vez
+   * — que é quando ele deixa de ser novidade — e quando troca quem está em
+   * campo, porque a novidade é de um bicho só.
+   */
+  private golpesNovos = new Set<string>();
   /** Selvagens que você aceitou encarar, no Safari. */
   private encarados = new Set<Pokemon>();
   /** Quem você apontou para o companheiro bater. Ver `alvoEscolhido`. */
@@ -1316,19 +1327,11 @@ export class Jogo {
     if (!exemplar) return;
     const especie = porId(exemplar.id);
     if (!especie) return;
-    const alvo = Math.min(this.dex.nivelDe(exemplar) + 1, NIVEL_MAXIMO);
+    const antes = this.dex.nivelDe(exemplar);
+    const alvo = Math.min(antes + 1, NIVEL_MAXIMO);
     this.dex.ganharXp(exemplar, Math.max(1, xpParaNivel(alvo) - exemplar.xp));
-    audio.subiuDeNivel();
-    this.aviso.mostrar(
-      [
-        {
-          texto: `${especie.nome} chegou ao nível ${this.dex.nivelDe(exemplar)}!`,
-          tamanho: 38,
-          cor: '#d8b4ff',
-        },
-      ],
-      2.4,
-    );
+    const depois = this.dex.nivelDe(exemplar);
+    if (depois > antes) this.anunciarSubida(especie, antes, depois, null);
     void this.conferirEvolucao(exemplar);
   }
 
@@ -1870,7 +1873,11 @@ export class Jogo {
     // armado, e o painel nunca mostra uma escolha que não corresponde ao que o
     // gatilho faria.
     const armado = this.golpeArmado ?? golpes[0]?.nome ?? null;
-    return golpes.map((golpe) => ({ golpe, armado: golpe.nome === armado }));
+    return golpes.map((golpe) => ({
+      golpe,
+      armado: golpe.nome === armado,
+      novo: this.golpesNovos.has(golpe.nome),
+    }));
   }
 
   // ------------------------------------------------------------ ajustes
@@ -2290,6 +2297,7 @@ export class Jogo {
         : (golpesDeDano(arsenal(companheiro))[0] ?? arsenal(companheiro)[0]);
 
     if (!companheiro.atacarPonto(ponto, golpe.recarga, gestoDoGolpe(golpe))) return;
+    this.golpesNovos.delete(golpe.nome);
     mao.sentir('acertou');
 
     const efeito = new Efeito(golpe, companheiro.boca, ponto);
@@ -2320,6 +2328,10 @@ export class Jogo {
 
   /** Cria o efeito visual e agenda o dano para o momento do impacto. */
   private dispararGolpe(atacante: Pokemon, defensor: Pokemon, golpe: Golpe) {
+    // Usou: deixou de ser novidade. Vale só quando quem usou é o seu — o ponto
+    // dourado é sobre o SEU arsenal, e um selvagem usando Fúria não gasta a
+    // novidade da Fúria que você aprendeu.
+    if (atacante.papel === 'companheiro') this.golpesNovos.delete(golpe.nome);
     const efeito = new Efeito(golpe, atacante.boca, defensor.centro);
     efeito.adicionarA(this.cena);
     this.efeitos.push(efeito);
@@ -2681,24 +2693,60 @@ export class Jogo {
 
   // ------------------------------------------------------------ progressão
 
+  /**
+   * O cartão da subida de nível — e, quando há, o do golpe que veio junto.
+   *
+   * Existe um só e é chamado pelos três lugares que fazem alguém subir (a
+   * vitória, o Doce Raro e o carinho) porque o aviso NÃO empilha: `mostrar`
+   * troca o texto da placa, então dois cartões seguidos são um cartão só, o
+   * segundo, e o primeiro some antes de ser lido. A saída é caber tudo no mesmo
+   * cartão — o que também é o jeito confortável, porque em VR ler é parar, e
+   * parar três vezes seguidas para ler cansa mais do que ler três linhas.
+   *
+   * O golpe esquecido vai junto, miúdo e entre parênteses. É a parte chata de
+   * contar e é justamente a que não pode faltar: os quatro últimos golpes é a
+   * regra da primeira geração, e quem perdeu o Jato d'Água precisa saber disso
+   * ANTES de mandar usar Jato d'Água no meio de uma briga.
+   */
+  private anunciarSubida(especie: Especie, de: number, para: number, ganho: number | null) {
+    audio.subiuDeNivel();
+    const { aprendeu, esqueceu } = mudancaDeArsenal(especie, de, para);
+    const nomes = (lista: readonly Golpe[]) => lista.map((g) => g.nome).join(' e ');
+
+    const linhas: LinhaTexto[] = [
+      { texto: `${especie.nome} subiu para o nível ${para}!`, tamanho: 38, cor: '#9fe0ff' },
+    ];
+    if (aprendeu.length > 0) {
+      linhas.push({ texto: `aprendeu ${nomes(aprendeu)}!`, tamanho: 27, cor: '#ffd98a', peso: 700 });
+      if (esqueceu.length > 0) {
+        linhas.push({ texto: `(esqueceu ${nomes(esqueceu)})`, tamanho: 19, cor: '#8b93a3', peso: 500 });
+      }
+    } else if (ganho !== null) {
+      linhas.push({ texto: `+${ganho} de experiência`, tamanho: 23, cor: '#9aa5b8', peso: 500 });
+    }
+
+    // Mais tempo quando há mais a ler, e um toque nas duas mãos: o golpe novo é
+    // a única coisa deste cartão que muda o que você pode FAZER no quadro
+    // seguinte, e merece ser sentida e não só vista.
+    this.aviso.mostrar(linhas, aprendeu.length > 0 ? 3.6 : 2.6);
+    if (aprendeu.length > 0) {
+      for (const g of aprendeu) this.golpesNovos.add(g.nome);
+      for (const mao of this.maos) mao.sentir('marcou');
+    }
+  }
+
   /** Dá XP ao que está em campo e cuida do nível e da evolução. */
   private premiarXp(derrotado: Pokemon, capturou: boolean) {
     const exemplar = this.exemplarEmCampo;
     if (!exemplar || derrotado.xpConcedida) return;
     derrotado.xpConcedida = true;
 
+    const especie = porId(exemplar.id);
+    const antes = this.dex.nivelDe(exemplar);
     const ganho = xpDeEncontro(derrotado.especie, derrotado.nivel, capturou);
     const novoNivel = this.dex.ganharXp(exemplar, ganho);
     if (novoNivel !== null) {
-      const especie = porId(exemplar.id);
-      audio.subiuDeNivel();
-      this.aviso.mostrar(
-        [
-          { texto: `${especie?.nome ?? ''} subiu para o nível ${novoNivel}!`, tamanho: 40, cor: '#9fe0ff' },
-          { texto: `+${ganho} de experiência`, tamanho: 23, cor: '#9aa5b8', peso: 500 },
-        ],
-        2.6,
-      );
+      if (especie) this.anunciarSubida(especie, antes, novoNivel, ganho);
       void this.conferirEvolucao(exemplar);
     }
   }
@@ -3412,7 +3460,13 @@ export class Jogo {
     c.curar(Math.max(1, Math.ceil(c.hpMax * 0.04)));
     if (this.exemplarEmCampo) {
       this.dex.definirHp(this.exemplarEmCampo, c.hp);
-      this.dex.ganharXp(this.exemplarEmCampo, 3);
+      // O carinho também dá experiência, e também podia fazer subir de nível —
+      // em silêncio, até aqui. Subir de nível sem ninguém dizer é a mesma
+      // ambiguidade de sempre, e num afago é ainda pior: você não estava
+      // olhando para barra nenhuma.
+      const antes = this.dex.nivelDe(this.exemplarEmCampo);
+      const novo = this.dex.ganharXp(this.exemplarEmCampo, 3);
+      if (novo !== null) this.anunciarSubida(c.especie, antes, novo, 3);
     }
 
     const coracoes = new Impacto(cabeca, 0xff9ec4);
@@ -4444,6 +4498,9 @@ export class Jogo {
     this.cena.add(pokemon.raiz);
     this.companheiro = pokemon;
     this.exemplarEmCampo = exemplar;
+    // A novidade é de um bicho só: o golpe novo do Charmander não pode ficar
+    // brilhando no painel do Pikachu.
+    this.golpesNovos.clear();
     // Para a sessão seguinte saber que ele estava fora da bola.
     this.dex.marcarEmCampo(exemplar);
 

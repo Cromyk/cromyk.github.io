@@ -630,6 +630,39 @@ export function golpesNoNivel(especie: Especie, nivel: number): readonly Golpe[]
 /** O arsenal de um combatente — a forma curta, que o jogo usa o tempo todo. */
 export const arsenal = (c: Combatente): readonly Golpe[] => golpesNoNivel(c.especie, c.nivel);
 
+/**
+ * O que MUDOU no arsenal entre dois níveis.
+ *
+ * Os quatro golpes saem do nível por dedução (ver `golpesNoNivel`), o que é
+ * cômodo de calcular e péssimo de perceber: até aqui, subir de nível trocava a
+ * Investida por uma Presa de Fogo **sem uma palavra**, e você só descobria
+ * abrindo o painel do pulso — se abrisse, e se reparasse. Golpe que ninguém
+ * sabe que tem é golpe que não existe.
+ *
+ * Como isto é diferença de conjuntos e não sorteio, vale para qualquer salto:
+ * subir dois níveis de uma vez conta como um aprendizado só, e nunca se anuncia
+ * um golpe que já estava na mão.
+ *
+ * A comparação é por NOME e não por objeto porque o mesmo golpe pode vir de
+ * duas entradas diferentes da tabela de aprendizado — herdada da pré-evolução e
+ * própria, por exemplo — e sair daqui como "aprendeu Jato d'Água" logo depois
+ * de "esqueceu Jato d'Água" seria pior do que ficar calado.
+ */
+export function mudancaDeArsenal(
+  especie: Especie,
+  de: number,
+  para: number,
+): { aprendeu: Golpe[]; esqueceu: Golpe[] } {
+  const antes = golpesNoNivel(especie, de);
+  const depois = golpesNoNivel(especie, para);
+  const tinha = new Set(antes.map((g) => g.nome));
+  const tem = new Set(depois.map((g) => g.nome));
+  return {
+    aprendeu: depois.filter((g) => !tinha.has(g.nome)),
+    esqueceu: antes.filter((g) => !tem.has(g.nome)),
+  };
+}
+
 const estagios = calcularEstagios();
 
 export const ESPECIES: readonly Especie[] = POKEDEX.filter((e) => temModelo(e.id)).map((e) => {

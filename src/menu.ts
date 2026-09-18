@@ -53,6 +53,8 @@ export interface EntradaGolpe {
   golpe: Golpe;
   /** É o golpe que vai sair no próximo gatilho. */
   armado: boolean;
+  /** Aprendido agora e ainda não usado. Ver o ponto dourado em redesenharGolpes. */
+  novo?: boolean;
 }
 
 /** O que os interruptores da engrenagem mostram neste quadro. */
@@ -809,7 +811,7 @@ export class PainelTime {
    */
   private redesenharGolpes() {
     for (let i = 0; i < this.golpes.length; i++) {
-      const { golpe, armado } = this.golpes[i];
+      const { golpe, armado, novo } = this.golpes[i];
       const card = this.cardsGolpe[i];
       const { ctx, canvas } = card;
       const sobMira = this.destacado?.tipo === 'golpe' && this.destacado.indice === i;
@@ -829,9 +831,25 @@ export class PainelTime {
 
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
+
+      // O ponto dourado do golpe recém-aprendido.
+      //
+      // É um ponto e não a palavra "NOVO" porque o card já carrega nome,
+      // categoria, tipo, potência e às vezes uma condição — mais uma etiqueta e
+      // ninguém lê nenhuma. E é da mesma cor com que o cartão anunciou
+      // "aprendeu Fúria!": a cor é o que liga o aviso que passou ao card que
+      // ficou, sem precisar lembrar do nome.
+      const recuo = novo ? 20 : 0;
+      if (novo) {
+        ctx.beginPath();
+        ctx.arc(22, 31, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffd98a';
+        ctx.fill();
+      }
+
       ctx.font = fonte(23, 700);
       ctx.fillStyle = COR.texto;
-      ctx.fillText(textoAjustado(ctx, golpe.nome, canvas.width - 84), 16, 20);
+      ctx.fillText(textoAjustado(ctx, golpe.nome, canvas.width - 84 - recuo), 16 + recuo, 20);
 
       pilula(ctx, cat.rotulo, canvas.width - 14, 18, 22, cat.cor, { alinhar: 'right' });
 
@@ -1074,7 +1092,7 @@ export class PainelTime {
       this.modoAtivo,
       this.dificuldadeAtiva,
       this.interruptores.map((c) => `${c.id}:${c.ligado ? 1 : 0}`).join(','),
-      this.golpes.map((g) => `${g.golpe.nome}:${g.armado ? 1 : 0}`).join(','),
+      this.golpes.map((g) => `${g.golpe.nome}:${g.armado ? 1 : 0}:${g.novo ? 1 : 0}`).join(','),
     ].join('|');
     if (assinatura !== this.assinatura) {
       this.assinatura = assinatura;
