@@ -264,6 +264,55 @@ export function pilula(
  * sistema, e no headset ele saía como um retângulo vazio — que é o pior ícone
  * possível para o botão que abre as opções.
  */
+/**
+ * O sol ou a lua, desenhados — nunca digitados.
+ *
+ * A primeira versão disto usava os caracteres ☀ e ☾, e o render de conferência
+ * mostrou um quadradinho vazio no lugar da lua: o glifo existe em Unicode e não
+ * existe na fonte. No headset seria a mesma loteria, com a diferença de que lá
+ * ninguém está olhando para procurar tofu. Vinte linhas de caminho valem mais
+ * do que uma dependência de qual fonte o Android resolveu instalar.
+ *
+ * O crescente é um caminho só: o arco de fora, e o de dentro percorrido ao
+ * contrário. Recortar um círculo por cima com `destination-out` seria mais
+ * simples e abriria um buraco no cartão — o furo da engrenagem pode fazer isso
+ * porque ele é furo mesmo; a lua não.
+ */
+export function luaOuSol(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  raio: number,
+  cor: string,
+  noturno: boolean,
+) {
+  ctx.fillStyle = cor;
+  ctx.strokeStyle = cor;
+
+  if (noturno) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, raio, Math.PI * 0.32, Math.PI * 1.68);
+    ctx.arc(cx - raio * 0.62, cy, raio * 0.92, Math.PI * 1.62, Math.PI * 0.38, true);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, raio * 0.58, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.lineWidth = Math.max(1.5, raio * 0.18);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * raio * 0.78, cy + Math.sin(a) * raio * 0.78);
+    ctx.lineTo(cx + Math.cos(a) * raio * 1.05, cy + Math.sin(a) * raio * 1.05);
+    ctx.stroke();
+  }
+}
+
 export function engrenagem(
   ctx: CanvasRenderingContext2D,
   cx: number,

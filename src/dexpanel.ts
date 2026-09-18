@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
 import { ESPECIES, TIPOS, type Especie } from './species';
+import { textoDoHabito } from './hora';
+import { luaOuSol } from './estilo';
 
 export interface EstadoDex {
   visto: boolean;
@@ -219,6 +221,25 @@ export class PainelDex {
       22,
       54,
     );
+
+    // O hábito, à direita da mesma linha.
+    //
+    // É aqui que o ciclo de dia e noite deixa de ser um número escondido no
+    // sorteio: quem procurou um Gengar a tarde inteira precisa poder descobrir
+    // POR QUE ele não vem, e a ficha é onde se vai olhar. Fica junto de altura
+    // e peso porque é da mesma natureza — é o que o bicho é, não o que você fez.
+    const habito = textoDoHabito(especie.id);
+    if (habito) {
+      const noturno = habito.includes('noite');
+      const corHabito = noturno ? '#a9b6ff' : '#ffd98a';
+      ctx.textAlign = 'right';
+      ctx.font = '600 19px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = corHabito;
+      ctx.fillText(habito, canvas.width - 22, 56);
+      const largura = ctx.measureText(habito).width;
+      luaOuSol(ctx, canvas.width - 34 - largura, 65, 8, corHabito, noturno);
+      ctx.textAlign = 'left';
+    }
 
     // A descrição só aparece depois de capturado: é o prêmio de ter pegado.
     ctx.font = '500 20px system-ui, -apple-system, "Segoe UI", sans-serif';

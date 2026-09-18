@@ -45,6 +45,7 @@ import { BOTAO_A, BOTAO_B, FeixeDeAlvo, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, 
 import { Luva } from './glove';
 import { Rastro, aVista, rumoDoRastro } from './rastro';
 import { marcoDe } from './marcos';
+import { fatorDoHorario, nomeDoPeriodo, noturnidade } from './hora';
 import { Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
 import { Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
@@ -261,6 +262,8 @@ export class Jogo {
   private medidor = new Medidor();
   /** As pegadas no chão que apontam para quem você ainda não viu. */
   private pegadas = new Rastro();
+  /** Já contamos que horas são nesta sessão. Ver talvezAvisarHora. */
+  private avisouHora = false;
   /** Selvagens que já passaram pelo seu campo de visão. Ver atualizarRastro. */
   private notados = new WeakSet<Pokemon>();
   private painelTime = new PainelTime();
@@ -2959,8 +2962,11 @@ export class Jogo {
   private sortearEspecie(): Especie {
     const nivel = this.dex.nivelDoTreinador;
     const corrente = this.dex.especieDaCorrente;
+    // A hora entra no sorteio, e não no `pesoSpawn`: aquele é a regra do jogo
+    // sobre a espécie, esta é uma condição do mundo lá fora. Ver src/hora.ts.
+    const noite = noturnidade();
     return escolherPesado(Math.random, ESPECIES, (e) => {
-      const base = pesoSpawn(e, this.dex.jaCapturou(e.id), nivel);
+      const base = pesoSpawn(e, this.dex.jaCapturou(e.id), nivel) * fatorDoHorario(e.id, noite);
       return e.id === corrente ? base * 3 : base;
     });
   }
@@ -3098,6 +3104,7 @@ export class Jogo {
         ],
         shiny ? 4.5 : 2.8,
       );
+      this.talvezAvisarHora();
     } finally {
       this.nascendo = false;
     }
@@ -4462,6 +4469,40 @@ export class Jogo {
     );
     this.talvezMarco();
     this.removerSelvagem(presa);
+  }
+
+  /**
+   * Que horas são no mundo — uma vez por sessão, atrás do primeiro encontro.
+   *
+   * Sem isto o ciclo de dia e noite seria invisível: o sorteio mudaria e o
+   * jogador não teria como saber que mudou, nem por quê. Um sistema que ninguém
+   * percebe é um sistema que não foi feito — já custou caro duas vezes neste
+   * projeto (as condições de status e o afeto).
+   *
+   * Uma vez por SESSÃO e não por save: quem abre o jogo à noite depois de uma
+   * semana jogando de dia precisa ouvir de novo. E entra na fila atrás do
+   * cartão do bicho que apareceu, porque o bicho é o motivo de você estar
+   * olhando; a hora é o pano de fundo.
+   */
+  private talvezAvisarHora() {
+    if (this.avisouHora) return;
+    this.avisouHora = true;
+
+    const n = noturnidade();
+    const periodo = nomeDoPeriodo(n);
+    const diz = {
+      noite: ['é noite', 'quem ronda no escuro está acordado'],
+      entardecer: ['está entardecendo', 'a população do quarto está trocando'],
+      dia: ['é dia', 'os bichos da noite estão dormindo'],
+    }[periodo];
+
+    this.aviso.emSeguida(
+      [
+        { texto: diz[0], tamanho: 32, cor: periodo === 'dia' ? '#ffd98a' : '#a9b6ff' },
+        { texto: diz[1], tamanho: 21, cor: '#9aa5b8', peso: 500 },
+      ],
+      2.6,
+    );
   }
 
   /**

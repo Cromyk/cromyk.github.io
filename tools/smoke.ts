@@ -55,6 +55,7 @@ import { ALCANCE_SLOT, INICIO_SLOT, PASSO_SLOT } from '../src/cinto';
 import { bonusDeCaptura } from '../src/condicao';
 import { Rastro, aVista, rumoDoRastro } from '../src/rastro';
 import { MARCOS, faltamPara, marcoDe } from '../src/marcos';
+import { fatorDoHorario, habitoDe, noturnidade } from '../src/hora';
 import { Aviso } from '../src/hud';
 import { ITENS } from '../src/itens';
 import { Mochila, disporGrade } from '../src/mochila';
@@ -1950,6 +1951,71 @@ console.log('29. as pedras de evolução');
 
     console.log(
       `   afeto: aguenta o golpe fatal uma vez, e a paralisia cai de ${semAfeto.toFixed(1)}s para ${comCarinho.toFixed(1)}s`,
+    );
+  }
+
+  // O ciclo de dia e noite.
+  //
+  // O sorteio de quem nasce só olhava para dentro do save — mesma população às
+  // sete da manhã e às onze da noite. Agora o relógio do aparelho entra, e o
+  // que se afirma aqui é que ele entra sem trancar nada.
+  {
+    const as = (h: number) => {
+      const d = new Date(2026, 8, 18, h, 0, 0);
+      return noturnidade(d);
+    };
+
+    checar(as(12) < 0.05, 'meio-dia tem de ser dia cheio');
+    checar(as(0) > 0.95, 'meia-noite tem de ser noite cheia');
+    checar(as(22) > 0.8 && as(3) > 0.8, 'dez da noite e três da manhã são noite');
+    checar(as(9) < 0.2 && as(14) < 0.2, 'nove e quatorze são dia');
+
+    // Contínua: nenhum salto de população no meio da sessão.
+    let maiorSalto = 0;
+    for (let m = 0; m < 24 * 60; m++) {
+      const a = noturnidade(new Date(2026, 8, 18, Math.floor(m / 60), m % 60));
+      const b = noturnidade(new Date(2026, 8, 18, Math.floor(((m + 1) % 1440) / 60), (m + 1) % 60));
+      maiorSalto = Math.max(maiorSalto, Math.abs(b - a));
+    }
+    checar(maiorSalto < 0.01, `a curva salta ${maiorSalto.toFixed(3)} num minuto — isso é um degrau`);
+
+    // Todo id das listas de hábito existe de verdade. Um erro de digitação aqui
+    // seria um bicho que nunca fica mais comum em hora nenhuma, e nada avisaria.
+    const conhecidos = new Set(ESPECIES.map((e) => e.id));
+    let noturnos = 0;
+    let diurnos = 0;
+    for (const e of ESPECIES) {
+      const h = habitoDe(e.id);
+      if (h === 'noturno') noturnos++;
+      if (h === 'diurno') diurnos++;
+    }
+    for (const id of ['zubat', 'gengar', 'oddish', 'pidgey', 'caterpie', 'bulbasaur']) {
+      checar(conhecidos.has(id), `${id} tinha de existir na Pokédex`);
+      checar(habitoDe(id) !== 'indiferente', `${id} devia ter hábito`);
+    }
+    checar(noturnos >= 10 && diurnos >= 10, 'as duas listas precisam ter gente');
+    checar(
+      noturnos + diurnos < ESPECIES.length * 0.4,
+      'a maioria dos 151 aparece a qualquer hora; opinar sobre todos seria invenção',
+    );
+
+    // Nunca zero: quem só joga de dia ainda fecha a Pokédex.
+    for (const id of ESPECIES.map((e) => e.id)) {
+      for (const n of [0, 0.5, 1]) {
+        const f = fatorDoHorario(id, n);
+        checar(f > 0.3, `${id} zera no horário ${n} — isso tranca a Pokédex pelo relógio`);
+        checar(f <= 2.5, `${id} passa de 2,5× no horário ${n}`);
+      }
+    }
+
+    // E a diferença é sentida: um noturno é vários vezes mais provável de noite.
+    const gengarDeDia = fatorDoHorario('gengar', 0);
+    const gengarDeNoite = fatorDoHorario('gengar', 1);
+    checar(gengarDeNoite / gengarDeDia > 5, 'a noite tem de mudar mesmo quem aparece');
+    checar(fatorDoHorario('pikachu', 0) === 1, 'quem é indiferente não muda com a hora');
+
+    console.log(
+      `   dia e noite: ${noturnos} noturnos, ${diurnos} diurnos · Gengar ${gengarDeDia.toFixed(2)}× de dia e ${gengarDeNoite.toFixed(2)}× de noite`,
     );
   }
 

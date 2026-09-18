@@ -239,7 +239,9 @@ const secoes: Array<{ titulo: string; pecas: Peca[] }> = [];
   painel.desenharGrade();
   const pecas: Peca[] = [{ canvas: (painel.grade as { canvas: Canvas }).canvas, rotulo: 'grade' }];
   if (typeof painel.desenharFicha === 'function') {
-    (painel as unknown as { destacado: number }).destacado = 3;
+    // Zubat: capturado nesta amostra, e noturno — a ficha sai completa e com o
+    // hábito, que é o que esta seção precisa mostrar.
+    (painel as unknown as { destacado: number }).destacado = 40;
     painel.desenharFicha();
     pecas.push({ canvas: (painel.ficha as { canvas: Canvas }).canvas, rotulo: 'ficha' });
   }
