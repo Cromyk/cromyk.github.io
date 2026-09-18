@@ -63,6 +63,7 @@ import { ItemNaMao, RastroDeIsca } from './isca';
 import { Mochila } from './mochila';
 import { Medidor } from './medidor';
 import { Achados } from './achados';
+import { Centro } from './centro';
 import { CONDICOES, condicaoDoGolpe } from './condicao';
 import { pedindoAjuda } from './gesto';
 import { Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
@@ -240,7 +241,8 @@ export class Jogo {
   private mochila = new Mochila();
   /** Os itens que aparecem em cima dos seus móveis. Ver src/achados.ts. */
   private achados = new Achados(this.cena);
-  /** Há quanto tempo as duas palmas estão para cima. Ver atualizarPedidoDeAjuda. */
+  /** O Centro Pokémon, plantado num móvel do seu quarto. Ver src/centro.ts. */
+  private centro = new Centro();
   /** Há quanto tempo a cabeça está na altura de quem está sentado. Ver 4.2. */
   private tempoSentado = 0;
   private pedindoAjudaHa = 0;
@@ -305,7 +307,7 @@ export class Jogo {
     this.aviso = new Aviso(this.cena);
     this.sala.usarFallback();
 
-    this.cena.add(this.painelTime.grupo, this.pc.grupo, this.mochila.grupo);
+    this.cena.add(this.painelTime.grupo, this.pc.grupo, this.mochila.grupo, this.centro.grupo);
     // A Pokédex não entra solta na cena: as placas dela são a TELA do tablet,
     // e é a carcaça que anda pelo mundo.
     this.tablet.tela.add(this.painelDex.grupo);
@@ -3108,6 +3110,8 @@ export class Jogo {
     this.atualizarOuvinte();
     this.atualizarAchados(dt);
     this.atualizarPostura(dt);
+    this.atualizarCentro(dt);
+    this.atualizarCentro(dt);
     this.atualizarPedidoDeAjuda(dt);
     this.atualizarPaineis(dt);
     this.atualizarMarca(dt);
@@ -3688,6 +3692,59 @@ export class Jogo {
       4.5,
     );
     for (const mao of this.maos) mao.sentir('marcou');
+  }
+
+  /**
+   * O Centro Pokémon: planta-se num móvel e cura quem chega perto.
+   *
+   * Curar existia como um botão no PC — correto, gratuito e sem lugar nenhum.
+   * Num jogo de Pokémon o Centro é uma das coisas que dão geografia ao mundo:
+   * você sabe onde ele fica, você volta para lá, e a distância até ele é o que
+   * dá peso a continuar caçando com o time machucado. Um botão não tem
+   * distância, e por isso não tem peso.
+   *
+   * O botão continua existindo, e é de propósito: tirar a saída de quem joga
+   * sentado ou num quarto que o headset não mapeou seria trocar uma coisa boa
+   * por uma barreira.
+   */
+  private atualizarCentro(dt: number) {
+    if (this.escaneando) return;
+
+    if (this.centro.talvezColocar(this.sala, this.posicaoJogador)) {
+      this.aviso.mostrar(
+        [
+          { texto: 'Centro Pokémon', tamanho: 36, cor: '#ffd7de' },
+          {
+            texto: 'aquele móvel cura o seu time — volte lá quando precisar',
+            tamanho: 21,
+            cor: '#9aa5b8',
+            peso: 500,
+          },
+        ],
+        3.6,
+      );
+    }
+
+    // Só cura quem precisa: passar perto com o time inteiro não dispara nada.
+    const machucado = this.dex.timeVivo.some((e) => e.hp < this.dex.hpMaxDe(e));
+    if (!this.centro.atualizar(dt, this.posicaoJogador, machucado)) return;
+
+    this.dex.curarTime();
+    this.companheiro?.limparCondicao();
+    if (this.companheiro?.viva && this.exemplarEmCampo) {
+      this.companheiro.curar(this.companheiro.hpMax);
+    }
+
+    const onde = this.centro.posicao;
+    audio.de(onde.x, onde.y, onde.z, () => audio.sucesso());
+    for (const mao of this.maos) mao.sentir('pegou');
+    this.aviso.mostrar(
+      [
+        { texto: 'seu time está inteiro de novo', tamanho: 36, cor: '#9ff0c4' },
+        { texto: 'obrigado por esperar!', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+      ],
+      2.6,
+    );
   }
 
   private atualizarOuvinte() {
@@ -4718,6 +4775,7 @@ export class Jogo {
     this.mochila.descartar();
     this.medidor.descartar();
     this.achados.descartar();
+    this.centro.descartar();
     for (const rastro of this.rastros.values()) rastro.descartar();
     for (const isca of this.itemNaMao.values()) isca.descartar();
     for (const mao of this.maos) mao.luva?.descartar();

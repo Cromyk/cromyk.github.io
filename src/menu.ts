@@ -6,6 +6,7 @@ import { ITENS, type TipoItem } from './itens';
 import { MODOS, type Modo, type ModoId } from './modos';
 import { DIFICULDADES, INTERRUPTORES, type Dificuldade, type PerfilDificuldade } from './ajustes';
 import { olhandoORelogio } from './gesto';
+import { CONDICOES, condicaoDoGolpe } from './condicao';
 import {
   COR,
   RAIO,
@@ -820,6 +821,29 @@ export class PainelTime {
           ? (golpe.resumo ?? 'muda os stats')
           : `${TIPOS[golpe.tipo].nome} · potência ${golpe.potencia}`;
       ctx.fillText(textoAjustado(ctx, detalhe, canvas.width - 90), 16, 52);
+
+      // O que este golpe pode DEIXAR no alvo — a descoberta das condições.
+      //
+      // Elas entraram no combate e não estavam em lugar nenhum da interface: um
+      // jogador podia jogar a sessão inteira sem descobrir que dormir existe, e
+      // uma mecânica que ninguém encontra é uma mecânica que não foi feita.
+      // Aqui, no card do golpe, é o único lugar em que a informação chega ANTES
+      // da escolha — que é quando ela serve para alguma coisa.
+      const deixa = condicaoDoGolpe(golpe.tipo, golpe.categoria, golpe.nome);
+      if (deixa) {
+        const perfil = CONDICOES[deixa.condicao];
+        // "sempre" quando o golpe existe para isso, e a chance quando é bônus.
+        const quanto = deixa.chance >= 0.7 ? '' : ` ${Math.round(deixa.chance * 100)}%`;
+        pilula(
+          ctx,
+          `${perfil.sigla}${quanto}`,
+          canvas.width - 14,
+          46,
+          20,
+          hex(perfil.cor),
+          { alinhar: 'right', maxLargura: canvas.width * 0.42 },
+        );
+      }
 
       if (armado) {
         ctx.textAlign = 'right';
