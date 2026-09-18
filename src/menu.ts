@@ -168,7 +168,8 @@ export class PainelTime {
   private alvos: THREE.Mesh[] = [];
   private titulo = new Placa(0.3, 0.038, 512);
 
-  private entradas: EntradaTime[] = [];
+  /** Uma por vaga do time; `null` onde a vaga está vazia. */
+  private entradas: Array<EntradaTime | null> = [];
   private bolas: EntradaBola[] = [];
   private itens: EntradaItem[] = [];
   private golpes: EntradaGolpe[] = [];
@@ -256,12 +257,12 @@ export class PainelTime {
     novoAlvo('pc', 0, LADO_PC, LADO_PC);
   }
 
-  get time(): EntradaTime[] {
+  get time(): Array<EntradaTime | null> {
     return this.entradas;
   }
 
   definirConteudo(
-    entradas: EntradaTime[],
+    entradas: Array<EntradaTime | null>,
     bolas: EntradaBola[],
     itens: EntradaItem[],
     golpes: EntradaGolpe[],
@@ -589,6 +590,21 @@ export class PainelTime {
       const card = this.cards[i];
       const { ctx, canvas } = card;
       const sobMira = this.destacado?.tipo === 'criatura' && this.destacado.indice === i;
+      // Vaga vazia: um retângulo apagado com o número dela, e nada mais. O
+      // buraco é informação — é onde cabe o próximo, e é o que diz que o time
+      // não está cheio.
+      if (!e) {
+        const { ctx: c2, canvas: cv } = card;
+        c2.clearRect(0, 0, cv.width, cv.height);
+        cartao(c2, 2, 2, cv.width - 4, cv.height - 4, { sobMira, apagado: true });
+        c2.textAlign = 'center';
+        c2.textBaseline = 'middle';
+        c2.font = fonte(30, 700);
+        c2.fillStyle = COR.textoApagado;
+        c2.fillText(String(i + 1), cv.width / 2, cv.height / 2);
+        card.marcarSujo();
+        continue;
+      }
       const desmaiado = e.hp <= 0;
       const corTipo = TIPOS[e.especie.tipo].cor;
 
@@ -1000,10 +1016,11 @@ export class PainelTime {
       resumo.vistas,
       resumo.capturadas,
       this.entradas
-        .map(
-          (e) =>
-            `${e.especie.id}:${Math.ceil(e.hp)}:${e.nivel}:${e.emCampo ? 1 : 0}:` +
-            `${e.estagios ? `${e.estagios.ataque},${e.estagios.defesa},${e.estagios.velocidade}` : ''}`,
+        .map((e) =>
+          e === null
+            ? 'vazia'
+            : `${e.especie.id}:${Math.ceil(e.hp)}:${e.nivel}:${e.emCampo ? 1 : 0}:` +
+              `${e.estagios ? `${e.estagios.ataque},${e.estagios.defesa},${e.estagios.velocidade}` : ''}`,
         )
         .join(','),
       this.bolas.map((b) => `${b.tipo.id}:${b.quantidade}`).join(','),

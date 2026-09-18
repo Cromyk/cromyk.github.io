@@ -813,8 +813,47 @@ console.log('15. o PC mexendo na equipe');
   dex.mover(50, 0);
   checar(dex.todos.map((e) => e.id).join(',') === antes, 'índice inválido mexeu na coleção');
 
+  // --- o arrasto do PC, e a vaga que fica vazia ---
+  //
+  // É o pedido de 18/09, e é a operação que `trocar` nunca soube fazer: tirar
+  // alguém do time SEM pôr ninguém no lugar. Trocar sempre preenche.
+  {
+    const arrasto = new Dex();
+    arrasto.limpar();
+    arrasto.receberInicial('bulbasaur');
+    for (const id of ['pidgey', 'rattata', 'caterpie', 'zubat', 'geodude', 'magikarp']) {
+      arrasto.registrarCaptura(id, 10, 8, false);
+    }
+    checar(arrasto.timeVivo.length === TAMANHO_TIME, 'o time devia estar cheio para começar');
+
+    // Time → caixa: a vaga do time FICA VAZIA, e ninguém sobe.
+    const terceiro = arrasto.time[2]!;
+    const quarto = arrasto.time[3]!;
+    arrasto.arrastar(2, TAMANHO_TIME + arrasto.guardados.length);
+    checar(arrasto.time[2] === null, 'tirar do time devia deixar a vaga vazia');
+    checar(arrasto.time[3] === quarto, 'o de baixo subiu, e a ordem do time se desfez');
+    checar(arrasto.guardados.includes(terceiro), 'quem saiu do time não chegou na caixa');
+    checar(arrasto.timeVivo.length === TAMANHO_TIME - 1, 'o time devia ter uma vaga a menos');
+
+    // Caixa → a vaga vazia: ele entra ALI, e não no fim.
+    const daCaixaAgora = arrasto.guardados[0];
+    const ondeEstava = arrasto.todosComVagas.indexOf(daCaixaAgora);
+    arrasto.arrastar(ondeEstava, 2);
+    checar(arrasto.time[2] === daCaixaAgora, 'o da caixa não caiu na vaga em que foi solto');
+
+    // A caixa nunca fica com buraco: ela é depósito, não formação.
+    const buracoNaCaixa = arrasto.todosComVagas.slice(TAMANHO_TIME).some((e) => e === null);
+    checar(!buracoNaCaixa, 'a caixa ficou com uma vaga vazia no meio');
+
+    // E nada se perdeu no caminho.
+    checar(arrasto.todos.length === 7, `a coleção tinha 7 e ficou com ${arrasto.todos.length}`);
+
+    arrasto.limpar();
+  }
+
   dex.limpar();
   console.log('   troca, movimentação e ativo mantidos em 8 exemplares');
+  console.log('   arrasto: tirar do time deixa a vaga vazia, e a caixa continua sem buracos');
 }
 
 // ---------------------------------------------------------------------------

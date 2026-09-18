@@ -33,9 +33,11 @@ import { TAMANHO_TIME, type Dex, type Exemplar } from './state';
  *
  * ## Como se mexe
  *
- * Aponte e puxe o gatilho para PEGAR um Pokémon; a carta acende. Aponte outra
- * vaga e puxe de novo para SOLTAR: os dois trocam de lugar. Vaga vazia move em
- * vez de trocar. O gatilho no mesmo bicho que você pegou larga ele de volta.
+ * Aponte um Pokémon e SEGURE o gatilho: ele fica na sua mão enquanto o dedo
+ * estiver puxando. Leve a mira até a vaga e solte. Vaga ocupada troca os dois;
+ * vaga vazia recebe; e tirar alguém do time deixa a vaga **vazia** — que era a
+ * operação que o modelo de dois toques não sabia fazer, porque trocar sempre
+ * põe alguém no lugar de alguém.
  *
  * Tudo é desenhado num canvas só. São até vinte e quatro cartas visíveis, e uma
  * textura por carta encheria a memória do headset para desenhar um menu.
@@ -194,7 +196,11 @@ export class PainelPc {
   private indiceReal(alvo: AlvoPc): number {
     if (!this.dex) return -1;
     if (alvo.tipo === 'time') {
-      return alvo.indice < this.dex.time.length ? alvo.indice : -1;
+      // Pela OCUPAÇÃO, não pelo tamanho da lista: desde que o time tem vagas
+      // vazias, `time.length` é sempre seis, e comparar com ele faria toda vaga
+      // vazia se passar por ocupada — o arrasto largaria o bicho em cima do
+      // nada e o `trocar` cuidaria de sumir com ele.
+      return this.dex.time[alvo.indice] ? alvo.indice : -1;
     }
     if (alvo.tipo === 'caixa') {
       const i = this.pagina * POR_PAGINA + alvo.indice;
@@ -204,10 +210,18 @@ export class PainelPc {
   }
 
   /**
-   * O gatilho caiu sobre a mira. Devolve o que aconteceu, para o jogo dar a
-   * resposta sonora e o aviso.
+   * O gatilho DESCEU sobre a mira. Começa o arrasto, ou aciona um botão.
+   *
+   * Desde 18/09 o PC é arrastar, e não mais dois toques. A diferença não é de
+   * conforto: com dois toques, "pegar" e "largar" são o mesmo gesto e o estado
+   * fica invisível entre eles — você aponta, puxa, e a única forma de saber que
+   * está com um bicho na mão é reparar na carta acesa. Segurando, a mão sabe: o
+   * gatilho está puxado, e enquanto estiver, o bicho está com você.
+   *
+   * Botões — página, curar, fechar — continuam resolvendo aqui, na descida: um
+   * botão não se arrasta.
    */
-  acionar(): 'pegou' | 'largou' | 'trocou' | 'moveu' | 'curou' | 'fechou' | 'pagina' | null {
+  comecarArrasto(): 'pegou' | 'curou' | 'fechou' | 'pagina' | null {
     const alvo = this.destacado;
     if (!alvo || !this.dex) return null;
 
@@ -226,43 +240,55 @@ export class PainelPc {
     }
 
     const indice = this.indiceReal(alvo);
+    if (indice < 0) return null;
+    this.pegou = indice;
+    this.assinatura = '';
+    return 'pegou';
+  }
 
-    // Nada na mão: pega quem está ali.
-    if (this.pegou < 0) {
-      if (indice < 0) return null;
-      this.pegou = indice;
-      this.assinatura = '';
-      return 'pegou';
-    }
+  /**
+   * O gatilho SUBIU. Solta o que estava na mão onde a mira estiver.
+   *
+   * Soltar no mesmo lugar de onde saiu não é erro nem desistência: é o gesto de
+   * quem pegou para olhar e devolveu. Por isso devolve `largou`, e não `null`.
+   */
+  soltarArrasto(): 'largou' | 'trocou' | 'moveu' | null {
+    if (this.pegou < 0 || !this.dex) return null;
 
-    // Soltou em cima de quem já estava na mão: desiste.
-    if (indice === this.pegou) {
-      this.pegou = -1;
-      this.assinatura = '';
-      return 'largou';
-    }
-
-    // Vaga vazia: move para o fim da metade certa. Vaga ocupada: troca.
-    if (indice < 0) {
-      const destino =
-        alvo.tipo === 'time'
-          ? Math.min(this.dex.time.length, TAMANHO_TIME - 1)
-          : this.dex.todos.length - 1;
-      this.dex.mover(this.pegou, destino);
-      this.pegou = -1;
-      this.assinatura = '';
-      return 'moveu';
-    }
-
-    this.dex.trocar(this.pegou, indice);
+    const de = this.pegou;
     this.pegou = -1;
     this.assinatura = '';
-    return 'trocou';
+
+    const alvo = this.destacado;
+    // Soltou fora de qualquer vaga — no cabeçalho, no vão entre cartas, ou com
+    // a mira já fora do painel. O bicho volta para onde estava, que é o que
+    // qualquer coisa arrastada faz quando se solta no lugar errado.
+    if (!alvo || (alvo.tipo !== 'time' && alvo.tipo !== 'caixa')) return 'largou';
+
+    const indice = this.indiceReal(alvo);
+    if (indice === de) return 'largou';
+
+    // Vaga vazia: o índice real não existe, então o destino é a POSIÇÃO em que
+    // a mão soltou — a vaga de time em que você mirou, ou o fim da caixa.
+    const destino =
+      indice >= 0
+        ? indice
+        : alvo.tipo === 'time'
+          ? alvo.indice
+          : TAMANHO_TIME + this.dex.guardados.length;
+
+    return this.dex.arrastar(de, destino) ?? 'largou';
+  }
+
+  /** O bicho que está sendo arrastado agora, se houver. */
+  get arrastando(): Exemplar | null {
+    if (this.pegou < 0 || !this.dex) return null;
+    return this.dex.todosComVagas[this.pegou] ?? null;
   }
 
   // ------------------------------------------------------------ desenho
 
-  private cartaDe(exemplar: Exemplar | undefined) {
+  private cartaDe(exemplar: Exemplar | null | undefined) {
     if (!exemplar || !this.dex) return null;
     const especie = porId(exemplar.id);
     if (!especie) return null;
@@ -292,8 +318,8 @@ export class PainelPc {
     ctx.fillStyle = COR.textoFraco;
     ctx.fillText(
       this.pegou >= 0
-        ? 'aponte a vaga de destino e puxe o gatilho para trocar'
-        : 'aponte um Pokémon e puxe o gatilho para pegar',
+        ? 'ainda segurando — solte o gatilho na vaga onde ele deve ficar'
+        : 'aponte, SEGURE o gatilho e leve até a vaga',
       PainelPc.MARGEM + 380,
       42,
     );

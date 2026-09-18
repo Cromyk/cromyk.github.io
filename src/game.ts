@@ -1527,6 +1527,14 @@ export class Jogo {
   }
 
   private gatilhoSubiu(mao: Mao) {
+    // O PC vem antes de tudo: com ele aberto, soltar o gatilho quer dizer
+    // "põe aqui", e não tem nada a ver com marcar ponto no chão.
+    if (this.pc.aberto) {
+      this.gatilhoPreso = null;
+      this.soltarNoPc(mao);
+      return;
+    }
+
     const preso = this.gatilhoPreso;
     this.gatilhoPreso = null;
     if (!preso || preso.mao !== mao) return;
@@ -1730,18 +1738,38 @@ export class Jogo {
     });
   }
 
-  /** O gatilho dentro do PC: pega, larga, troca, cura ou fecha. */
+  /**
+   * O gatilho DESCEU dentro do PC: começa a arrastar, ou aperta um botão.
+   *
+   * Ver `PainelPc.comecarArrasto`. O que solta é `soltarNoPc`, no gatilho
+   * subindo — o bicho fica na mão enquanto o dedo estiver puxando.
+   */
   private acionarPc(mao: Mao) {
-    const feito = this.pc.acionar();
+    const feito = this.pc.comecarArrasto();
     if (!feito) {
       this.recusar(mao);
       return;
     }
-    mao.sentir(feito === 'trocou' || feito === 'moveu' ? 'acertou' : 'pegou');
+    mao.sentir('pegou');
 
     switch (feito) {
       case 'pegou':
-      case 'largou':
+        audio.clique();
+        if (this.dex.primeiraVez('arrastar-no-pc')) {
+          this.aviso.mostrar(
+            [
+              { texto: 'segure e leve', tamanho: 34, cor: '#cfe6ff' },
+              {
+                texto: 'solte o gatilho na vaga onde ele deve ficar · vaga do time pode ficar vazia',
+                tamanho: 21,
+                cor: '#9aa5b8',
+                peso: 500,
+              },
+            ],
+            3.2,
+          );
+        }
+        break;
       case 'pagina':
         audio.clique();
         break;
@@ -1755,14 +1783,30 @@ export class Jogo {
       case 'fechou':
         audio.recolher();
         break;
-      default: {
-        audio.abrirPainel();
-        // Mexer na equipe com alguém em campo é ambíguo: o bicho lá fora pode
-        // já nem estar mais no time. Recolher resolve sem perguntar nada.
-        if (this.temCompanheiroEmCampo) this.recolherCompanheiro();
-        break;
-      }
     }
+  }
+
+  /**
+   * O gatilho SUBIU dentro do PC: solta onde a mira estiver.
+   *
+   * Chamado de `gatilhoSubiu` mesmo que o PC não esteja com nada na mão — a
+   * pergunta é barata e sair daqui por engano deixaria um bicho preso à mira
+   * até o próximo clique.
+   */
+  private soltarNoPc(mao: Mao) {
+    const feito = this.pc.soltarArrasto();
+    if (!feito) return;
+
+    mao.sentir(feito === 'largou' ? 'marcou' : 'acertou');
+    if (feito === 'largou') {
+      audio.clique();
+      return;
+    }
+
+    audio.abrirPainel();
+    // Mexer na equipe com alguém em campo é ambíguo: o bicho lá fora pode já
+    // nem estar mais no time. Recolher resolve sem perguntar nada.
+    if (this.temCompanheiroEmCampo) this.recolherCompanheiro();
   }
 
   private escolherBola(id: string) {
@@ -3142,7 +3186,7 @@ export class Jogo {
     this.acumuladoCura += dt;
     if (this.acumuladoCura < SEGUNDOS_POR_HP) return;
     this.acumuladoCura = 0;
-    for (const exemplar of this.dex.time) {
+    for (const exemplar of this.dex.timeVivo) {
       if (this.exemplarEmCampo === exemplar && this.companheiro?.viva) continue;
       const max = this.dex.hpMaxDe(exemplar);
       if (exemplar.hp < max) this.dex.definirHp(exemplar, exemplar.hp + 1);
@@ -3578,7 +3622,11 @@ export class Jogo {
     }
 
     // --- painel do time, na mão esquerda ---
+    // Uma vaga vazia vira uma ENTRADA vazia, e não some da lista: o painel
+    // precisa desenhar o buraco, senão as cartas de baixo sobem e a ordem do
+    // time — que agora é sua escolha — se desfaz sozinha na tela.
     const entradas = this.dex.time.map((exemplar) => {
+      if (!exemplar) return null;
       const especie = porId(exemplar.id)!;
       const emCampo = this.exemplarEmCampo === exemplar && this.companheiro?.viva === true;
       return {
@@ -4285,7 +4333,7 @@ export class Jogo {
       }
 
       default: {
-        const time = this.dex.time;
+        const time = this.dex.timeVivo;
         if (time.length === 0) return;
         const atual = time.findIndex((e) => e === this.dex.exemplarAtivo);
         this.escolherDoTime(time[(atual + 1) % time.length]);

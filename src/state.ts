@@ -52,7 +52,20 @@ export const TAMANHO_TIME = 6;
  */
 export class Dex {
   private registros = new Map<string, RegistroDex>();
-  private exemplares: Exemplar[] = [];
+  /**
+   * Todos os seus bichos, numa lista só: as seis primeiras posições são o TIME
+   * e o resto é a caixa.
+   *
+   * As seis do time podem estar **vazias**, e o resto nunca. Isso é de 18/09,
+   * quando o PC ganhou arrasto: tirar o terceiro do time e largá-lo na caixa
+   * tem de deixar a terceira vaga vazia, não puxar o quarto para cima. Uma
+   * lista que se fecha sozinha não deixa você montar um time na ordem que
+   * quiser, e ordem de time é meio jogo.
+   *
+   * A caixa continua densa porque ela não tem ordem que importe: é um depósito,
+   * e um buraco no meio dele é só uma página com um quadrado cinza.
+   */
+  private exemplares: Array<Exemplar | null> = [];
   private estoque = new Map<string, number>();
   private itens = new Map<string, number>();
 
@@ -224,16 +237,36 @@ export class Dex {
 
   // ---- exemplares ----
 
-  get time(): Exemplar[] {
-    return this.exemplares.slice(0, TAMANHO_TIME);
+  /**
+   * As seis vagas do time, na ordem, com `null` onde está vazio.
+   *
+   * Sempre seis, mesmo com o time pela metade: quem desenha o painel precisa
+   * das vagas, não só dos bichos — uma vaga vazia é informação, e some se a
+   * lista for filtrada aqui.
+   */
+  get time(): Array<Exemplar | null> {
+    const vagas: Array<Exemplar | null> = [];
+    for (let i = 0; i < TAMANHO_TIME; i++) vagas.push(this.exemplares[i] ?? null);
+    return vagas;
+  }
+
+  /** Só quem está de fato no time. Para quem quer contar, não posicionar. */
+  get timeVivo(): Exemplar[] {
+    return this.time.filter((e): e is Exemplar => e !== null);
   }
 
   get guardados(): Exemplar[] {
-    return this.exemplares.slice(TAMANHO_TIME);
+    return this.exemplares.slice(TAMANHO_TIME).filter((e): e is Exemplar => e !== null);
   }
 
-  get todos(): Exemplar[] {
+  /** A lista crua, COM as vagas vazias. Índices batem com os do PC. */
+  get todosComVagas(): Array<Exemplar | null> {
     return this.exemplares;
+  }
+
+  /** Todos, sem as vagas vazias. */
+  get todos(): Exemplar[] {
+    return this.exemplares.filter((e): e is Exemplar => e !== null);
   }
 
   get exemplarAtivo(): Exemplar | null {
@@ -262,7 +295,7 @@ export class Dex {
   /** O nível que o jogo usa para calibrar os encontros: o do seu melhor. */
   get nivelDoTreinador(): number {
     let melhor = 3;
-    for (const e of this.time) melhor = Math.max(melhor, this.nivelDe(e));
+    for (const e of this.timeVivo) melhor = Math.max(melhor, this.nivelDe(e));
     return melhor;
   }
 
@@ -402,10 +435,96 @@ export class Dex {
       shiny,
       capturadoEm: Date.now(),
     };
-    this.exemplares.push(exemplar);
-    if (this.ativo === -1) this.ativo = this.exemplares.length - 1;
+    this.acolher(exemplar);
+    if (this.ativo === -1) this.ativo = this.exemplares.indexOf(exemplar);
     this.salvar();
     return exemplar;
+  }
+
+  /**
+   * Põe um bicho novo na primeira vaga LIVRE do time, ou na caixa.
+   *
+   * Desde que o time pode ter buracos, "empurrar no fim da lista" deixou de ser
+   * o certo: com a terceira vaga vazia e um Pokémon novo capturado, ele ia
+   * parar na caixa enquanto havia lugar no time à vista. A primeira vaga livre
+   * é o que qualquer um espera.
+   */
+  private acolher(exemplar: Exemplar) {
+    for (let i = 0; i < TAMANHO_TIME; i++) {
+      if (!this.exemplares[i]) {
+        // A lista pode ser mais curta que o time — preenche o caminho com
+        // vagas vazias em vez de deixar buracos `undefined`.
+        while (this.exemplares.length < i) this.exemplares.push(null);
+        this.exemplares[i] = exemplar;
+        return;
+      }
+    }
+    this.exemplares.push(exemplar);
+  }
+
+  /**
+   * Arrastar no PC: tira daqui e larga ali — item pedido em 18/09.
+   *
+   * O modelo antigo era de dois toques e uma operação só (`trocar`), e por isso
+   * não sabia fazer a coisa que o jogador mais quer: **esvaziar uma vaga**.
+   * Trocar sempre põe alguém no lugar de alguém.
+   *
+   * As regras saem das duas invariantes da lista (ver `exemplares`): o time
+   * pode ter buracos, a caixa não.
+   *
+   * - **para uma vaga de time vazia** — o bicho vai para lá; de onde ele saiu
+   *   fica vazio se era o time, e se fecha se era a caixa.
+   * - **para uma vaga ocupada** — os dois trocam de lugar, dos dois lados.
+   * - **do time para a caixa** — ele entra na caixa na posição em que você
+   *   soltou, e a vaga do time **fica vazia**. É o pedido, na letra.
+   *
+   * Devolve o que aconteceu, para o jogo dar a resposta certa.
+   */
+  arrastar(de: number, para: number): 'trocou' | 'moveu' | null {
+    if (de === para) return null;
+    const bicho = this.exemplares[de] ?? null;
+    if (!bicho) return null;
+
+    const ativo = this.exemplarAtivo;
+    const paraTime = para < TAMANHO_TIME;
+    const deTime = de < TAMANHO_TIME;
+    const destino = this.exemplares[para] ?? null;
+
+    if (destino) {
+      this.exemplares[de] = destino;
+      this.exemplares[para] = bicho;
+      this.reencontrarAtivo(ativo);
+      this.salvar();
+      return 'trocou';
+    }
+
+    // Vaga vazia. Tirar de onde estava é o que muda conforme o lado.
+    if (deTime) this.exemplares[de] = null;
+    else this.exemplares.splice(de, 1);
+
+    if (paraTime) {
+      const alvo = para;
+      while (this.exemplares.length <= alvo) this.exemplares.push(null);
+      this.exemplares[alvo] = bicho;
+    } else {
+      // Na caixa não há vaga vazia: soltar num quadrado em branco quer dizer
+      // "põe no fim", que é onde aquele quadrado está.
+      this.exemplares.push(bicho);
+    }
+
+    this.reencontrarAtivo(ativo);
+    this.salvar();
+    return 'moveu';
+  }
+
+  /**
+   * Faz `ativo` voltar a apontar para o MESMO bicho depois de a lista mexer.
+   *
+   * O ativo é guardado por índice, e qualquer arrasto muda os índices embaixo
+   * dele. Sem isto, arrastar um bicho qualquer trocaria quem vai a campo.
+   */
+  private reencontrarAtivo(ativo: Exemplar | null) {
+    this.ativo = ativo ? this.exemplares.indexOf(ativo) : -1;
   }
 
   /** O inicial chega com a vida cheia e já escolhido. */
@@ -473,7 +592,7 @@ export class Dex {
   }
 
   curarTime() {
-    for (const e of this.exemplares) e.hp = this.hpMaxDe(e);
+    for (const e of this.exemplares) if (e) e.hp = this.hpMaxDe(e);
     this.salvar();
   }
 
