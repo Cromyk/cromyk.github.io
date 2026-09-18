@@ -61,6 +61,7 @@ import { ITENS } from '../src/itens';
 import { Mochila, disporGrade } from '../src/mochila';
 import { MEDIDAS_TIME, disporTime } from '../src/menu';
 import { classificarPelaAltura } from '../src/room';
+import { ALTURA_DE_ABRACO, Colo, alcanceDoColo, cabeNoColo, pontoDoColo } from '../src/colo';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
 import { GOLPES_DEX } from '../src/golpes.gen';
@@ -2677,6 +2678,174 @@ console.log('29. as pedras de evolução');
       '   móveis por altura: assento até 58 cm · mesa até 88 · bancada até 125 · acima é lugar alto',
     );
   }
+
+
+// --- 30. o colo, com uma mão e com duas ---
+//
+// O gesto de duas mãos não é um estado novo: ele já era ALCANÇÁVEL, e estava
+// quebrado. A guarda da cascata do GRIP olhava só a própria mão, `pegarNoColo`
+// não recusava quem já estava no colo, e a posição era escrita uma vez por
+// entrada do mapa — o bicho grudava numa mão e a outra o atravessava. Esta
+// seção existe porque `npm test` imprimia TUDO PASSOU com isso no jogo: grep
+// por 'colo' no arquivo inteiro não devolvia uma linha.
+console.log('\n30. o colo, com uma mão e com duas');
+{
+  const colo = new Colo();
+  const bicho = nascer(porId('pikachu')!, 'companheiro');
+  // Meio segundo de vida primeiro: recém-saído da bola ele está em 'surgindo',
+  // com a escala ainda crescendo, e o colo recusa de propósito (ver abaixo).
+  for (let i = 0; i < 48; i++) bicho.atualizar(1 / 72, new THREE.Vector3(0, 1.6, 0));
+
+  // O INVARIANTE DE DONO. É O bug, e é o único teste que precisa passar.
+  checar(bicho.pegarNoColo(), 'o Pikachu recusou o colo depois de nascer');
+  colo.pegar(0, bicho);
+  colo.pegar(1, bicho);
+  checar(colo.maosEm(bicho) === 2, 'o colo não soube contar duas mãos no mesmo bicho');
+  checar(bicho.abracado, 'duas mãos nele e ele não se sabe abraçado');
+
+  checar(colo.soltar(0) === 'reduziu', 'soltar uma das duas mãos devia REDUZIR, não soltar');
+  checar(colo.maosEm(bicho) === 1, 'sobrou mão errada depois de reduzir');
+  checar(
+    bicho.estado === 'colo',
+    `abrir UMA das duas mãos derrubou o bicho (estado ${bicho.estado}) — é o gesto de passar de uma mão para a outra`,
+  );
+  checar(!bicho.abracado, 'com uma mão só ele continua se achando abraçado');
+  checar(colo.soltar(1) === 'soltou', 'a última mão devia SOLTAR');
+  checar(bicho.estado !== 'colo', 'a última mão abriu e ele continuou no ar');
+  checar(colo.soltar(1) === null, 'soltar uma mão vazia devia ser no-op');
+}
+
+{
+  // QUEM CABE EM QUANTAS MÃOS, por NOME e não por contagem: se alguém mexer na
+  // curva de escala de species.ts, o teste diz de quem é a culpa.
+  const naSala = (e: Especie) => e.altura;
+  const soNasDuas: string[] = [];
+  const foraDasDuas: string[] = [];
+  let numa = 0;
+  for (const e of ESPECIES) {
+    const h = naSala(e);
+    const uma = cabeNoColo(h, 1);
+    const duas = cabeNoColo(h, 2);
+    checar(!uma || duas, `${e.nome} cabe numa mão e não cabe nas duas — isso é impossível`);
+    if (uma) numa++;
+    else if (duas) soNasDuas.push(e.id);
+    else foraDasDuas.push(e.id);
+  }
+  checar(cabeNoColo(naSala(porId('pikachu')!), 1), 'Pikachu devia caber numa mão');
+  checar(cabeNoColo(naSala(porId('charmander')!), 1), 'Charmander devia caber numa mão');
+  for (const id of ['snorlax', 'lapras', 'dragonair']) {
+    const h = naSala(porId(id)!);
+    checar(!cabeNoColo(h, 1), `${id} não devia caber numa mão só`);
+    checar(cabeNoColo(h, 2), `${id} devia caber nas duas mãos`);
+  }
+  checar(
+    foraDasDuas.join(',') === 'onix,gyarados' || foraDasDuas.join(',') === 'gyarados,onix',
+    `os grandes demais para as duas mãos deviam ser só Onix e Gyarados, e são: ${foraDasDuas.join(', ')}`,
+  );
+  console.log(
+    `   colo: ${numa} dos ${ESPECIES.length} cabem numa mão · +${soNasDuas.length} nas duas · ` +
+      `fora, só ${foraDasDuas.length}`,
+  );
+}
+
+{
+  // O GESTO DE UMA MÃO NÃO MUDOU UM MILÍMETRO. É o critério "não quebrar o que
+  // já funciona" virando teste.
+  const a = new THREE.Vector3(0.12, 1.1, -0.4);
+  const so = pontoDoColo(a, null, 0.3, 0, new THREE.Vector3());
+  checar(so.x === a.x && so.z === a.z, 'com uma mão o bicho saiu de cima da palma');
+  checar(Math.abs(so.y - (a.y + 0.02)) < 1e-9, 'com uma mão a altura acima da palma mudou');
+
+  // O CENTRO DELE É O MEIO DAS SUAS MÃOS — a promessa inteira do desenho, da
+  // qual dependem o alvo do golpe e o da pokébola (ver Pokemon.centro).
+  const e = new THREE.Vector3(-0.12, 1.2, -0.35);
+  const d = new THREE.Vector3(0.12, 1.2, -0.35);
+  const altura = 0.5;
+  const meio = pontoDoColo(e, d, altura, 0, new THREE.Vector3());
+  checar(Math.abs(meio.x) < 1e-9 && Math.abs(meio.z + 0.35) < 1e-9, 'o bicho não ficou no meio das duas mãos');
+  checar(
+    Math.abs(meio.y + altura * 0.5 - 1.2) < 1e-9,
+    'o CENTRO do corpo não caiu na altura das palmas — o alvo do golpe sai de dentro dele',
+  );
+  checar(meio.distanceTo(e) > 1e-6 && meio.distanceTo(d) > 1e-6, 'com duas mãos ele grudou numa delas');
+  checar(
+    Math.abs(meio.distanceTo(e) - meio.distanceTo(d)) < 1e-9,
+    'com duas mãos ele ficou mais perto de uma',
+  );
+
+  // Os pés não atravessam o carpete.
+  const baixo = pontoDoColo(
+    new THREE.Vector3(-0.12, 0.1, 0),
+    new THREE.Vector3(0.12, 0.1, 0),
+    0.6,
+    0.02,
+    new THREE.Vector3(),
+  );
+  checar(baixo.y >= 0.02, 'abaixar as duas mãos enfiou o bicho no chão');
+
+  // A CABEÇA NÃO PASSA DOS OLHOS: é isto que justifica ALTURA_DE_ABRACO, e não
+  // o número solto. Mexeu no teto, esta linha acusa.
+  const palmas = 1.2;
+  const topo = palmas + ALTURA_DE_ABRACO * 0.5;
+  checar(topo <= 1.65, `um bicho no teto do abraço sobe até ${topo.toFixed(2)} m, acima dos olhos`);
+}
+
+{
+  // O CINTO SOBREVIVE ao gesto: um ajuste de pegada no meio do abraço não pode
+  // sacar uma pokébola de dentro do bicho. A conta é a distância do centro dele
+  // até o primeiro slot do antebraço oposto.
+  let pior = Infinity;
+  let culpado = '';
+  for (const e of ESPECIES) {
+    if (!cabeNoColo(e.altura, 2)) continue;
+    const doSlot = Math.hypot(0.06 + INICIO_SLOT, 0.02 + e.altura * 0.5);
+    const folga = doSlot - alcanceDoColo(e.altura * 0.5, 2);
+    if (folga < pior) {
+      pior = folga;
+      culpado = e.nome;
+    }
+  }
+  checar(pior > 0, `o abraço alcança o slot do cinto em ${culpado} (folga ${pior.toFixed(3)} m)`);
+  console.log(`   abraço × cinto: a folga mais apertada é ${(pior * 100).toFixed(1)} cm, em ${culpado}`);
+}
+
+{
+  // NO COLO ELE NÃO CAI, NÃO VIRA NaN, E ENCARA VOCÊ. São as três coisas que
+  // mudaram em creature.ts, e as três só se veem rodando o bicho.
+  const bicho = nascer(porId('charmander')!, 'companheiro');
+  const jogador = new THREE.Vector3(0, 1.6, 0);
+  for (let i = 0; i < 48; i++) bicho.atualizar(1 / 72, jogador);
+  checar(bicho.pegarNoColo(), 'o companheiro recusou o colo');
+  bicho.raiz.position.set(0.1, 1.15, -0.5);
+  bicho.raiz.rotation.set(0.5, 1.0, -0.4);
+  const y = bicho.raiz.position.y;
+  for (let i = 0; i < 240; i++) bicho.atualizar(1 / 72, jogador);
+  checar(bicho.raiz.position.y === y, 'o bicho no colo caiu sozinho — a gravidade entrou no estado colo');
+  checar(Number.isFinite(bicho.raiz.rotation.y), 'a rotação dele no colo virou NaN');
+
+  // Encarar: o jogador está atrás dele, e ele tem de virar.
+  const esperado = Math.atan2(jogador.x - bicho.raiz.position.x, jogador.z - bicho.raiz.position.z);
+  let erro = esperado - bicho.raiz.rotation.y;
+  erro = Math.atan2(Math.sin(erro), Math.cos(erro));
+  checar(
+    Math.abs(erro) < 0.1,
+    `no colo ele não virou para você: faltam ${((erro * 180) / Math.PI).toFixed(0)}°`,
+  );
+
+  // E soltar devolve ao prumo, sem impulso.
+  bicho.soltarDoColo();
+  checar(
+    bicho.raiz.rotation.x === 0 && bicho.raiz.rotation.z === 0,
+    'ele voltou ao chão inclinado, e vai andar torto pela sala para sempre',
+  );
+  checar(bicho.estado === 'ocioso', 'soltar do colo não devolveu ele à vida');
+
+  // Um bicho recém-saído da bola não é pego: com a escala ainda em 0,001, um
+  // Onix mede oito milímetros e passaria por qualquer teto de altura.
+  const novo = nascer(porId('onix')!, 'companheiro');
+  novo.raiz.scale.setScalar(0.001);
+  checar(!novo.pegarNoColo() || novo.estado !== 'colo', 'um Onix de 8 mm entrou no colo');
+}
 
   console.log(
     `   ${PEDRAS.length} pedras, ${pares} evoluções · ` +

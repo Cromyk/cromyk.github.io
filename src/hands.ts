@@ -69,6 +69,10 @@ export class Mao {
       this.segurando = false;
       this.botoes.length = 0;
       this.bordas.length = 0;
+      // O punho também. Sem isto, uma mão que sumiu fechada volta mentindo que
+      // está fechada: a borda de `lerPunhoFechado` nunca vem, e aquela mão
+      // passa o resto da sessão sem conseguir agarrar nada.
+      this.punhoFechado = false;
     });
   }
 
@@ -150,6 +154,22 @@ export class Mao {
 
   get grip(): number {
     return this.fonte?.gamepad?.buttons[GRIP]?.value ?? 0;
+  }
+
+  /**
+   * Ela está fechada AGORA — que é diferente de `segurando`.
+   *
+   * `segurando` quer dizer "pegou alguma coisa e continua com ela". Isto aqui é
+   * o estado do punho neste instante, tenha ele pegado algo ou não, e é o que
+   * um gesto de DUAS MÃOS precisa perguntar sobre a outra mão: para levantar um
+   * bicho grande as duas têm de estar fechadas juntas, e a outra ainda não
+   * pegou nada — ela está esperando esta.
+   *
+   * Meio curso no controle, porque o runtime só dispara `squeezestart` perto do
+   * fim dele, e aqui a pergunta não é "acabou de fechar", é "está fechada".
+   */
+  get fechada(): boolean {
+    return this.semControle ? this.punhoFechado : this.grip > 0.5;
   }
 
   /**

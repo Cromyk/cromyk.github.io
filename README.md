@@ -75,6 +75,8 @@ sem pôr o headset a cada mudança:
 | Arremessar | **soltar o GRIP** no meio do movimento do braço |
 | Recolher uma bola do chão | **GRIP** com a mão em cima dela |
 | Pegar seu Pokémon no colo | **GRIP** com a mão nele (até meio metro de altura) |
+| Pegar com as DUAS mãos | feche as duas em volta dele — até 85 cm, e ele fica entre elas |
+| Passar de uma mão para a outra | abra UMA das duas: ele fica na que continua fechada |
 | Pôr ele no chão | **abrir a mão** |
 | Pegar a Pokédex | levar a mão **às costas** e fechar o **GRIP** |
 | Guardar a Pokédex | levar de volta às costas e fechar o **GRIP** |
@@ -142,10 +144,16 @@ Agora **agarrar só vale sobre alguma coisa**, e há coisas para agarrar:
   com qualquer das duas mãos —, lê apontando com a outra, e guarda levando de
   volta. A silhueta na palma é o que diz que você pegou a Pokédex e não outra
   coisa, porque a mão vai lá atrás às cegas.
-- **O seu Pokémon se pega no colo**, se couber nele: até meio metro, o que dá
-  Pikachu, Charmander, Eevee, Squirtle. Ele sai da física enquanto está na sua
-  mão e continua vivo — olhando em volta, respondendo. Abrir a mão o põe no chão
-  de onde ele estava.
+- **O seu Pokémon se pega no colo**, se couber nele: até meio metro numa mão —
+  Pikachu, Charmander, Eevee, Squirtle — e até **85 cm nas duas**, que traz
+  Charmeleon, Wartortle, Snorlax, Lapras e Dragonair para o colo. Com as duas,
+  ele fica ENTRE as suas mãos, e abrir só uma não o derruba: ele passa para a
+  que continuou fechada. Se for grande demais para uma mão só, começa a
+  escorregar dela — e fechar a outra de volta dentro de um segundo o segura.
+  Ele sai da física enquanto está na sua mão e continua vivo: encara você,
+  responde ao carinho, e achata um pouquinho sob o próprio peso. Abrir a última
+  mão o põe no chão de onde ele estava. Gyarados e Onix continuam de fora, e
+  continuar de fora é a resposta certa.
 - **E o carinho virou conversa.** A cabeça dele ACOMPANHA a sua mão: você move
   para o lado e o pescoço vai atrás, encostando na palma. Só o pescoço — o corpo
   fica onde está, porque um bicho que roda o tronco inteiro atrás de um carinho

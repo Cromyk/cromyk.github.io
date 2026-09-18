@@ -230,6 +230,7 @@ function prepararTeclasDoPlano() {
     if (e.code === 'KeyR') jogo.comandoPlano('recolher');
     if (e.code === 'KeyC') jogo.comandoPlano('chamar');
     if (e.code === 'KeyV') jogo.comandoPlano('carinho');
+    if (e.code === 'KeyK') jogo.comandoPlano('colo');
     if (e.code === 'KeyB') jogo.comandoPlano('acenar');
     if (e.code === 'KeyG') jogo.comandoPlano('isca');
     if (e.code === 'KeyH') jogo.comandoPlano('doce');

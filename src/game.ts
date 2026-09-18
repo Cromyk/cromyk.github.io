@@ -49,6 +49,15 @@ import { fatorDoHorario, nomeDoPeriodo, noturnidade } from './hora';
 import { Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
 import { Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
+import {
+  Colo,
+  ESCORREGAO,
+  MOLA_DO_COLO,
+  TEMPO_ATE_ESCORREGAR,
+  alcanceDoColo,
+  cabeNoColo,
+  pontoDoColo,
+} from './colo';
 import { Evolucao, PromptEvolucao } from './evolucao';
 import type { GestoDeAtaque } from './anima';
 import { PainelTime, type EntradaGolpe } from './menu';
@@ -123,18 +132,6 @@ const ALCANCE_BATALHA = 4.5;
  * vezes", que é o oposto do gesto.
  */
 const ALCANCE_DO_CHAO = 0.16;
-
-/**
- * Até que altura um Pokémon cabe no colo.
- *
- * Meio metro: dá Pikachu, Charmander, Eevee, Squirtle — os que uma pessoa
- * pegaria no colo sem pensar. Onix não entra, e não entrar é a resposta certa;
- * um Onix de oito metros na palma da mão não é uma coisa fofa, é um erro de
- * escala andando pela sala.
- */
-const ALTURA_DE_COLO = 0.5;
-/** Quão perto a mão precisa chegar do corpo dele para pegar. */
-const ALCANCE_DE_COLO = 0.3;
 
 /**
  * O mapeamento de boas-vindas, em superfícies e em segundos.
@@ -719,14 +716,69 @@ export class Jogo {
   private pontoDoTablet = new THREE.Vector3();
 
   /**
-   * O Pokémon que cada mão está segurando no colo.
+   * Quem está em que mão. Ver src/colo.ts.
    *
-   * É um mapa e não um campo só porque as duas mãos podem estar ocupadas: uma
-   * com o bicho e outra com a Pokédex, ou — e isto é a melhor parte — uma com o
-   * bicho e a outra fazendo carinho nele.
+   * As duas mãos podem estar ocupadas com coisas diferentes — uma com o bicho e
+   * outra com a Pokédex, ou uma com o bicho e a outra fazendo carinho nele — e,
+   * desde 18/09, as duas podem estar no MESMO bicho.
    */
-  private pokemonNoColo = new Map<number, Pokemon>();
+  private colo = new Colo();
   private pontoDaMao = new THREE.Vector3();
+  private pontoDaOutraMao = new THREE.Vector3();
+  private alvoDoColo = new THREE.Vector3();
+  /**
+   * Há quanto tempo um bicho grande está pendurado numa mão só.
+   *
+   * Ver `TEMPO_ATE_ESCORREGAR`: ele não cai no instante em que uma das duas
+   * mãos abre — ele escorrega, e fechar a mão de volta o segura.
+   */
+  private escorregando = new Map<Pokemon, number>();
+
+  /** A outra mão conectada, por exclusão de índice — nunca por lado. */
+  private outraMao(mao: Mao): Mao | null {
+    return this.maos.find((m) => m.indice !== mao.indice && m.conectada) ?? null;
+  }
+
+  /**
+   * Esta mão está perto o bastante do corpo dele?
+   *
+   * Duas regras num lugar só. A PRIMEIRA mão mede pela ponta do dedo e com
+   * folga: você está procurando o bicho, agachado, com a sua própria mão
+   * tapando o alvo. A SEGUNDA mede pelo centro da palma e com metade da folga:
+   * ela não está procurando nada, o bicho está pendurado na outra mão dela.
+   *
+   * É a mesma regra editorial do resto do jogo — o que se APONTA usa o dedo, o
+   * que se AGARRA usa a palma.
+   */
+  private noAlcanceDoColo(mao: Mao, c: Pokemon, maos: 1 | 2): boolean {
+    const ponto = maos === 2 ? this.pontoDeAgarre(mao) : mao.pontoDeToque(this.pontoDaMao);
+    const alcance = alcanceDoColo(c.raio, maos);
+    return ponto.distanceToSquared(c.centro) <= alcance * alcance;
+  }
+
+  /** O cartão que explica o que fazer com o bicho que acabou de subir. */
+  private avisarColo(c: Pokemon, maos: 1 | 2) {
+    this.aviso.mostrar(
+      [
+        {
+          texto:
+            maos === 2 ? `${c.especie.nome} no colo, nas duas mãos` : `${c.especie.nome} no colo`,
+          tamanho: 36,
+          cor: corHexDe(c.especie),
+        },
+        {
+          texto:
+            maos === 2
+              ? 'abra UMA das mãos e ele passa para a outra'
+              : 'a outra mão faz carinho · abra a mão para pôr no chão',
+          tamanho: 21,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      2,
+    );
+  }
 
   /**
    * Pega no colo o Pokémon que estiver sob esta mão.
@@ -737,65 +789,222 @@ export class Jogo {
   private pegarNoColo(mao: Mao): boolean {
     const c = this.companheiro;
     if (!c || !c.viva || c.desmaiado) return false;
-    if (c.altura * c.raiz.scale.y > ALTURA_DE_COLO) return false;
-
-    const alcance = Math.max(ALCANCE_DE_COLO, c.raio * 1.1);
-    if (mao.pontoDeToque(this.pontoDaMao).distanceToSquared(c.centro) > alcance * alcance) {
-      return false;
-    }
-
+    if (!cabeNoColo(c.altura * c.raiz.scale.y, 1)) return false;
+    if (!this.noAlcanceDoColo(mao, c, 1)) return false;
     if (!c.pegarNoColo()) return false;
-    this.pokemonNoColo.set(mao.indice, c);
+
+    this.colo.pegar(mao.indice, c);
     mao.segurando = true;
+    mao.limparAmostras();
     mao.sentir('acertou');
     audio.carinho();
     audio.grito(c.especie.id, c.shiny, c.especie.num);
-    this.aviso.mostrar(
-      [
-        { texto: `${c.especie.nome} no colo`, tamanho: 36, cor: corHexDe(c.especie) },
-        {
-          texto: 'a outra mão faz carinho · abra a mão para pôr no chão',
-          tamanho: 21,
-          cor: '#9aa5b8',
-          peso: 500,
-        },
-      ],
-      2,
-    );
+    this.avisarColo(c, 1);
     return true;
   }
 
-  /** Abriu a mão: ele desce de onde estava. */
+  /**
+   * O gesto das DUAS mãos.
+   *
+   * ## O que ele resolve
+   *
+   * Duas coisas, e a primeira é um bug: fechar a segunda mão sobre um bicho que
+   * a primeira já segurava SEMPRE foi possível, e sempre foi quebrado — o
+   * feedback inteiro disparava de novo, o bicho grudava numa das mãos e a outra
+   * o atravessava. Quem tentasse passá-lo de uma mão para a outra o derrubava,
+   * porque abrir uma das mãos chamava `soltarDoColo` sem perguntar se sobrava
+   * alguma.
+   *
+   * A segunda é o pedido: com as duas mãos, cabe **bicho maior**. Até 85 cm
+   * contra os 50 de uma mão — ver ALTURA_DE_ABRACO. Charmeleon, Wartortle,
+   * Snorlax, Lapras e Dragonair entram; Gyarados e Onix continuam de fora, e
+   * continuar de fora é a resposta certa.
+   *
+   * ## As três saídas
+   *
+   * 1. **A outra mão já tem este bicho** — esta entra também, e ele sobe para o
+   *    meio das duas. Sem grito e sem `pegarNoColo` de novo: ele já está no
+   *    colo, isto é ajustar a pegada, não pegar.
+   * 2. **Ninguém o segura e ele cabe numa mão** — devolve false de propósito,
+   *    para o gesto de uma mão fazer o de sempre. Pegar um Pikachu continua
+   *    sendo fechar uma mão nele.
+   * 3. **Ninguém o segura e ele só cabe nas duas** — se a outra mão já estiver
+   *    fechada, livre e no alcance, ele sobe agora. Se não, o jogo DIZ o que
+   *    falta ("feche as duas em volta dele") em vez de não fazer nada — um
+   *    gesto que falha calado é indistinguível de um gesto que não existe.
+   *
+   * Vem antes da bola caída no chão na cascata do GRIP, e isso é deliberado: o
+   * caso mais comum do jogo é a bola da captura que falhou deitada no carpete
+   * AO LADO do bicho, e sem esta ordem a segunda mão cataria a bola em vez de
+   * abraçar.
+   */
+  private abracar(mao: Mao): boolean {
+    const c = this.companheiro;
+    if (!c || !c.viva || c.desmaiado) return false;
+    // Esta mão já o tem: quem trata isso é o guarda lá em cima de `pegarBola`.
+    if (this.colo.bichoDe(mao.indice) === c) return false;
+
+    const alturaEfetiva = c.altura * c.raiz.scale.y;
+    if (!cabeNoColo(alturaEfetiva, 2)) return false;
+    if (!this.noAlcanceDoColo(mao, c, 2)) return false;
+
+    const outra = this.outraMao(mao);
+    const jaNele = this.colo.maosEm(c) > 0;
+
+    // (1) a segunda mão entra no bicho que a primeira já segura
+    if (jaNele) {
+      this.colo.pegar(mao.indice, c);
+      mao.segurando = true;
+      // Nas DUAS: o movimento de levar o braço até ele não pode virar impulso
+      // inicial do próximo arremesso.
+      mao.limparAmostras();
+      outra?.limparAmostras();
+      mao.sentir('acertou');
+      outra?.sentir('acertou');
+      audio.carinho();
+      c.animador.disparar('cafune', 1.2);
+      this.escorregando.delete(c);
+      this.avisarColo(c, 2);
+      return true;
+    }
+
+    // (2) cabe numa mão e ninguém o segura: o gesto de sempre resolve
+    if (cabeNoColo(alturaEfetiva, 1)) return false;
+
+    // (3) grande demais para uma mão — só sobe se a outra estiver pronta
+    const outraPronta =
+      outra !== null &&
+      outra.fechada &&
+      !this.maoCheia(outra) &&
+      !this.colo.tem(outra.indice) &&
+      this.noAlcanceDoColo(outra, c, 2);
+
+    if (!outraPronta) {
+      audio.recusa();
+      mao.sentir('recusado');
+      this.aviso.mostrar(
+        [
+          { texto: `${c.especie.nome} não cabe numa mão`, tamanho: 34, cor: corHexDe(c.especie) },
+          { texto: 'feche as duas em volta dele', tamanho: 22, cor: '#9aa5b8', peso: 500 },
+        ],
+        1.8,
+      );
+      return true;
+    }
+
+    if (!c.pegarNoColo()) return false;
+    this.colo.pegar(mao.indice, c);
+    this.colo.pegar(outra!.indice, c);
+    mao.segurando = true;
+    outra!.segurando = true;
+    mao.limparAmostras();
+    outra!.limparAmostras();
+    mao.sentir('acertou');
+    outra!.sentir('acertou');
+    audio.carinho();
+    audio.grito(c.especie.id, c.shiny, c.especie.num);
+    this.avisarColo(c, 2);
+    return true;
+  }
+
+  /**
+   * Abriu a mão.
+   *
+   * Com as duas mãos nele, abrir UMA não derruba: ele passa para a que sobrou —
+   * e se for grande demais para uma mão só, começa a escorregar dela (ver
+   * `atualizarColo`). Passar o bicho de uma mão para a outra é a primeira coisa
+   * que se tenta depois de pegá-lo com as duas, e até 18/09 isso o jogava no
+   * chão.
+   */
   private soltarDoColo(mao: Mao) {
-    const bicho = this.pokemonNoColo.get(mao.indice);
-    if (!bicho) return;
-    this.pokemonNoColo.delete(mao.indice);
+    const bicho = this.colo.bichoDe(mao.indice) as Pokemon | null;
+    const oQue = this.colo.soltar(mao.indice);
+    if (!oQue || !bicho) return;
     mao.segurando = false;
-    bicho.soltarDoColo();
     mao.sentir('marcou');
+    if (oQue === 'soltou') this.escorregando.delete(bicho);
+  }
+
+  /** Tira este bicho de todas as mãos — para recolher, evoluir, trocar. */
+  private tirarDoColo(bicho: Pokemon | null) {
+    if (!bicho) return;
+    for (const indice of this.colo.tirar(bicho)) {
+      const mao = this.maos.find((m) => m.indice === indice);
+      if (mao) mao.segurando = false;
+    }
+    this.escorregando.delete(bicho);
   }
 
   /**
    * O bicho no colo vai onde a mão vai.
    *
-   * Um palmo à frente da palma e um pouco acima, que é onde um bicho pequeno
-   * fica quando você o segura contra o peito — e não centrado na mão, que o
-   * deixaria atravessando os seus dedos.
+   * Com uma mão, um pouco acima da palma — que é onde um bicho pequeno fica
+   * quando você o segura. Com duas, ele fica ENTRE elas, e o centro do corpo
+   * cai no meio exato das suas palmas (ver `pontoDoColo`, em src/colo.ts).
+   *
+   * A posição é uma MOLA e não uma cópia: sem ela, o corpo é teleportado para a
+   * mão todo quadro e não tem inércia nenhuma — e o instante em que a segunda
+   * mão fecha, que muda o ponto de apoio de uma palma para o meio das duas,
+   * vira um pulo.
+   *
+   * Roda DEPOIS de `atualizarCompanheiro`, e isso não é acaso: o recuo do golpe
+   * e o tremor de dano também escrevem na raiz, e a mão precisa ser a última
+   * palavra sobre onde ele está neste quadro.
    */
-  private atualizarColo() {
-    for (const [indice, bicho] of this.pokemonNoColo) {
+  private atualizarColo(dt: number) {
+    // Faxina: mão que sumiu ou bicho que morreu saem do mapa. A mão devolve o
+    // punho — sem isso, recolher o bicho para a bola deixa a luva branca
+    // fechada em volta de nada até o fim da sessão.
+    for (const indice of this.colo.indices()) {
       const mao = this.maos.find((m) => m.indice === indice);
-      if (!mao?.conectada || !bicho.viva) {
-        this.pokemonNoColo.delete(indice);
+      const bicho = this.colo.bichoDe(indice) as Pokemon | null;
+      if (mao?.conectada && bicho?.viva) continue;
+      this.colo.esquecer(indice);
+      if (mao) mao.segurando = false;
+      if (bicho && this.colo.maosEm(bicho) === 0) {
         bicho.soltarDoColo();
-        continue;
+        this.escorregando.delete(bicho);
       }
-      mao.pontoDeToque(this.pontoDaMao);
-      bicho.raiz.position.set(
-        this.pontoDaMao.x,
-        this.pontoDaMao.y + 0.02,
-        this.pontoDaMao.z,
-      );
+    }
+
+    // Um bicho por vez, e não uma entrada por vez: com as duas mãos nele, o
+    // laço por entrada escrevia a posição duas vezes e a última mão da ordem de
+    // inserção vencia — que era exatamente o bug de grudar numa mão.
+    for (const aninhavel of this.colo.bichos()) {
+      const bicho = aninhavel as Pokemon;
+      const donos = this.colo.donosDe(bicho);
+      const maos = donos
+        .map((i) => this.maos.find((m) => m.indice === i))
+        .filter((m): m is Mao => m !== undefined);
+      if (maos.length === 0) continue;
+
+      const duas = maos.length >= 2;
+      const alturaEfetiva = bicho.altura * bicho.raiz.scale.y;
+      bicho.abracado = duas;
+
+      const a = duas ? this.pontoDeAgarre(maos[0]) : maos[0].pontoDeToque(this.pontoDaMao);
+      const b = duas ? maos[1].posicaoMundo(this.pontoDaOutraMao) : null;
+      pontoDoColo(a, b, alturaEfetiva, this.sala.pisoY, this.alvoDoColo);
+
+      // Uma mão só num bicho que precisa de duas: ele ESCORREGA. Fechar a outra
+      // mão de volta dentro de um segundo o segura — é o que transforma "a mão
+      // escorregou" numa coisa que se conserta, e não numa queda.
+      if (!duas && !cabeNoColo(alturaEfetiva, 1)) {
+        const tempo = (this.escorregando.get(bicho) ?? 0) + dt;
+        this.escorregando.set(bicho, tempo);
+        this.alvoDoColo.y -= Math.min(tempo, TEMPO_ATE_ESCORREGAR) * ESCORREGAO;
+        // Vibra fraco enquanto escorrega: é a mão avisando que está perdendo.
+        maos[0].vibrar(0.2, 30);
+        if (tempo >= TEMPO_ATE_ESCORREGAR) {
+          this.soltarDoColo(maos[0]);
+          this.escorregando.delete(bicho);
+          continue;
+        }
+      } else {
+        this.escorregando.delete(bicho);
+      }
+
+      bicho.raiz.position.lerp(this.alvoDoColo, Math.min(1, dt * MOLA_DO_COLO));
     }
   }
 
@@ -872,7 +1081,7 @@ export class Jogo {
     // nem tira nada do cinto: para pegar outra coisa, primeiro ponha ele no
     // chão. Sem isto, fechar a mão de novo com o Charmander nela começava a
     // recolher pokébolas por cima dele.
-    if (this.pokemonNoColo.has(mao.indice)) return;
+    if (this.colo.tem(mao.indice)) return;
 
     // Mão cheia em cima do painel: o GRIP GUARDA o que ela está segurando, em
     // vez de pegar mais uma coisa. É o "desisti" — você leva a bola de volta
@@ -891,6 +1100,11 @@ export class Jogo {
     }
 
     if (this.bolaNaMao.has(mao.indice)) return;
+
+    // As DUAS mãos no mesmo bicho. Vem antes da bola caída porque o caso mais
+    // comum do jogo é a bola da captura que falhou deitada no carpete AO LADO
+    // dele: sem esta ordem, a segunda mão cataria a bola em vez de abraçar.
+    if (!this.maoCheia(mao) && this.abracar(mao)) return;
 
     // Uma bola caída no carpete: agarrar recolhe ELA, a mesma. Nada é criado e
     // nada é gasto — a bola já saiu da mochila quando voou, e voltar para a sua
@@ -911,7 +1125,7 @@ export class Jogo {
     // O seu Pokémon debaixo da mão: pega ele no colo. Vem antes do cinto
     // porque um bicho é maior do que um slot e você está claramente mirando
     // nele — e depois da bola caída, que é a coisa pequena e precisa.
-    if (!this.maoCheia(mao) && !this.pokemonNoColo.has(mao.indice) && this.pegarNoColo(mao)) {
+    if (!this.maoCheia(mao) && !this.colo.tem(mao.indice) && this.pegarNoColo(mao)) {
       return;
     }
 
@@ -1002,7 +1216,14 @@ export class Jogo {
 
   /** Ela está segurando alguma coisa — uma bola ou um item. */
   private maoCheia(mao: Mao): boolean {
-    return this.bolaNaMao.has(mao.indice) || this.itemNaMao.has(mao.indice);
+    // O bicho no colo conta. Sem ele nesta conta, os berços do cinto acendiam
+    // embaixo de uma mão que está abraçando um Pokémon, prometendo um grip que
+    // a cascata ia recusar — o braço prometendo o que não cumpre.
+    return (
+      this.bolaNaMao.has(mao.indice) ||
+      this.itemNaMao.has(mao.indice) ||
+      this.colo.tem(mao.indice)
+    );
   }
 
   /**
@@ -1556,8 +1777,9 @@ export class Jogo {
   }
 
   private arremessarBola(mao: Mao) {
-    // Abrir a mão com um bicho nela é pôr o bicho no chão, não arremessar nada.
-    if (this.pokemonNoColo.has(mao.indice)) {
+    // Abrir a mão com um bicho nela é pôr o bicho no chão, não arremessar nada
+    // — ou, com as duas mãos nele, passá-lo para a que continua fechada.
+    if (this.colo.tem(mao.indice)) {
       this.soltarDoColo(mao);
       return;
     }
@@ -3385,7 +3607,7 @@ export class Jogo {
     this.atualizarCompanheiro(dt);
     // Depois do companheiro: quem está no colo tem a posição escrita pela mão,
     // e ela precisa ser a última palavra sobre onde ele está neste quadro.
-    this.atualizarColo();
+    this.atualizarColo(dt);
     this.atualizarEvolucao(dt);
     this.atualizarCarinho(dt);
     this.atualizarAtaqueSelvagem(dt);
@@ -3650,6 +3872,10 @@ export class Jogo {
     const toque = new THREE.Vector3();
     for (const mao of this.maos) {
       if (!mao.conectada) continue;
+      // A mão que o SEGURA não é a mão que o afaga. Com ele no colo, a palma
+      // está encostada nele o tempo todo: sem isto, segurar seria um carinho
+      // infinito — e com as duas mãos, dois.
+      if (this.colo.tem(mao.indice)) continue;
       mao.pontoDeToque(toque);
       if (toque.distanceTo(cabeca) <= alcance) {
         tocando = mao;
@@ -4669,6 +4895,9 @@ export class Jogo {
 
   private removerCompanheiro() {
     if (!this.companheiro) return;
+    // Antes de tudo: se ele está nas suas mãos, sai delas. Sem isto a luva fica
+    // fechada em volta de nada e o mapa guarda um corpo que foi descartado.
+    this.tirarDoColo(this.companheiro);
     // A pergunta era sobre este corpo. Sem ele em campo, ela não faz sentido.
     this.evolucaoPendente = null;
     this.promptEvolucao.esconder();
@@ -5097,6 +5326,7 @@ export class Jogo {
       | 'proximo'
       | 'pc'
       | 'recolher'
+      | 'colo'
       | 'chamar'
       | 'carinho'
       | 'gatilho'
@@ -5180,6 +5410,16 @@ export class Jogo {
 
       case 'chamar':
         this.chamarParaPerto(mao);
+        return;
+
+      // O colo, na tecla K. É UMA mão só, e assumidamente: o modo plano opera
+      // numa mão só e a bola voa por uma mão fantasma de índice 99 — fingir
+      // duas aqui testaria uma geometria inventada. O que ele serve para ver
+      // sem headset é o resto: o bicho encarando quem o segura, a mola até a
+      // mão, e o prumo na hora de descer.
+      case 'colo':
+        if (this.colo.tem(mao.indice)) this.soltarDoColo(mao);
+        else if (!this.pegarNoColo(mao)) audio.recusa();
         return;
 
       case 'acenar':
@@ -5345,9 +5585,18 @@ export class Jogo {
       this.travaDaAjuda -= dt;
       return;
     }
-    // Com painel, mochila ou escolha na frente, as mãos estão fazendo outra
-    // coisa — e o cartão por cima deles só atrapalharia.
-    if (this.escolha || this.mochila.estaAberta || this.painelTime.aberto || this.painelDex.aberto) {
+    // Com painel, mochila, escolha — ou um Pokémon nas mãos — elas estão
+    // fazendo outra coisa, e o cartão por cima só atrapalharia. Segurar um
+    // bicho com as duas mãos contra o peito é, geometricamente, a mesma pose de
+    // pedir ajuda: sem esta linha o cartão de comandos pularia na frente do
+    // rosto de quem acabou de levantar o companheiro.
+    if (
+      this.escolha ||
+      this.mochila.estaAberta ||
+      this.painelTime.aberto ||
+      this.painelDex.aberto ||
+      this.colo.tamanho > 0
+    ) {
       this.pedindoAjudaHa = 0;
       return;
     }

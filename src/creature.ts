@@ -8,6 +8,7 @@ import { Chama, FOGO_POR_ESPECIE, pontaDaCadeia } from './fogo';
 import { CONDICOES, type Condicao } from './condicao';
 import { AFETO } from './species';
 import { MarcaDeCondicao } from './marcaCondicao';
+import { ALTURA_DE_ABRACO, PESO_NO_ABRACO } from './colo';
 
 export type Papel = 'selvagem' | 'companheiro';
 
@@ -135,6 +136,14 @@ export class Pokemon {
   private tremor = 0;
   /** Achatada ao aterrissar, volta sozinha. */
   private impacto = 0;
+  /**
+   * As DUAS mãos nele, e não uma.
+   *
+   * Escrito pelo jogo (ver src/colo.ts), lido aqui para duas coisas: ele encara
+   * mais depressa quem o levantou à altura do rosto, e o corpo achata um pouco
+   * sob o próprio peso. Um bicho no colo de uma mão só continua como sempre foi.
+   */
+  abracado = false;
   private velocidadeAndando = 0;
   /**
    * Quem sabe a altura do apoio em cada ponto do quarto — a `Sala`.
@@ -854,7 +863,22 @@ export class Pokemon {
    * um objeto carregado.
    */
   pegarNoColo() {
-    if (this.desmaiado || this.estado === 'preso' || this.estado === 'saindo') return false;
+    // `surgindo` é o que faltava aqui, e o furo era grande: o corpo nasce com
+    // `scale` em 0,001 e cresce durante a animação de saída da bola, então
+    // quem testa o tamanho no INSTANTE vê um Onix de oito milímetros e o deixa
+    // passar por qualquer teto de altura.
+    if (
+      this.desmaiado ||
+      this.estado === 'preso' ||
+      this.estado === 'saindo' ||
+      this.estado === 'surgindo'
+    ) {
+      return false;
+    }
+    // Já está no colo: a segunda mão entrando não recomeça nada. Sem isto, ela
+    // zerava o cronômetro do estado — e o bicho perdia a conta de há quanto
+    // tempo estava ali toda vez que você o segurava melhor.
+    if (this.estado === 'colo') return true;
     this.estado = 'colo';
     this.cronometroEstado = 0;
     this.velY = 0;
@@ -869,6 +893,16 @@ export class Pokemon {
     this.estado = 'ocioso';
     this.cronometroEstado = 0;
     this.noChao = false;
+    this.abracado = false;
+    // O piso de onde ele está AGORA, e não o de onde você o pegou: com o bicho
+    // no colo você andou pela casa, subiu um degrau, foi até a cozinha. Sem
+    // reler, ele cai em direção a um chão que ficou dois cômodos atrás.
+    if (this.terreno) this.pisoY = this.terreno.alturaEm(this.raiz.position);
+    // Ao prumo. Ver `encararNoColo`: `centro` ignora a rotação, e um corpo que
+    // volta ao chão inclinado anda pela sala torto para sempre (o passo só
+    // corrige o Y).
+    this.raiz.rotation.x = 0;
+    this.raiz.rotation.z = 0;
     // Sem impulso: ele CAI do ponto onde a sua mão estava. Jogar para cima
     // seria uma decisão que você não tomou.
     this.velY = 0;
@@ -1008,14 +1042,28 @@ export class Pokemon {
         break;
 
       case 'colo':
-        // No colo quem manda na posição é a MÃO, e ela escreve direto na raiz
-        // (ver `porNoColo` em src/game.ts). O `mover` fica de fora por isso: ele
-        // aplicaria gravidade e passada num bicho que está no ar porque alguém
-        // o está segurando. O resto da vida continua — ele anima, olha em volta
-        // e responde a carinho.
-        this.olharPara = jogador;
+        // No colo quem manda na POSIÇÃO é a mão, e ela escreve direto na raiz
+        // (ver `atualizarColo` em src/game.ts). O `mover` fica de fora por isso:
+        // ele aplicaria gravidade e passada num bicho que está no ar porque
+        // alguém o está segurando.
+        //
+        // Só que o giro do corpo e a resposta ao cafuné moravam DENTRO de
+        // `mover`, e por isso não aconteciam aqui: o bicho no colo ficava
+        // congelado no ângulo em que estava quando você o pegou, de costas para
+        // você se você o tivesse pego por trás — e o carinho, que é a coisa que
+        // se faz com um bicho no colo, não virava a cabeça dele. Agora as duas
+        // coisas são chamadas daqui.
         this.velocidadeAndando = 0;
         this.noChao = false;
+        if (!this.olharParaOCafune(dt)) this.encararNoColo(dt, jogador);
+        // O peso, para quem está nas duas mãos: o corpo achata um pouco sob o
+        // próprio tamanho. É o único sinal de peso que existe de mão nua — a
+        // vibração depende do gamepad do controle, e uma fonte de hand tracking
+        // não tem um.
+        if (this.abracado) {
+          const carga = (this.altura * this.raiz.scale.y) / ALTURA_DE_ABRACO;
+          this.impacto = Math.max(this.impacto, PESO_NO_ABRACO * carga);
+        }
         this.animar(dt);
         return;
     }
@@ -1289,23 +1337,7 @@ export class Pokemon {
       this.velocidadeAndando = Math.max(0, this.velocidadeAndando - dt * 4);
     }
 
-    // A mão no cafuné manda na cabeça, e só nela: o corpo NÃO gira atrás dela.
-    // Quem está sendo afagado vira o pescoço na direção da mão; um bicho que
-    // roda o tronco inteiro atrás de um carinho parece estar tentando escapar.
-    if (this.maoNoCafune) {
-      this.tempoSemCafune += dt;
-      if (this.tempoSemCafune > 0.25) {
-        this.maoNoCafune = null;
-      } else {
-        const p = this.maoNoCafune;
-        const anguloAlvo = Math.atan2(p.x - this.raiz.position.x, p.z - this.raiz.position.z);
-        let delta = anguloAlvo - this.raiz.rotation.y;
-        delta = Math.atan2(Math.sin(delta), Math.cos(delta));
-        // Depressa: resposta a toque é reflexo, não decisão.
-        this.residuoOlhar += (delta - this.residuoOlhar) * Math.min(1, dt * 9);
-        return;
-      }
-    }
+    if (this.olharParaOCafune(dt)) return;
 
     const alvo = this.olharPara ?? (this.flutua || !this.noChao ? this.destino : null);
     if (alvo) {
@@ -1320,6 +1352,63 @@ export class Pokemon {
     } else {
       this.residuoOlhar *= Math.max(0, 1 - dt * 3);
     }
+  }
+
+  /**
+   * A mão no cafuné manda na cabeça, e só nela: o corpo NÃO gira atrás dela.
+   *
+   * Quem está sendo afagado vira o pescoço na direção da mão; um bicho que roda
+   * o tronco inteiro atrás de um carinho parece estar tentando escapar.
+   *
+   * Isto era um bloco dentro de `mover`, e virou método quando o colo precisou
+   * dele: no colo o `mover` inteiro fica de fora (a mão manda na posição), e o
+   * efeito era um bicho que não respondia ao carinho justamente na hora em que
+   * ele está no seu colo — que é quando quase todo o carinho deste jogo
+   * acontece. Nenhuma conta mudou na mudança.
+   *
+   * Devolve true quando a mão está lá e já respondeu por este quadro.
+   */
+  private olharParaOCafune(dt: number): boolean {
+    if (!this.maoNoCafune) return false;
+    this.tempoSemCafune += dt;
+    if (this.tempoSemCafune > 0.25) {
+      this.maoNoCafune = null;
+      return false;
+    }
+    const p = this.maoNoCafune;
+    const anguloAlvo = Math.atan2(p.x - this.raiz.position.x, p.z - this.raiz.position.z);
+    let delta = anguloAlvo - this.raiz.rotation.y;
+    delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+    // Depressa: resposta a toque é reflexo, não decisão.
+    this.residuoOlhar += (delta - this.residuoOlhar) * Math.min(1, dt * 9);
+    return true;
+  }
+
+  /**
+   * No colo, ele encara quem o está segurando.
+   *
+   * Mais depressa nas duas mãos do que numa: levantado com as duas, ele está a
+   * um palmo do seu rosto e um atraso ali lê como boneco; pendurado numa mão só,
+   * ele está de lado e a virada lenta é a de quem está confortável.
+   *
+   * O prumo volta junto. É a rede de segurança do invariante de `pontoDoColo`:
+   * `centro` ignora a rotação da raiz, então um corpo que ficasse inclinado no
+   * colo — por um tombo, por um golpe que o pegou caindo — poria o alvo do
+   * golpe e o da pokébola flutuando fora dele.
+   */
+  private encararNoColo(dt: number, jogador: THREE.Vector3) {
+    const anguloAlvo = Math.atan2(
+      jogador.x - this.raiz.position.x,
+      jogador.z - this.raiz.position.z,
+    );
+    let delta = anguloAlvo - this.raiz.rotation.y;
+    delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+    this.raiz.rotation.y += delta * Math.min(1, dt * (this.abracado ? 5.5 : 2.2));
+    this.residuoOlhar = delta;
+
+    const aoPrumo = Math.min(1, dt * 4);
+    this.raiz.rotation.x -= this.raiz.rotation.x * aoPrumo;
+    this.raiz.rotation.z -= this.raiz.rotation.z * aoPrumo;
   }
 
   /**
