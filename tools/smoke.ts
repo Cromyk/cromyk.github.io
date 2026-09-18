@@ -54,6 +54,8 @@ import { PEDRAS, EVOLUI_SO_COM_PEDRA } from '../src/pedras';
 import { ALCANCE_SLOT, INICIO_SLOT, PASSO_SLOT } from '../src/cinto';
 import { bonusDeCaptura } from '../src/condicao';
 import { Rastro, aVista, rumoDoRastro } from '../src/rastro';
+import { MARCOS, faltamPara, marcoDe } from '../src/marcos';
+import { Aviso } from '../src/hud';
 import { ITENS } from '../src/itens';
 import { Mochila, disporGrade } from '../src/mochila';
 import { Rig, type Chave } from '../src/rig';
@@ -1949,6 +1951,117 @@ console.log('29. as pedras de evolução');
     console.log(
       `   afeto: aguenta o golpe fatal uma vez, e a paralisia cai de ${semAfeto.toFixed(1)}s para ${comCarinho.toFixed(1)}s`,
     );
+  }
+
+  // Os marcos da Pokédex: o arco longo.
+  //
+  // O contador da Pokédex era placar e virou caminho. O que se afirma aqui é
+  // que o caminho não tem buraco: os números sobem, cada um dispara uma vez só,
+  // o prêmio prometido EXISTE, e nenhum prêmio passa do que a mochila aguenta —
+  // prometer duas Bolas Lacuna a quem já tem o máximo de duas é prometer nada.
+  {
+    for (let i = 1; i < MARCOS.length; i++) {
+      checar(MARCOS[i].registros > MARCOS[i - 1].registros, 'os marcos têm de subir');
+    }
+    checar(MARCOS[MARCOS.length - 1].registros === TOTAL_ESPECIES, 'o último marco é a Pokédex inteira');
+
+    for (const marco of MARCOS) {
+      const bola = BOLAS.find((b) => b.id === marco.premio.bola);
+      checar(bola !== undefined, `o marco de ${marco.registros} promete uma bola que não existe`);
+      checar(
+        marco.premio.quantidade <= bola!.maximo,
+        `${marco.premio.quantidade} ${bola!.nome} passa do máximo de ${bola!.maximo}`,
+      );
+      checar(marco.fala.length <= 58, `a fala do marco de ${marco.registros} não cabe no cartão`);
+    }
+
+    // Capturando de uma em uma, cada marco aparece exatamente uma vez.
+    let vistos = 0;
+    for (let n = 1; n <= TOTAL_ESPECIES; n++) if (marcoDe(n)) vistos++;
+    checar(vistos === MARCOS.length, 'contando de um em um, todo marco tem de aparecer uma vez');
+    checar(marcoDe(0) === null && marcoDe(7) === null, 'número que não é marco não vira cartão');
+
+    // E o "faltam N" do painel: sempre olhando para a frente, nunca negativo.
+    for (let n = 0; n < TOTAL_ESPECIES; n++) {
+      const adiante = faltamPara(n);
+      checar(adiante !== null, `com ${n} registros ainda devia haver um marco à frente`);
+      checar(adiante!.faltam > 0, 'faltar zero para um marco que ainda não veio é contradição');
+      checar(adiante!.marco.registros === n + adiante!.faltam, 'a conta do "faltam" tem de fechar');
+    }
+    checar(faltamPara(TOTAL_ESPECIES) === null, 'depois do último marco não falta nada');
+
+    const premios = MARCOS.map((m) => `${m.registros}→${m.premio.quantidade} ${m.premio.bola}`);
+    console.log(`   marcos da Pokédex: ${premios.join(' · ')}`);
+  }
+
+  // A fila do aviso: dois assuntos, dois cartões, um de cada vez.
+  //
+  // `mostrar` TROCA o texto da placa. Antes disto, o cartão do marco apagaria o
+  // da captura que o produziu — e o mesmo já tinha acontecido com o nível
+  // contra a evolução.
+  {
+    // Um canvas de mentira, e só para este bloco.
+    //
+    // O que se afirma aqui é TEMPO — quando um cartão sai e o outro entra — e
+    // nada de desenho. A `Placa` de src/hud.ts pede um canvas ao `document`,
+    // que no Node não existe; arrastar o @napi-rs/canvas para dentro do bundle
+    // do smoke não dá (é nativo), então o dublê engole as chamadas de desenho e
+    // devolve o mínimo para a placa se construir. Ele é desfeito no fim do
+    // bloco: um `document` global sobrando faria o smoke parar de pegar
+    // exatamente o que ele existe para pegar, que é código de jogo dependendo
+    // de DOM.
+    const ctx2d = new Proxy(
+      {},
+      {
+        get: (_a, prop) => (prop === 'measureText' ? () => ({ width: 10 }) : () => {}),
+        set: () => true,
+      },
+    );
+    const global = globalThis as unknown as { document?: unknown };
+    global.document = {
+      createElement: () => ({ width: 1, height: 1, getContext: () => ctx2d }),
+    };
+
+    const cena = new THREE.Group();
+    const aviso = new Aviso(cena);
+    const camera = new THREE.PerspectiveCamera();
+    const linha = (t: string) => [{ texto: t }];
+
+    aviso.mostrar(linha('capturado'), 1);
+    aviso.emSeguida(linha('marco'), 1);
+    checar(aviso.ocupado, 'com dois cartões, o aviso está ocupado');
+
+    // Meio segundo: o primeiro ainda está na tela.
+    aviso.atualizar(0.5, camera);
+    checar(aviso.ocupado, 'o primeiro cartão não pode ter sumido na metade');
+    // Passou do primeiro: o segundo entra sozinho, sem ninguém pedir.
+    aviso.atualizar(0.6, camera);
+    checar(aviso.ocupado, 'o segundo cartão devia ter entrado quando o primeiro acabou');
+    aviso.atualizar(1.1, camera);
+    checar(!aviso.ocupado, 'depois dos dois, o aviso fica livre');
+
+    // Um `mostrar` no meio é uma interrupção de propósito: quem chamou quis
+    // dizer "esqueça o resto, é isto agora".
+    aviso.mostrar(linha('a'), 1);
+    aviso.emSeguida(linha('b'), 1);
+    aviso.mostrar(linha('c'), 1);
+    aviso.atualizar(1.1, camera);
+    checar(!aviso.ocupado, 'mostrar cancela o que estava na fila');
+
+    // E a fila não vira palestra.
+    aviso.mostrar(linha('1'), 1);
+    for (let i = 0; i < 9; i++) aviso.emSeguida(linha(`${i}`), 1);
+    let cartoes = 1;
+    for (let t = 0; t < 30; t++) {
+      const antes = aviso.ocupado;
+      aviso.atualizar(1.1, camera);
+      if (antes && aviso.ocupado) cartoes++;
+      if (!aviso.ocupado) break;
+    }
+    checar(cartoes <= 3, `${cartoes} cartões seguidos é palestra, não aviso`);
+    aviso.descartar();
+    delete global.document;
+    console.log(`   aviso: o segundo cartão espera o primeiro, e a fila para em ${cartoes} seguidos`);
   }
 
   // O rastro no chão: para onde ele aponta, e quando ele se cala.

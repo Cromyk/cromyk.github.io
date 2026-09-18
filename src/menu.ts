@@ -7,6 +7,7 @@ import { MODOS, type Modo, type ModoId } from './modos';
 import { DIFICULDADES, INTERRUPTORES, type Dificuldade, type PerfilDificuldade } from './ajustes';
 import { olhandoORelogio } from './gesto';
 import { CONDICOES, condicaoDoGolpe } from './condicao';
+import { faltamPara } from './marcos';
 import {
   COR,
   RAIO,
@@ -508,13 +509,25 @@ export class PainelTime {
     ctx.fillStyle = COR.texto;
     ctx.fillText(this.nosAjustes ? 'ajustes' : 'seu time', 20, canvas.height * 0.5);
 
+    // O canto direito conta a coleção — a não ser quando o próximo marco está
+    // ao alcance da mão, e aí ele conta quantas faltam.
+    //
+    // Cinco e não sempre: o número que interessa é o que você pode fechar hoje.
+    // "Faltam quarenta e dois" não é meta, é distância, e uma distância grande
+    // no lugar onde antes havia um placar torna o painel mais burocrático sem
+    // deixá-lo mais útil.
+    const proximo = this.nosAjustes ? null : faltamPara(capturadas);
+    const perto = proximo && proximo.faltam <= 5;
+
     ctx.textAlign = 'right';
     ctx.font = fonte(21, 600);
-    ctx.fillStyle = COR.textoFraco;
+    ctx.fillStyle = perto ? '#ffd98a' : COR.textoFraco;
     ctx.fillText(
       this.nosAjustes
         ? this.dificuldadeAtiva
-        : `${capturadas} capturadas · ${vistas}/${total} vistas`,
+        : perto
+          ? `faltam ${proximo!.faltam} para o próximo marco`
+          : `${capturadas} capturadas · ${vistas}/${total} vistas`,
       canvas.width - 20,
       canvas.height * 0.5 + 1,
     );

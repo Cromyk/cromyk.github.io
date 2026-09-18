@@ -123,7 +123,7 @@ const secoes: Array<{ titulo: string; pecas: Peca[] }> = [];
     'normal' as never,
     interruptores as never,
   );
-  painel.redesenharTitulo(84 as never, 31 as never, 151 as never);
+  painel.redesenharTitulo(84 as never, 48 as never, 151 as never);
   painel.redesenhar('comum' as never);
 
   const pecas: Peca[] = [

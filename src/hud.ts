@@ -112,6 +112,12 @@ export class Aviso {
   /** Aviso fixo: fica até alguém soltar. Ver `fixar`. */
   private preso = false;
   private opacidadePresa = 0;
+  /** Cartões esperando a vez. Ver `emSeguida`. */
+  private fila: Array<{
+    linhas: LinhaTexto[];
+    duracao: number;
+    opcoes?: Parameters<Placa['escrever']>[1];
+  }> = [];
 
   constructor(private readonly cena: THREE.Object3D) {
     this.placa.malha.visible = false;
@@ -119,10 +125,49 @@ export class Aviso {
   }
 
   mostrar(linhas: LinhaTexto[], duracao = 2.4, opcoes?: Parameters<Placa['escrever']>[1]) {
+    // Um cartão novo cancela o que estava esperando: quem chamou `mostrar`
+    // quis dizer "esqueça o resto, é isto agora".
+    this.fila.length = 0;
+    this.exibir(linhas, duracao, opcoes);
+  }
+
+  /** Põe o cartão na placa sem opinar sobre a fila. */
+  private exibir(
+    linhas: LinhaTexto[],
+    duracao: number,
+    opcoes?: Parameters<Placa['escrever']>[1],
+  ) {
     this.placa.escrever(linhas, opcoes);
     this.restante = duracao;
     this.duracao = duracao;
     this.placa.malha.visible = true;
+  }
+
+  /**
+   * O cartão que espera a vez.
+   *
+   * `mostrar` TROCA o texto da placa; dois cartões seguidos são um cartão só, o
+   * segundo, e o primeiro some antes de ser lido. Isso já mordeu três vezes —
+   * o nível competindo com a evolução, o golpe novo competindo com o nível, e
+   * agora o marco da Pokédex competindo com a captura que o produziu. Onde as
+   * duas coisas cabem numa frase, a saída certa continua sendo caber; onde são
+   * dois assuntos, é esperar a vez.
+   *
+   * A fila é curta de propósito. Quem chega com ela cheia é descartado: três
+   * cartões em sequência já é uma palestra, e em VR ler é parar.
+   */
+  emSeguida(linhas: LinhaTexto[], duracao = 2.4, opcoes?: Parameters<Placa['escrever']>[1]) {
+    if (this.restante <= 0 && !this.preso) {
+      this.mostrar(linhas, duracao, opcoes);
+      return;
+    }
+    if (this.fila.length >= 2) return;
+    this.fila.push({ linhas, duracao, opcoes });
+  }
+
+  /** Há alguma coisa na tela ou esperando para entrar. */
+  get ocupado(): boolean {
+    return this.preso || this.restante > 0 || this.fila.length > 0;
   }
 
   /**
@@ -148,6 +193,10 @@ export class Aviso {
     this.restante = 0;
     this.opacidadePresa = 0;
     this.placa.malha.visible = false;
+
+    // O que chegou enquanto o aviso estava fixo esperou justamente por isto.
+    const proximo = this.fila.shift();
+    if (proximo) this.exibir(proximo.linhas, proximo.duracao, proximo.opcoes);
   }
 
   atualizar(dt: number, camera: THREE.Camera) {
@@ -161,6 +210,11 @@ export class Aviso {
     if (this.restante <= 0) return;
     this.restante -= dt;
     if (this.restante <= 0) {
+      const proximo = this.fila.shift();
+      if (proximo) {
+        this.exibir(proximo.linhas, proximo.duracao, proximo.opcoes);
+        return;
+      }
       this.placa.malha.visible = false;
       return;
     }

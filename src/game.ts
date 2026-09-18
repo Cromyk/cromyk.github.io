@@ -44,6 +44,7 @@ import { Sala } from './room';
 import { BOTAO_A, BOTAO_B, FeixeDeAlvo, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, RaioMira } from './hands';
 import { Luva } from './glove';
 import { Rastro, aVista, rumoDoRastro } from './rastro';
+import { marcoDe } from './marcos';
 import { Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
 import { Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
@@ -4459,7 +4460,47 @@ export class Jogo {
       ],
       primeiraVez || presa.shiny ? 5 : 2.6,
     );
+    this.talvezMarco();
     this.removerSelvagem(presa);
+  }
+
+  /**
+   * O marco da Pokédex, quando esta captura fechou um.
+   *
+   * Vem DEPOIS do cartão da captura e não no lugar dele — é o que a fila do
+   * aviso existe para fazer (ver `Aviso.emSeguida`). A ordem importa: o cartão
+   * da captura fala do bicho que você acabou de pegar, que é o motivo de você
+   * estar olhando; o marco fala da coleção, que só faz sentido depois.
+   *
+   * A trava é o `primeiraVez`, com chave por marco, então ele fica no save e um
+   * marco cumprido nunca volta — inclusive entre sessões.
+   */
+  private talvezMarco() {
+    const marco = marcoDe(this.dex.especiesCapturadas);
+    if (!marco || !this.dex.primeiraVez(`marco:${marco.registros}`)) return;
+
+    const bola = bolaPorId(marco.premio.bola);
+    if (bola) this.dex.ganharBola(bola.id, marco.premio.quantidade);
+    audio.subiuDeNivel();
+
+    this.aviso.emSeguida(
+      [
+        { texto: 'Pokédex', tamanho: 22, cor: '#8fd2ff', peso: 700, espaco: 4 },
+        { texto: marco.fala, tamanho: 26, cor: '#eef2f8' },
+        ...(bola
+          ? [
+              {
+                texto: `+${marco.premio.quantidade} ${bola.nome}`,
+                tamanho: 24,
+                cor: '#ffd98a',
+                peso: 700,
+                espaco: 6,
+              },
+            ]
+          : []),
+      ],
+      4.2,
+    );
   }
 
   /** A bola pousou: abre e o Pokémon escolhido entra em campo. */
