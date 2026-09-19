@@ -1126,6 +1126,7 @@ export class PainelTime {
   atualizar(
     dt: number,
     punhoEsquerdo: THREE.Object3D | null,
+    lado: 'left' | 'right',
     mira: { origem: THREE.Vector3; direcao: THREE.Vector3 } | null,
     bolaAtivaId: string,
     camera: THREE.Camera,
@@ -1139,7 +1140,9 @@ export class PainelTime {
     pontoDaMao: THREE.Vector3 | null = null,
     alcanceDaMao = 0.09,
   ) {
-    const querAbrir = olhandoORelogio(punhoEsquerdo, 'left', camera, this.aberto);
+    // O lado vem de fora: o painel mora no pulso NÃO dominante, e qual é esse
+    // depende de quem está jogando. Ver `canhoto` em src/ajustes.ts.
+    const querAbrir = olhandoORelogio(punhoEsquerdo, lado, camera, this.aberto);
     this.aberto = querAbrir;
 
     this.abertura += ((querAbrir ? 1 : 0) - this.abertura) * Math.min(1, dt * 10);

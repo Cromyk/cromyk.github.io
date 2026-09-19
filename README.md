@@ -87,7 +87,7 @@ sem pôr o headset a cada mudança:
 | Recolher para a bola | apontar para ele e apertar **A** |
 | Chamar de volta (desfaz o "fica aí") | **X** |
 | Ligar o PC (equipe e caixa) | **Y**, ou o ícone de monitor no painel do pulso |
-| Time, bolas, itens e os quatro golpes | girar o **pulso esquerdo**, como para ver as horas |
+| Time, bolas, itens e os quatro golpes | girar o **pulso esquerdo**, como para ver as horas (o **direito**, com Canhoto ligado) |
 | Modo de jogo, dificuldade e opções | a **engrenagem**, no canto do painel do pulso |
 | Ouvir a ficha da Pokédex | **GATILHO** com a Pokédex na mão |
 | Escolher / recolher / usar item | apontar com a outra mão e puxar o **GATILHO** |

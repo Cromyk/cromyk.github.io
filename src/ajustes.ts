@@ -69,6 +69,7 @@ export type ChaveAjuste =
   | 'vozDoNome'
   | 'musicaDeBatalha'
   | 'contadorDeQuadros'
+  | 'canhoto'
   | 'calibrarMao'
   | 'oclusaoDoQuarto'
   | 'modoSentado';
@@ -110,6 +111,12 @@ export const INTERRUPTORES: readonly Interruptor[] = [
     nome: 'Barra de carga',
     ligadoDiz: 'mostra quando ele vai atacar',
     desligadoDiz: 'sem contagem no inimigo',
+  },
+  {
+    id: 'canhoto',
+    nome: 'Canhoto',
+    ligadoDiz: 'arremessa com a esquerda · painel no pulso direito',
+    desligadoDiz: 'arremessa com a direita · painel no pulso esquerdo',
   },
   {
     id: 'modoSentado',
@@ -180,6 +187,23 @@ export class Ajustes {
    * coisa.
    */
   contadorDeQuadros = false;
+  /**
+   * Qual mão é a que aponta, arremessa e escolhe.
+   *
+   * O jogo nasceu destro sem nunca ter decidido isso: o painel do time abria no
+   * pulso ESQUERDO, o raio de mira saía da direita, o analógico direito trocava
+   * a bola e os botões de apontar-e-recolher eram os da direita. Nada disso é
+   * uma escolha de projeto — é o que sai quando quem escreve é destro.
+   *
+   * Um canhoto segura os MESMOS controles (o controle direito continua na mão
+   * direita), então o que troca não são os botões físicos: é o PAPEL de cada
+   * mão. A dominante aponta, arremessa e recolhe; a outra carrega o painel e
+   * chama o companheiro. Ver `ladoQueAponta` em src/game.ts.
+   *
+   * O cinto já era simétrico desde 18/09 — um em cada antebraço, e quem pega é
+   * sempre a mão oposta —, então ele não precisa saber de nada disto.
+   */
+  canhoto = false;
   /**
    * O modo de calibração da mão, ligado na engrenagem.
    *
@@ -339,6 +363,7 @@ export class Ajustes {
       if (typeof dados.maoRecuo === 'number') this.maoRecuo = dados.maoRecuo;
       // `calibrarMao` NÃO é lido de volta: é um modo de trabalho, e voltar de
       // uma sessão com os analógicos sequestrados seria uma surpresa.
+      if (typeof dados.canhoto === 'boolean') this.canhoto = dados.canhoto;
       if (typeof dados.oclusaoDoQuarto === 'boolean') this.oclusaoDoQuarto = dados.oclusaoDoQuarto;
       if (typeof dados.modoSentado === 'boolean') this.modoSentado = dados.modoSentado;
     } catch {
@@ -364,6 +389,7 @@ export class Ajustes {
           maoGiroY: this.maoGiroY,
           maoGiroZ: this.maoGiroZ,
           maoRecuo: this.maoRecuo,
+          canhoto: this.canhoto,
           oclusaoDoQuarto: this.oclusaoDoQuarto,
           modoSentado: this.modoSentado,
         }),

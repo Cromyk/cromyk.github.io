@@ -155,16 +155,31 @@ aí a ordem passa a ser preferência em vez de necessidade.
 - **Como saber que funcionou:** com o bicho no colo e a mochila aberta, fechar a
   mão não troca o bicho por uma poção.
 
-### 1.4 Canhoto
+### 1.4 ✅ Canhoto (feito em 19/09)
 
 O jogo assume destro em lugares fixos: o painel do time abre no pulso ESQUERDO,
 a Pokédex fica no direito, o analógico direito troca a bola. Nada disso tem
 interruptor.
 
-- **Esforço:** médio. O correto é um `ladoDominante` nos ajustes e trocar os
-  lados fixos por consultas a ele.
-- **Como saber que funcionou:** alguém canhoto joga uma sessão sem reclamar da
-  mão errada.
+**Feito.** Interruptor **Canhoto** na engrenagem, e dois getters no jogo —
+`ladoQueAponta` e `ladoDoPainel` — no lugar de catorze lados cravados.
+
+O que NÃO troca são os botões físicos, e não podia ser diferente: o controle
+direito continua na mão direita de um canhoto. O que troca é o PAPEL. A mão que
+aponta ganha o arremesso, o recolher (A), a mochila (B), o raio de mira, o
+analógico que troca a bola e a escolha no painel; a outra ganha o painel do
+pulso, o mostrador, o chamar e o PC.
+
+O cinto não precisou saber de nada: ele já era simétrico desde 18/09 — um em
+cada antebraço, e quem pega é sempre a mão oposta.
+
+A seção 36 do smoke afirma a simetria do gesto que abre o painel, que é onde o
+espelhamento podia quebrar em silêncio: o dorso do punho é −X na esquerda e +X
+na direita, e a mesma pose espelhada tem de abrir o painel do outro pulso — e
+não abrir o do lado errado.
+
+- **Como saber que funcionou:** ligue Canhoto na engrenagem. O painel passa a
+  abrir girando o pulso DIREITO, e o raio de mira sai da esquerda.
 
 ### 1.5 Braço no ar cansa (e o jogo não sabe disso)
 

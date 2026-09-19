@@ -3301,6 +3301,69 @@ console.log('\n35. a mochila e o bicho abraçado, no mesmo lugar');
   );
 }
 
+
+// --- 36. canhoto: o gesto do relógio é simétrico ---
+//
+// O painel do pulso passou a morar na mão NÃO dominante, que num canhoto é a
+// direita. Isso só funciona se o gesto que o abre for simétrico de verdade — e
+// ele depende do lado, porque o dorso do punho é −X na esquerda e +X na direita
+// (ver `dorsoLocal` em src/gesto.ts).
+//
+// O que se afirma aqui: a mesma pose ESPELHADA dispara o gesto do outro lado, e
+// não dispara o do lado errado. Se o espelhamento quebrar, o canhoto gira o
+// pulso e nada acontece — sem nenhuma mensagem, como todo gesto que falha.
+console.log('\n36. canhoto: o gesto do relógio espelhado');
+{
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 1.6, 0);
+  camera.updateMatrixWorld(true);
+
+  /**
+   * Um punho na pose de ler as horas, para um dado lado.
+   *
+   * O dorso (−X local na esquerda, +X na direita) tem de encarar o rosto. Monta
+   * a base a partir disso, e o resto é consequência.
+   */
+  const punhoLendoAsHoras = (lado: 'left' | 'right') => {
+    const posicao = new THREE.Vector3(lado === 'left' ? -0.15 : 0.15, 1.3, -0.3);
+    const paraORosto = new THREE.Vector3().subVectors(camera.position, posicao).normalize();
+    // O dorso local vira o mundo: na esquerda ele é −X, então +X tem de apontar
+    // para o LADO OPOSTO ao rosto.
+    const eixoX = lado === 'left' ? paraORosto.clone().negate() : paraORosto.clone();
+    const auxiliar =
+      Math.abs(eixoX.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const eixoZ = new THREE.Vector3().crossVectors(eixoX, auxiliar).normalize();
+    const eixoY = new THREE.Vector3().crossVectors(eixoZ, eixoX).normalize();
+    const no = new THREE.Object3D();
+    no.position.copy(posicao);
+    no.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(eixoX, eixoY, eixoZ));
+    no.updateMatrixWorld(true);
+    return no;
+  };
+
+  const canhoto = punhoLendoAsHoras('right');
+  const destro = punhoLendoAsHoras('left');
+
+  checar(olhandoORelogio(destro, 'left', camera, false), 'o destro não abre o painel');
+  checar(
+    olhandoORelogio(canhoto, 'right', camera, false),
+    'o CANHOTO não abre o painel girando o pulso direito — o gesto não é simétrico',
+  );
+
+  // E o lado importa: a pose de um não serve para o outro. Se servisse, o
+  // parâmetro seria decorativo e o painel abriria nos dois pulsos.
+  checar(
+    !olhandoORelogio(destro, 'right', camera, false),
+    'a pose da esquerda abre o painel da direita — o lado do dorso virou enfeite',
+  );
+  checar(
+    !olhandoORelogio(canhoto, 'left', camera, false),
+    'a pose da direita abre o painel da esquerda',
+  );
+
+  console.log('   canhoto: a mesma pose, espelhada, abre o painel do outro pulso');
+}
+
   console.log(
     `   ${PEDRAS.length} pedras, ${pares} evoluções · ` +
       `${EVOLUI_SO_COM_PEDRA.size} espécies saíram da evolução por nível`,

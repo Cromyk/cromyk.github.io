@@ -1369,6 +1369,26 @@ export class Jogo {
   // --------------------------------------------------- o que está na mão
 
   /** Ela está segurando alguma coisa — uma bola ou um item. */
+  /**
+   * A mão que APONTA: a que arremessa, recolhe, escolhe no painel e mira.
+   *
+   * O jogo nasceu destro sem nunca ter decidido isso — o painel abria no pulso
+   * esquerdo, o raio saía da direita, o analógico direito trocava a bola. Agora
+   * é uma pergunta, e a resposta mora na engrenagem.
+   *
+   * Os botões FÍSICOS não trocam de lugar, e não podiam: o controle direito
+   * continua na mão direita de um canhoto. O que troca é o papel — quem aponta
+   * ganha o recolher e a mochila, quem carrega o painel ganha o chamar e o PC.
+   */
+  private get ladoQueAponta(): 'left' | 'right' {
+    return this.ajustes.canhoto ? 'left' : 'right';
+  }
+
+  /** A outra: a que carrega o painel do pulso e o mostrador. */
+  private get ladoDoPainel(): 'left' | 'right' {
+    return this.ajustes.canhoto ? 'right' : 'left';
+  }
+
   private maoCheia(mao: Mao): boolean {
     // O bicho no colo conta. Sem ele nesta conta, os berços do cinto acendiam
     // embaixo de uma mão que está abraçando um Pokémon, prometendo um grip que
@@ -4011,12 +4031,14 @@ export class Jogo {
       // sairia do braço.
       if (!this.slotSobAMao(mao)) this.saiuDoCinto.add(mao.indice);
       const raio = this.raios.get(mao.indice);
-      if (raio) raio.atualizar(dt, mao.lado === 'right', 0.9);
+      if (raio) raio.atualizar(dt, mao.lado === this.ladoQueAponta, 0.9);
     }
 
-    const direita = this.maos.find((m) => m.lado === 'right' && m.conectada);
+    // A escolha do inicial se aponta com a mão que aponta — e com qualquer uma
+    // que esteja conectada, se ela ainda não apareceu.
+    const queAponta = this.maos.find((m) => m.lado === this.ladoQueAponta && m.conectada);
     const qualquer = this.maos.find((m) => m.conectada);
-    const mira = (direita ?? qualquer)?.mira() ?? null;
+    const mira = (queAponta ?? qualquer)?.mira() ?? null;
     this.escolha.atualizar(dt, mira, this.camera);
   }
 
@@ -4183,7 +4205,7 @@ export class Jogo {
   private botoesDaMao(mao: Mao) {
     // A pergunta da evolução toma A e B enquanto estiver na tela: ela é modal
     // de propósito, e é curta.
-    if (this.evolucaoPendente && mao.lado === 'right') {
+    if (this.evolucaoPendente && mao.lado === this.ladoQueAponta) {
       if (mao.apertou(BOTAO_A)) {
         this.permitirEvolucao();
         return;
@@ -4194,7 +4216,8 @@ export class Jogo {
       }
     }
 
-    if (mao.lado === 'right') {
+    // A mão que aponta recolhe e abre a mochila; a outra chama e liga o PC.
+    if (mao.lado === this.ladoQueAponta) {
       if (mao.apertou(BOTAO_A)) this.recolherApontando(mao);
       // B fecha o PC quando ele está aberto, e abre a mochila quando não está.
       // O botão já era o "fechar isto" da mão direita; a mochila entra no mesmo
@@ -4212,7 +4235,7 @@ export class Jogo {
       return;
     }
 
-    if (mao.lado === 'left') {
+    if (mao.lado === this.ladoDoPainel) {
       if (mao.apertou(BOTAO_B)) this.alternarPc();
       if (mao.apertou(BOTAO_A)) this.chamarParaPerto(mao);
     }
@@ -4679,7 +4702,7 @@ export class Jogo {
    * única coisa que ela precisa estar olhando.
    */
   private calibrarComOAnalogico(mao: Mao, dt: number) {
-    if (mao.apertou(BOTAO_A) && mao.lado === 'right') {
+    if (mao.apertou(BOTAO_A) && mao.lado === this.ladoQueAponta) {
       this.ajustes.zerarMao();
       mao.sentir('recusado');
       audio.clique();
@@ -4760,7 +4783,7 @@ export class Jogo {
       // O raio de mira aparece na mão livre quando há um painel aberto.
       const raio = this.raios.get(mao.indice);
       if (raio) {
-        const apontandoTime = this.painelTime.aberto && mao.lado === 'right';
+        const apontandoTime = this.painelTime.aberto && mao.lado === this.ladoQueAponta;
         // Na Pokédex quem aponta é a mão LIVRE: a outra está segurando o tablet,
         // e qual delas é isso muda conforme com qual você o pegou.
         const apontandoDex = this.painelDex.aberto && this.tablet.naMaoDe !== mao.indice;
@@ -4778,10 +4801,10 @@ export class Jogo {
       if (this.ajustes.calibrarMao) {
         this.calibrarComOAnalogico(mao, dt);
       }
-      // Analógico da direita: vira página da Pokédex quando ela está aberta, e
-      // troca de bola quando não está. Um passo por inclinada — só volta a valer
-      // depois que o stick passa pelo centro.
-      else if (mao.lado === 'right') {
+      // O analógico da mão que APONTA: vira página da Pokédex quando ela está
+      // aberta, e troca de bola quando não está. Um passo por inclinada — só
+      // volta a valer depois que o stick passa pelo centro.
+      else if (mao.lado === this.ladoQueAponta) {
         const x = mao.analogicoX();
         if (this.analogicoNeutro && Math.abs(x) > 0.7) {
           this.analogicoNeutro = false;
@@ -4832,6 +4855,13 @@ export class Jogo {
   }
 
   private atualizarPaineis(dt: number) {
+    // Por PAPEL, e não por lado: `doPainel` carrega o painel do pulso e o
+    // mostrador, `queAponta` mira e alcança as cartas. Num canhoto os dois
+    // trocam de braço. Ver `ladoQueAponta`.
+    const doPainel = this.maos.find((m) => m.lado === this.ladoDoPainel && m.conectada);
+    const queAponta = this.maos.find((m) => m.lado === this.ladoQueAponta && m.conectada);
+    // Os cintos continuam falando em esquerda e direita: eles são simétricos de
+    // verdade — um em cada antebraço, e quem pega é sempre a mão oposta.
     const esquerda = this.maos.find((m) => m.lado === 'left' && m.conectada);
     const direita = this.maos.find((m) => m.lado === 'right' && m.conectada);
 
@@ -4926,13 +4956,14 @@ export class Jogo {
     // A mão cheia também não teria o que fazer com o painel: quem alcança as
     // cartas é a mão OPOSTA, e a que carrega o painel não chega no próprio
     // antebraço (é a mesma razão de haver um cinto em cada braço).
-    const esquerdaLivre = esquerda && !this.maoCheia(esquerda) ? esquerda : null;
+    const maoDoPainelLivre = doPainel && !this.maoCheia(doPainel) ? doPainel : null;
 
     const estavaAberto = this.painelTime.aberto;
     this.painelTime.atualizar(
       dt,
-      esquerdaLivre?.pulso ?? null,
-      direita ? direita.mira() : null,
+      maoDoPainelLivre?.pulso ?? null,
+      this.ladoDoPainel,
+      queAponta ? queAponta.mira() : null,
       this.dex.bolaAtiva,
       this.camera,
       {
@@ -4943,14 +4974,14 @@ export class Jogo {
       // A mão direita acende a carta que ela está tocando, antes da mira. É o
       // que torna "vá lá e pegue" um gesto de verdade: a carta certa acende
       // enquanto o braço chega, e o GRIP pega aquela mesma.
-      direita ? this.pontoDoDedo(direita) : null,
+      queAponta ? this.pontoDoDedo(queAponta) : null,
       Jogo.ALCANCE_PAINEL,
     );
     // E a mão que está chegando SENTE a carta chegando — só pela proximidade,
     // nunca pelo raio de mira. Ver src/toque.ts.
-    if (direita && this.painelTime.aberto) {
+    if (queAponta && this.painelTime.aberto) {
       const forca = this.painelTime.forcaDoToque(Jogo.ALCANCE_PAINEL);
-      if (forca > 0) direita.rocar(forca);
+      if (forca > 0) queAponta.rocar(forca);
     }
     // O mostrador pequeno acompanha o mesmo pulso, em pé — e se apaga quando o
     // painel grande abre: os dois no mesmo braço, ao mesmo tempo, era o
@@ -4958,10 +4989,10 @@ export class Jogo {
     // O mostrador some junto quando a mão esquerda está com um Pokémon: ele
     // flutua seis centímetros acima do punho, que é exatamente dentro do bicho
     // que você está segurando.
-    const maoOcupadaPorBicho = esquerda !== undefined && this.colo.tem(esquerda.indice);
+    const maoOcupadaPorBicho = doPainel !== undefined && this.colo.tem(doPainel.indice);
     this.painelPulso.posicionar(
       dt,
-      esquerda?.pulso ?? null,
+      doPainel?.pulso ?? null,
       this.camera,
       !this.painelTime.aberto && !maoOcupadaPorBicho,
     );
