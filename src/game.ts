@@ -87,7 +87,10 @@ import { Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
 import { PainelPc } from './pc';
 import { calar, falar, preparar, temNarracao } from './voz';
-import { Dex, type Exemplar } from './state';
+import {
+  LEVANTAR_SEGUNDOS,
+  podeLevantar,
+  segundosParaLevantar, Dex, type Exemplar } from './state';
 import { audio } from './audio';
 import { escolherPesado } from './rng';
 
@@ -2813,10 +2816,15 @@ export class Jogo {
         this.contarSaidaDoTimeCaido(2.8);
         return false;
       }
+      // Quanto falta, e não "com o tempo": o jogo sabe o número, e uma espera
+      // sem número é indistinguível de uma espera que não acaba.
+      const falta = segundosParaLevantar(exemplar.caiuEm, Date.now());
       this.aviso.mostrar(
         [
           { texto: `${especie.nome} está desmaiado`, tamanho: 38, cor: '#ff9f9f' },
-          { texto: 'ele se recupera com o tempo', tamanho: 24, cor: '#9aa5b8', peso: 500 },
+          falta > 0
+            ? { texto: `ele se levanta em ${falta}s — ou na hora, no Centro`, tamanho: 23, cor: '#9aa5b8', peso: 500 }
+            : { texto: 'ele já está se levantando', tamanho: 23, cor: '#9aa5b8', peso: 500 },
         ],
         2.2,
       );
@@ -4295,15 +4303,27 @@ export class Jogo {
     this.escolha.atualizar(dt, mira, this.camera);
   }
 
-  /** Quem está fora de campo se recupera devagar. */
+  /**
+   * Quem está fora de campo se recupera devagar — MACHUCADO, não caído.
+   *
+   * A regeneração não olhava a diferença, e 1 de HP a cada 2,5 s é tudo o que
+   * um Pokémon desmaiado precisava para voltar a campo. Desmaiar não custava
+   * nada, o Centro virava enfeite e o aviso de time caído piscava e sumia
+   * antes de alguém entender o que fazer com ele. Ver `LEVANTAR_SEGUNDOS`.
+   */
   private regenerarTime(dt: number) {
     this.acumuladoCura += dt;
     if (this.acumuladoCura < SEGUNDOS_POR_HP) return;
     this.acumuladoCura = 0;
+    const agora = Date.now();
     for (const exemplar of this.dex.timeVivo) {
       if (this.exemplarEmCampo === exemplar && this.companheiro?.viva) continue;
       const max = this.dex.hpMaxDe(exemplar);
-      if (exemplar.hp < max) this.dex.definirHp(exemplar, exemplar.hp + 1);
+      if (exemplar.hp >= max) continue;
+      // Caído fica caído até o relógio virar — ou até alguém curar, que é o
+      // que o Centro e o PC fazem na hora.
+      if (exemplar.hp <= 0 && !podeLevantar(exemplar.caiuEm, agora)) continue;
+      this.dex.definirHp(exemplar, exemplar.hp + 1);
     }
   }
 
@@ -4873,7 +4893,12 @@ export class Jogo {
               cor: '#9ff0c4',
               peso: 600,
             },
-        { texto: 'eles também se recuperam sozinhos, devagar', tamanho: 20, cor: '#9aa5b8', peso: 500 },
+        {
+          texto: `ou espere ${LEVANTAR_SEGUNDOS}s — eles se levantam sozinhos`,
+          tamanho: 20,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
       ],
       segundos,
     );

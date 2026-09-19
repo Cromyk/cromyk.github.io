@@ -722,10 +722,61 @@ Agora existe `Jogo.aoSairDaSessao`, chamada do evento de fim em `main.ts`:
   novo repovoa. Mais as seis coisas que a saída tem de soltar e a chamada em
   `main.ts`, sem a qual a limpeza existiria e ninguém a chamaria.
 
+### 5.5 ✅ Desmaiar não custava nada (feito em 19/09)
+
+A regeneração fora de campo é de 1 de HP a cada 2,5 s, e ela não olhava se o
+bicho estava **machucado** ou **caído**. Um Pokémon que acabava de desmaiar
+voltava a ter 1 de vida dois segundos e meio depois — e 1 de vida já basta para
+ele voltar a campo.
+
+Três coisas morriam nisso, todas de uma vez:
+
+- **desmaiar não custava nada.** A briga que você perdeu se desfazia sozinha
+  antes de você terminar de ler o cartaz.
+- **o Centro Pokémon virava enfeite.** Ele existe para dar geografia ao cômodo
+  — *"você sabe onde ele fica, você VOLTA para ele, e a distância até ele é o
+  que dá peso a continuar caçando com o time machucado"*. Nenhuma dessas frases
+  sobrevive a um time que se cura sozinho em dois segundos.
+- **o aviso de time caído (item 5.3) piscava e sumia** antes de alguém entender
+  o que fazer com ele. O item de ontem estava correto e era decorativo.
+
+Agora quem cai fica caído por **um minuto**, e quem está só machucado continua
+se recuperando como sempre. As três saídas continuam existindo, e duas são
+instantâneas: o **Centro**, o **PC** e esperar.
+
+Um minuto é o tempo de atravessar o cômodo e voltar: o bastante para a decisão
+de ir até o Centro valer a pena, e pouco o bastante para quem não quiser ir não
+ficar refém. O jogo não tem beco sem saída — foi por isso que as pokébolas
+deixaram de acabar e que os itens passaram a aparecer pela casa —, e a espera
+existe para nunca prender ninguém, não para ser o plano.
+
+Duas coisas que a implementação obrigou:
+
+- **o invariante ficou numa função só**: vida acima de zero ⟺ sem relógio de
+  queda. Três caminhos escrevem vida, e dois são fáceis de esquecer — subir de
+  nível cura a diferença de HP máximo, e evoluir nunca deixa o bicho abaixo de
+  1. Ninguém pensa em "evoluir" como uma forma de curar, e um relógio esquecido
+  num bicho de pé faria o próximo tombo levantar na hora.
+- **os cartazes passaram a dizer o número.** "Ele se recupera com o tempo" virou
+  "ele se levanta em 43s — ou na hora, no Centro": o jogo sabe a conta, e uma
+  espera sem número é indistinguível de uma espera que não acaba.
+
+Uma gravação anterior a este campo tem bichos com zero de vida e sem data
+nenhuma. Nesse caso o jogo SOLTA: prender o time de quem já jogava, sem
+explicação, seria o pior resultado possível desta mudança.
+
+- **Esforço:** baixo.
+- **Como saber que funcionou:** deixe o seu Pokémon cair. Ele não volta em dois
+  segundos; o cartaz diz quantos faltam, e o Centro resolve na hora.
+- **Se ficar chato, é um número só:** `LEVANTAR_SEGUNDOS`, em src/state.ts.
+- **Conferido em:** `npm test`, seção 50 — a borda exata do minuto, a conta
+  regressiva que nunca mostra zero antes da hora, o save antigo que não prende
+  ninguém, e os cinco caminhos que mexem em vida sem quebrar o invariante.
+
 ## O que depende de você
 
 Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2, 4 e os itens 5.1, 5.3 e 5.4, dezesseis itens.
+feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.5, dezessete itens.
 
 O que resta depende de você:
 

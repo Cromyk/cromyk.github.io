@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
+import { LEVANTAR_SEGUNDOS, podeLevantar, segundosParaLevantar } from '../src/state';
 import { Luva, PISO_DO_FLASH_MS, RESPIRO_DE_PULSO_MS, filaDePiscadas } from '../src/glove';
 import { TATO } from '../src/hands';
 import { NA_MAO, Pokebola, corrigirRumo } from '../src/orb';
@@ -4662,6 +4663,102 @@ console.log('\n49. sair e voltar não deixa o quarto no lugar errado');
 
   console.log(
     `   ${antes} superfícies medidas · 0 depois de sair · e o mapa volta a crescer na entrada seguinte`,
+  );
+}
+
+// --- 50. desmaiar custa alguma coisa ---
+//
+// A regeneração fora de campo é de 1 de HP a cada 2,5 s, e ela não olhava se o
+// bicho estava MACHUCADO ou CAÍDO. Um Pokémon que acabava de desmaiar voltava
+// a ter 1 de vida dois segundos e meio depois — e 1 de vida já basta para ele
+// voltar a campo.
+//
+// Três coisas morriam nisso de uma vez: desmaiar não custava nada; o Centro
+// Pokémon, que existe para dar geografia ao cômodo, virava enfeite; e o aviso
+// de time caído (seção 48) piscava e sumia antes de alguém entender o que
+// fazer com ele.
+console.log('\n50. desmaiar custa alguma coisa');
+{
+  const AGORA = 1_700_000_000_000;
+  const MS = LEVANTAR_SEGUNDOS * 1000;
+
+  // Acabou de cair: fica caído.
+  checar(podeLevantar(AGORA, AGORA) === false, 'o bicho se levantou no instante em que caiu');
+  checar(podeLevantar(AGORA, AGORA + 2500) === false, 'dois segundos e meio bastaram — é o bug');
+  checar(podeLevantar(AGORA, AGORA + MS - 1) === false, 'levantou um milissegundo antes da hora');
+  checar(podeLevantar(AGORA, AGORA + MS) === true, 'não levantou na hora exata');
+  checar(podeLevantar(AGORA, AGORA + MS * 10) === true, 'dez minutos depois, ainda caído');
+
+  // Gravação antiga, sem o campo: o jogo SOLTA. Prender o time de quem já
+  // jogava, sem explicação, seria o pior resultado possível desta mudança.
+  checar(podeLevantar(undefined, AGORA) === true, 'um save sem o campo prendeu o time');
+  checar(segundosParaLevantar(undefined, AGORA) === 0, 'um save sem o campo pediu espera');
+
+  // A conta regressiva é para LER: arredonda para cima, e nunca mostra zero
+  // enquanto ainda falta. "0s" com o bicho ainda caído é a pior mentira que um
+  // contador pode contar.
+  checar(segundosParaLevantar(AGORA, AGORA) === LEVANTAR_SEGUNDOS, 'a conta não começa cheia');
+  checar(segundosParaLevantar(AGORA, AGORA + 1000) === LEVANTAR_SEGUNDOS - 1, 'a conta não anda');
+  checar(segundosParaLevantar(AGORA, AGORA + MS - 100) === 1, 'a conta chegou a zero antes da hora');
+  checar(segundosParaLevantar(AGORA, AGORA + MS) === 0, 'a conta não zerou na hora');
+  checar(segundosParaLevantar(AGORA, AGORA + MS * 3) === 0, 'a conta ficou negativa');
+
+  // --- o invariante: vida acima de zero ⟺ sem relógio de queda ---
+  //
+  // Três caminhos escrevem vida, e dois são fáceis de esquecer: subir de nível
+  // cura a diferença de HP máximo, e evoluir nunca deixa o bicho abaixo de 1.
+  // Ninguém pensa em "evoluir" como uma forma de curar.
+  const dex = new Dex();
+  dex.limpar();
+  dex.receberInicial('charmander');
+  const meu = dex.time[0]!;
+
+  checar(meu.caiuEm === undefined, 'o inicial nasceu com relógio de queda');
+
+  dex.definirHp(meu, 0);
+  checar(meu.caiuEm !== undefined, 'cair não marcou a hora');
+  const quandoCaiu = meu.caiuEm;
+
+  // Cair de novo não reinicia a contagem: quem já está no chão não cai mais.
+  dex.definirHp(meu, 0);
+  checar(meu.caiuEm === quandoCaiu, 'levar dano no chão reiniciou a contagem');
+
+  // Qualquer vida acima de zero solta o relógio.
+  dex.definirHp(meu, 5);
+  checar(meu.caiuEm === undefined, 'curar não soltou o relógio da queda');
+
+  // Subir de nível cura a diferença — e isso conta como se levantar.
+  dex.definirHp(meu, 0);
+  dex.ganharXp(meu, 100000);
+  checar(
+    meu.hp <= 0 || meu.caiuEm === undefined,
+    'subiu de nível, ganhou vida, e continuou marcado como caído',
+  );
+
+  // Evoluir nunca deixa abaixo de 1: um bicho caído que evolui está de pé.
+  dex.definirHp(meu, 0);
+  dex.evoluir(meu, 'charmeleon');
+  checar(meu.hp >= 1, 'evoluir deixou o bicho com zero de vida');
+  checar(meu.caiuEm === undefined, 'evoluiu, levantou, e continuou marcado como caído');
+
+  // E o Centro (e o PC) curam na hora, relógio incluído.
+  dex.definirHp(meu, 0);
+  checar(meu.caiuEm !== undefined, 'o teste não conseguiu derrubar o bicho');
+  dex.curarTime();
+  checar(meu.hp === dex.hpMaxDe(meu), 'o Centro não curou tudo');
+  checar(meu.caiuEm === undefined, 'o Centro curou e deixou o relógio preso — o próximo tombo levantaria na hora');
+
+  // --- e a regeneração pergunta antes ---
+  const fonte = readFileSync('src/game.ts', 'utf8');
+  const regen = fonte.slice(fonte.indexOf('private regenerarTime('));
+  checar(
+    regen.slice(0, 900).includes('podeLevantar('),
+    'a regeneração voltou a levantar desmaiado em dois segundos e meio',
+  );
+
+  console.log(
+    `   caído: ${LEVANTAR_SEGUNDOS}s para levantar sozinho · Centro e PC curam na hora ` +
+      `· machucado continua a 1 HP por 2,5s`,
   );
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);

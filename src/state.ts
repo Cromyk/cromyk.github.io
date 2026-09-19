@@ -12,12 +12,76 @@ import {
 } from './species';
 
 /** Um exemplar que é seu: o bicho, não a espécie. */
+/**
+ * Quanto tempo um Pokémon caído leva para se levantar sozinho, em segundos.
+ *
+ * ## O que estava errado
+ *
+ * A regeneração fora de campo é de 1 de HP a cada 2,5 s, e ela não olhava se
+ * o bicho estava MACHUCADO ou CAÍDO. Um Pokémon que acabava de desmaiar
+ * voltava a ter 1 de vida dois segundos e meio depois — e um de vida já basta
+ * para ele voltar a campo.
+ *
+ * Três coisas morriam nisso, todas de uma vez:
+ *
+ * - **desmaiar não custava nada.** A briga que você perdeu se desfazia
+ *   sozinha antes de você terminar de ler o cartaz.
+ * - **o Centro Pokémon virava enfeite.** Ele existe para dar geografia ao
+ *   cômodo — "você sabe onde ele fica, você VOLTA para ele, e a distância até
+ *   ele é o que dá peso a continuar caçando com o time machucado". Nenhuma
+ *   dessas frases sobrevive a um time que se cura sozinho em dois segundos.
+ * - **o aviso de time caído piscava e sumia** antes de alguém entender o que
+ *   fazer com ele.
+ *
+ * ## Por que um minuto, e não "nunca"
+ *
+ * Porque o jogo não tem beco sem saída, e esta é uma regra do projeto inteira
+ * — foi por isso que as pokébolas deixaram de acabar e que os itens passaram
+ * a aparecer pela casa. Quem está sem ninguém de pé tem TRÊS saídas: o Centro
+ * (instantâneo), o PC (instantâneo, e é o caminho de quem joga sentado) e
+ * esperar. A espera existe para nunca prender ninguém, e não para ser o plano.
+ *
+ * Um minuto é o tempo de atravessar o cômodo e voltar. É o bastante para a
+ * decisão de ir até o Centro valer a pena, e pouco o bastante para quem não
+ * quiser ir não ficar refém.
+ */
+export const LEVANTAR_SEGUNDOS = 60;
+
+/**
+ * Este Pokémon caído já pode se levantar sozinho?
+ *
+ * `caiuEm` ausente quer dizer SIM — e isso é de propósito. Uma gravação
+ * anterior a este campo tem bichos com zero de vida e sem data nenhuma, e
+ * tratá-los como recém-caídos prenderia o time de quem já jogava por um
+ * minuto sem explicação. Na dúvida, o jogo solta.
+ */
+export function podeLevantar(caiuEm: number | undefined, agora: number): boolean {
+  if (caiuEm === undefined) return true;
+  return agora - caiuEm >= LEVANTAR_SEGUNDOS * 1000;
+}
+
+/** Quantos segundos faltam para ele se levantar. Zero quando já pode. */
+export function segundosParaLevantar(caiuEm: number | undefined, agora: number): number {
+  if (caiuEm === undefined) return 0;
+  const falta = LEVANTAR_SEGUNDOS - (agora - caiuEm) / 1000;
+  return falta > 0 ? Math.ceil(falta) : 0;
+}
+
 export interface Exemplar {
   id: string;
   xp: number;
   hp: number;
   shiny: boolean;
   capturadoEm: number;
+  /**
+   * Quando ele caiu, em milissegundos do relógio. Ausente = está de pé.
+   *
+   * Ver `LEVANTAR_SEGUNDOS`. É relógio de parede e não tempo de jogo de
+   * propósito: um time que se recupera enquanto o headset está na mesa é o
+   * comportamento certo — você largou o jogo, e voltar e achar todo mundo de
+   * pé é acolhedor. O que não pode é levantar sozinho no meio da briga.
+   */
+  caiuEm?: number;
   /**
    * O nível em que você disse "agora não" para a evolução.
    *
@@ -179,6 +243,7 @@ export class Dex {
           hp: e.hp ?? 1,
           shiny: e.shiny ?? false,
           capturadoEm: e.capturadoEm ?? Date.now(),
+          caiuEm: e.caiuEm,
           recusouEvoluirEm: e.recusouEvoluirEm,
           afeto: e.afeto ?? 0,
         }));
@@ -578,8 +643,24 @@ export class Dex {
     this.salvar();
   }
 
+  /**
+   * O invariante da queda: **vida acima de zero ⟺ sem relógio de queda**.
+   *
+   * Fica numa função só porque TRÊS caminhos escrevem vida — levar dano,
+   * subir de nível (que cura a diferença de HP máximo) e evoluir (que nunca
+   * deixa o bicho abaixo de 1) — e dois deles são fáceis de esquecer, porque
+   * ninguém pensa em "evoluir" como uma forma de curar. Um relógio de queda
+   * esquecido num bicho de pé faria o próximo tombo herdar a contagem do
+   * anterior, e ele levantaria na hora.
+   */
+  private acertarQueda(exemplar: Exemplar) {
+    if (exemplar.hp <= 0) exemplar.caiuEm ??= Date.now();
+    else exemplar.caiuEm = undefined;
+  }
+
   definirHp(exemplar: Exemplar, hp: number) {
     exemplar.hp = Math.max(0, Math.min(this.hpMaxDe(exemplar), Math.round(hp)));
+    this.acertarQueda(exemplar);
     this.salvar();
   }
 
@@ -592,6 +673,7 @@ export class Dex {
     if (depois > antes) {
       const ganho = this.hpMaxDe(exemplar) - statsNoNivel(porId(exemplar.id)!, antes).hpMax;
       exemplar.hp = Math.min(this.hpMaxDe(exemplar), exemplar.hp + Math.max(0, ganho));
+      this.acertarQueda(exemplar);
     }
     this.salvar();
     return depois > antes ? depois : null;
@@ -617,11 +699,16 @@ export class Dex {
     if (exemplar.shiny) reg.viuShiny = true;
     // A vida acompanha em proporção: evoluir não cura, mas também não machuca.
     exemplar.hp = Math.max(1, Math.round(this.hpMaxDe(exemplar) * fracao));
+    this.acertarQueda(exemplar);
     this.salvar();
   }
 
   curarTime() {
-    for (const e of this.exemplares) if (e) e.hp = this.hpMaxDe(e);
+    for (const e of this.exemplares) {
+      if (!e) continue;
+      e.hp = this.hpMaxDe(e);
+      this.acertarQueda(e);
+    }
     this.salvar();
   }
 
