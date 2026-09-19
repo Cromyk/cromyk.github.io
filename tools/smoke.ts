@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
-import { Pokebola, corrigirRumo } from '../src/orb';
+import { NA_MAO, Pokebola, corrigirRumo } from '../src/orb';
 import { Sala } from '../src/room';
 import {
   ESPECIES,
@@ -3834,6 +3834,68 @@ console.log('\n41. a margem de sair do lugar');
   console.log(
     `   sair do lugar: ${(margemDoSlot * 100).toFixed(1)} cm do slot mais perto ` +
       `(alcance ${(ALCANCE_SLOT * 100).toFixed(1)}, passo ${(PASSO_SLOT * 100).toFixed(1)})`,
+  );
+}
+
+
+// --- 42. a pokébola na mão ---
+//
+// Dois defeitos que andavam juntos. O giro da bola nunca seguia o punho: você
+// virava o pulso e ela mantinha a orientação do MUNDO, com a faixa passando de
+// pé para deitada sozinha — numa esfera, é a única coisa que denuncia que ela
+// não está presa à sua mão. E o lugar dela punha a superfície a um centímetro
+// da origem do grip, com os dedos inteiros por dentro.
+//
+// O giro se confere no headset. O LUGAR se confere aqui, porque ele é
+// geometria: três números contra um raio.
+console.log('\n42. a pokébola na mão');
+{
+  const RAIO_DA_BOLA = 0.045;
+  const centro = Math.hypot(NA_MAO.frente, NA_MAO.cima, NA_MAO.palma);
+
+  // A origem do grip — o centro da mão fechada — não pode ficar DENTRO da bola.
+  checar(
+    centro > RAIO_DA_BOLA,
+    `o centro da mão fica dentro da bola: ${(centro * 100).toFixed(1)} cm contra um raio de ${(RAIO_DA_BOLA * 100).toFixed(1)}`,
+  );
+  // Nem tão longe que ela flutue à frente da mão: acima de um raio e meio já
+  // não é mais uma bola segurada, é uma bola acompanhando a mão.
+  checar(
+    centro < RAIO_DA_BOLA * 1.6,
+    `a bola flutua a ${(centro * 100).toFixed(1)} cm da mão`,
+  );
+
+  // O deslocamento para o lado da PALMA existe — sem ele a bola nasce alinhada
+  // com o osso do antebraço, que é onde nada fica.
+  checar(NA_MAO.palma > 0.01, 'a bola não está deslocada para o lado da palma');
+  // E ele é menor que o avanço: uma bola mais para o lado do que para a frente
+  // sairia pela borda da mão.
+  checar(NA_MAO.palma < NA_MAO.frente, 'a bola saiu para o lado mais do que para a frente');
+
+  // O FECHAMENTO dos dedos. Punho cerrado em volta de uma esfera de nove
+  // centímetros é o que punha os dedos por dentro dela; e pouco demais é uma
+  // mão aberta com uma bola grudada.
+  const fechamentos = { colo: 0.5, tablet: 0.46, bola: 0.64, item: 0.74, nada: 1 };
+  for (const [o_que, quanto] of Object.entries(fechamentos)) {
+    checar(quanto > 0 && quanto <= 1, `o fechamento de ${o_que} saiu da faixa`);
+  }
+  checar(
+    fechamentos.bola < 1 && fechamentos.bola > 0.4,
+    'a mão com a bola fecha demais ou de menos',
+  );
+  // Quanto MAIOR a coisa, menos a mão fecha. É a única regra que ordena os
+  // quatro, e é a que impede alguém de mexer num número sem pensar nos outros.
+  checar(
+    fechamentos.tablet < fechamentos.colo &&
+      fechamentos.colo < fechamentos.bola &&
+      fechamentos.bola < fechamentos.item &&
+      fechamentos.item < fechamentos.nada,
+    'os fechamentos não estão ordenados pelo tamanho do que está na mão',
+  );
+
+  console.log(
+    `   bola na mão: centro a ${(centro * 100).toFixed(1)} cm do punho (raio ${(RAIO_DA_BOLA * 100).toFixed(1)}), ` +
+      `dedos a ${(fechamentos.bola * 100).toFixed(0)}% do fecho`,
   );
 }
 

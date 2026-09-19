@@ -39,7 +39,7 @@ import {
   type Golpe,
 } from './species';
 import { garantir, instanciar, type Corpo } from './modelos';
-import { Pokebola } from './orb';
+import { NA_MAO, Pokebola } from './orb';
 import { Sala } from './room';
 import { BOTAO_A, BOTAO_B, FeixeDeAlvo, MarcaDeAlvo, MarcaDeDestino, Mao, Mira, RaioMira } from './hands';
 import { Luva } from './glove';
@@ -113,6 +113,8 @@ const _ouvinteCima = new THREE.Vector3();
 const _ouvinteGiro = new THREE.Quaternion();
 /** Rascunho do olhar para o rastro no chão. Ver atualizarRastro. */
 const _olharRastro = new THREE.Vector3();
+/** Onde a bola fica na mão, reaproveitado por quadro. Ver NA_MAO. */
+const _naMao = new THREE.Vector3();
 
 const MAX_SELVAGENS = 3;
 /**
@@ -4917,6 +4919,18 @@ export class Jogo {
       // O punho antes de tudo: o cinto, o item na mão e a Pokédex são filhos
       // dele, e os três medem contra a pose DESTE quadro.
       mao.atualizarPulso();
+      // Quanto os dedos fecham depende do que está na mão: uma esfera de nove
+      // centímetros, uma placa de 34 por 45 e um Pokémon no colo não cabem num
+      // punho cerrado, e fechá-lo em volta deles põe os dedos por dentro.
+      mao.fechamento = this.colo.tem(mao.indice)
+        ? 0.5
+        : this.tablet.naMaoDe === mao.indice
+          ? 0.46
+          : this.bolaNaMao.has(mao.indice)
+            ? 0.64
+            : this.itemNaMao.has(mao.indice)
+              ? 0.74
+              : 1;
       mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
       // Onde isto FALTAVA: sem ele, depois de escolher o inicial nenhuma mão
       // voltava a ser marcada como tendo saído do painel ou do cinto, e o gesto
@@ -4929,8 +4943,22 @@ export class Jogo {
       const mira = this.miras.get(mao.indice);
 
       if (bola) {
-        const alvo = new THREE.Vector3(0, 0.01, -0.055).applyMatrix4(mao.pulso.matrixWorld);
+        // A bola na mão segue a POSE do punho, e não só a posição.
+        //
+        // O giro nunca era copiado: você virava o pulso e a bola mantinha a
+        // orientação do mundo — a faixa passava de pé para deitada sozinha, o
+        // que numa esfera é a única coisa que denuncia que ela não está presa
+        // à sua mão.
+        //
+        // E o lugar dela é a concavidade da PALMA, que é espelhada entre as
+        // mãos: sem o deslocamento lateral, a bola nasce alinhada com o osso do
+        // antebraço, onde nada fica. Ver NA_MAO, em src/orb.ts.
+        const palma = mao.lado === 'right' ? -1 : 1;
+        const alvo = _naMao
+          .set(NA_MAO.palma * palma, NA_MAO.cima, -NA_MAO.frente)
+          .applyMatrix4(mao.pulso.matrixWorld);
         bola.raiz.position.copy(alvo);
+        mao.pulso.getWorldQuaternion(bola.raiz.quaternion);
         if (mira) mira.atualizar(alvo, mao.velocidadeArremesso(agora), this.sala.pisoY, dt);
       } else if (mira) {
         mira.atualizar(mao.posicaoMundo(), new THREE.Vector3(), this.sala.pisoY, dt);

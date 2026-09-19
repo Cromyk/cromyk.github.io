@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MaoArticulada } from '../src/glove';
+import { NA_MAO } from '../src/orb';
 
 import { caixaDe, desenharCelula } from './raster.mjs';
 import { codificarPng } from './png.mjs';
@@ -44,6 +45,8 @@ interface Pose {
   grip: number;
   /** Calibração aplicada, em graus e centímetros. Ver MaoArticulada.ajustarGiro. */
   giro?: [number, number, number];
+  /** Desenha o contorno da pokébola na posição em que a mão a segura. */
+  bola?: boolean;
   recuo?: number;
 }
 
@@ -56,6 +59,11 @@ const POSES: Pose[] = [
   // sem headset, que o ajuste que o jogador mexe no analógico gira em torno do
   // encaixe — e não em torno do pulso do modelo, que seria o erro fácil.
   { rotulo: 'fechada · calibrada 20°', gatilho: 1, grip: 1, giro: [0, 0, 20], recuo: 0.02 },
+  // Com a pokébola na mão: os dedos fecham só o quanto uma esfera de nove
+  // centímetros deixa, e o contorno dela é desenhado por cima para se ver quem
+  // está por dentro de quem. É a conferência do item 4.2 — antes a mão fechava
+  // INTEIRA em volta da bola e os dedos atravessavam a superfície.
+  { rotulo: 'com a pokébola', gatilho: 0, grip: 0.64, bola: true },
 ];
 
 interface Vista {
@@ -198,18 +206,32 @@ for (const lado of LADOS) {
       const meioY = oy + CELULA / 2;
       const ponto = new THREE.Vector3();
 
-      desenharCelula({
-        rgba,
-        largura: L,
-        ox,
-        oy,
-        celula: CELULA,
-        tris,
-        naTela: (p: number[]) => {
-          const [x, y, z] = vista.projetar(ponto.set(p[0], p[1], p[2]));
-          return [meioX + x * escala, meioY - y * escala, -z * escala];
-        },
-      });
+      const naTela = (p: number[]): [number, number, number] => {
+        const [x, y, z] = vista.projetar(ponto.set(p[0], p[1], p[2]));
+        return [meioX + x * escala, meioY - y * escala, -z * escala];
+      };
+
+      desenharCelula({ rgba, largura: L, ox, oy, celula: CELULA, tris, naTela });
+
+      if (pose.bola) {
+        // O contorno da pokébola onde a mão a segura, na mesma escala do resto.
+        // Um círculo e não uma esfera: o que se quer ver é se os DEDOS ficam
+        // por fora, e para isso a silhueta basta.
+        const palma = lado === 'right' ? -1 : 1;
+        const [cx, cy] = naTela([NA_MAO.palma * palma, NA_MAO.cima, -NA_MAO.frente]);
+        const raio = 0.045 * escala;
+        for (let a = 0; a < 360; a += 2) {
+          const r = (a * Math.PI) / 180;
+          const x = Math.round(cx + Math.cos(r) * raio);
+          const y = Math.round(cy + Math.sin(r) * raio);
+          if (x < ox || x >= ox + CELULA || y < oy || y >= oy + CELULA) continue;
+          const i = (y * L + x) * 4;
+          rgba[i] = 255;
+          rgba[i + 1] = 140;
+          rgba[i + 2] = 60;
+          rgba[i + 3] = 255;
+        }
+      }
     }
 
     escrever(rgba, L, `${lado} ${pose.rotulo}`, 10, linha * CELULA + 10, 3, [210, 220, 240]);

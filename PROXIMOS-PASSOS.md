@@ -388,7 +388,7 @@ do smoke guarda esse número pelos dois lados: pequeno demais não é margem,
 grande demais exige meio braço de afastamento e o gesto continua morto, só que
 agora com código que parece funcionar.
 
-### 4.2 A bola na mão não gira com o punho
+### 4.2 ✅ A bola na mão não gira com o punho (feito em 19/09)
 
 `src/game.ts` copia só a POSIÇÃO da bola presa à mão; o quaternion nunca segue
 o punho. Você gira o pulso e ela mantém a orientação do mundo — uma esfera
@@ -399,9 +399,30 @@ Junto vem a outra metade: o deslocamento `(0, 0.01, −0.055)` contra um raio de
 4,5 cm põe a superfície da bola a um centímetro da origem do grip, e os dedos da
 luva fecham por DENTRO dela.
 
-- **Esforço:** baixo.
+**Feito**, e a segunda metade não se resolveu como parecia.
+
+O giro era uma linha: a bola passou a copiar a POSE do punho, e não só a
+posição.
+
+O lugar dela virou `NA_MAO` em src/orb.ts, ao lado do raio que o justifica — e
+ganhou o deslocamento para o lado da PALMA, que é espelhado entre as mãos.
+Sem ele a bola nascia alinhada com o osso do antebraço, que é onde nada fica.
+
+Mas a correção dos dedos NÃO foi empurrar a bola para longe: isso a faria
+flutuar à frente da mão. Foi parar de FECHAR a mão inteira em volta de uma
+esfera. `Mao.fechamento` diz o quanto os dedos fecham conforme o que está na
+mão — 64% com a pokébola, 74% com um frasco, 50% com um Pokémon no colo e 46%
+com a Pokédex, que é uma placa de 34 por 45 cm. Antes era punho cerrado para
+todos os quatro, e os dedos atravessavam as quatro coisas.
+
+`npm run mao` ganhou a pose **"com a pokébola"**, com o contorno da bola
+desenhado por cima: é ali que se vê quem está por dentro de quem. A seção 42 do
+smoke guarda a geometria (o centro da mão não pode ficar dentro da bola, nem
+tão longe que ela flutue) e a ORDEM dos fechamentos — quanto maior a coisa,
+menos a mão fecha.
+
 - **Como saber que funcionou:** gire o pulso com a bola na mão. A faixa
-  acompanha, e os dedos ficam por fora.
+  acompanha, e os dedos tocam a superfície em vez de atravessá-la.
 
 ### 4.3 O punho fechado da mão nua decide rápido demais
 

@@ -56,6 +56,20 @@ export class Mao {
   conectada = false;
   /** Grip apertado: é ele que segura a pokébola. */
   segurando = false;
+  /**
+   * O quanto os dedos fecham quando a mão está segurando alguma coisa.
+   *
+   * Um por padrão — punho cerrado —, e é isso que estava errado: a mão fechava
+   * INTEIRA em volta de uma pokébola de nove centímetros, de uma placa de
+   * Pokédex e de um Pokémon no colo. Os dedos atravessavam as três coisas, e
+   * numa esfera isso é especialmente visível porque a superfície é curva e os
+   * dedos entram por ela em ângulos diferentes.
+   *
+   * A mão que segura uma bola fecha uns dois terços; a que segura uma placa,
+   * menos ainda. Quem escreve este número é o jogo, que é quem sabe o que está
+   * na mão. Ver `atualizarMaos`.
+   */
+  fechamento = 1;
   /** A luva branca. Só existe depois que o lado da mão é conhecido. */
   luva: Luva | null = null;
   /** Verdadeiro quando quem está rastreando é a mão nua, e não o controle. */
@@ -138,7 +152,13 @@ export class Mao {
       this.semControle &&
       luva.usarJuntas(this.rastreada as unknown as THREE.Object3D & { joints?: Record<string, THREE.Object3D> });
     luva.definirModo(comJuntas);
-    if (!comJuntas) luva.definirDedos(this.gatilho, Math.max(this.grip, this.segurando ? 1 : 0), dt);
+    if (!comJuntas) {
+      luva.definirDedos(
+        this.gatilho,
+        Math.max(this.grip, this.segurando ? this.fechamento : 0),
+        dt,
+      );
+    }
     return comJuntas;
   }
 

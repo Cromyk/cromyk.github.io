@@ -27,6 +27,28 @@ const GRAVIDADE = -9.81;
 const SEGUNDOS_NO_CHAO = 90;
 const RESTITUICAO = 0.42;
 const RAIO = 0.045;
+
+/**
+ * Onde a bola fica na mão, em coordenadas do grip space.
+ *
+ * O grip space nasce dentro da mão fechada, onde estaria o cabo de um controle.
+ * Uma esfera de nove centímetros de diâmetro segurada ali não fica no eixo do
+ * antebraço: ela fica na CONCAVIDADE DA PALMA — à frente dos nós dos dedos e
+ * deslocada para o lado da palma, que é o único lugar onde uma mão sustenta uma
+ * bola sem que ela caia.
+ *
+ * O deslocamento lateral é espelhado entre as mãos, porque a palma é: ela olha
+ * para +X na esquerda e para −X na direita (ver a convenção no topo de
+ * src/glove.ts). Sem ele, a bola sai alinhada com o osso do braço, que é onde
+ * nada fica.
+ *
+ * Os 5,5 cm à frente que havia aqui punham a superfície da bola a um
+ * centímetro da origem do grip — ou seja, com os dedos inteiros por dentro
+ * dela. A correção não foi empurrar a bola para longe (aí ela flutua à frente
+ * da mão): foi parar de FECHAR a mão inteira em volta de uma esfera. Ver
+ * `fechamento`, em src/hands.ts.
+ */
+export const NA_MAO = { frente: 0.05, cima: 0.012, palma: 0.022 } as const;
 const SACUDIDAS = 3;
 
 /**
