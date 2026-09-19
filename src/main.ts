@@ -10,6 +10,9 @@ const nota = document.getElementById('note') as HTMLParagraphElement;
 const ui = document.getElementById('ui') as HTMLDivElement;
 const rolo = document.getElementById('rolo') as HTMLDivElement;
 const fotos = document.getElementById('fotos') as HTMLDivElement;
+const quadro = document.getElementById('quadro') as HTMLDivElement;
+const tabelaQuadro = document.getElementById('tabela-quadro') as HTMLPreElement;
+const copiarQuadro = document.getElementById('copiar-quadro') as HTMLButtonElement;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -132,6 +135,10 @@ async function entrarXR(automatico = false) {
       // tudo o que o jogo mediu nele deixou de valer. Sem isto, entrar de novo
       // sem recarregar a página devolve o quarto inteiro fora do lugar. Ver
       // `Jogo.aoSairDaSessao`.
+      // A tabela ANTES da limpeza: ela é a única coisa medida na sessão que
+      // não sobrevive a um recarregamento, e ler um diário já apagado seria a
+      // forma mais silenciosa possível de perder o item 0.1 de novo.
+      mostrarQuadro();
       jogo.aoSairDaSessao();
       ui.style.display = 'grid';
       botaoEntrar.disabled = false;
@@ -183,6 +190,35 @@ async function entrarXR(automatico = false) {
  * `download` é inerte. Quando a sessão acaba, a página volta a ser uma página —
  * e aí um link é um link. Ver o cabeçalho de src/foto.ts.
  */
+/**
+ * A tabela do orçamento de quadro, na saída da sessão.
+ *
+ * Aqui e não dentro do jogo porque **dentro da realidade mista não há como
+ * copiar um texto**: não existe seleção, não existe área de transferência ao
+ * alcance, e ditar quatro pares de números para alguém anotar é exatamente o
+ * trabalho manual que o item 0.1 nunca venceu. A saída é a única tela do jogo
+ * onde existe um cursor.
+ */
+function mostrarQuadro() {
+  const texto = jogo.relatorioDeQuadro();
+  tabelaQuadro.textContent = texto;
+  quadro.style.display = 'block';
+  copiarQuadro.textContent = 'copiar a tabela';
+  copiarQuadro.onclick = () => {
+    // A área de transferência pode não existir (contexto sem HTTPS) ou ser
+    // recusada. O texto continua selecionável na tela: o botão é o atalho, e
+    // não o único caminho.
+    void navigator.clipboard
+      ?.writeText(texto)
+      .then(() => {
+        copiarQuadro.textContent = 'copiado';
+      })
+      .catch(() => {
+        copiarQuadro.textContent = 'selecione e copie à mão';
+      });
+  };
+}
+
 function mostrarRolo() {
   const tiradas = jogo.rolo;
   if (tiradas.length === 0) {

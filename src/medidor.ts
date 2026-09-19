@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ORCAMENTO_MS } from './diario';
 import { Placa } from './hud';
 
 /**
@@ -35,8 +36,10 @@ import { Placa } from './hud';
  * nela, só pendura uma plaquinha.
  */
 
-/** Orçamento de um quadro a 90 Hz, em milissegundos. */
-export const ORCAMENTO_MS = 1000 / 90;
+// O orçamento vive em src/diario.ts, junto de quem o usa para julgar a
+// sessão inteira. Reexportado aqui porque este arquivo era a casa dele e há
+// quem o importe daqui — mas a definição é uma só.
+export { ORCAMENTO_MS } from './diario';
 
 export class Medidor {
   readonly grupo = new THREE.Group();

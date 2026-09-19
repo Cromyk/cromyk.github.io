@@ -38,20 +38,32 @@ rampa, e a mão aprende um padrão só.
 
 ## Fase 0 — O que continua sendo seu
 
-### 0.1 O orçamento de quadro, medido uma vez
+### 0.1 O orçamento de quadro — agora o jogo mede sozinho
 
-O contador está pronto desde 17/09 (engrenagem → **Contador de quadros**), e
-nunca foi lido. Desde então entraram: as bolas de luz do painel e do cinto, a
-oclusão por profundidade, a leitura da malha do quarto, o sistema de toque e
-duas chamas novas. **Nada disso foi medido.**
+O contador está pronto desde 17/09 (engrenagem → **Contador de quadros**) e
+nunca foi lido, e a culpa disso era do pedido, não sua: ele exigia ligar o
+contador, ficar parado lendo uma plaquinha, invocar três selvagens e ler de
+novo, abrir o painel e ler de novo, abrir a mochila e ler de novo, e **decorar
+quatro pares de números** para anotar depois. Pedi isso em cinco ciclos
+seguidos e não veio — e não ia vir mesmo, porque o trabalho é chato e fácil de
+errar.
 
-Preciso de quatro números seus, anotados em `PLAYTEST.md`: quadro parado, com
-três selvagens em campo, com o painel do pulso aberto, e com a mochila aberta.
+Desde 19/09 (item 5.6) o jogo **anota sozinho**, separando por cenário, e
+entrega uma tabela em Markdown na tela de saída da sessão, com um botão de
+copiar.
 
-- **Esforço:** cinco minutos com o headset.
+O que falta agora é só isto:
+
+1. jogue uma sessão normal — uns dez minutos, passando pelo painel, pela
+   mochila e por uma briga com selvagens em campo;
+2. saia da realidade mista;
+3. **copie a tabela e me mande** (ou cole em `PLAYTEST.md`).
+
+- **Esforço:** jogar, e um toque num botão ao sair.
 - **Como saber que funcionou:** existe uma tabela, e ela tem números seus.
-  Enquanto ela não existir, toda decisão de performance daqui para a frente
-  continua sendo chute — inclusive a minha de que tudo isso cabe.
+  Enquanto ela não existir, toda decisão de performance continua sendo chute —
+  inclusive a minha de que tudo isso cabe. O item **3.1** (as quatro patas de
+  fogo do Ponyta) está parado esperando exatamente esses números.
 
 ---
 
@@ -773,17 +785,69 @@ explicação, seria o pior resultado possível desta mudança.
   regressiva que nunca mostra zero antes da hora, o save antigo que não prende
   ninguém, e os cinco caminhos que mexem em vida sem quebrar o invariante.
 
+### 5.6 ✅ O jogo mede a si mesmo, e entrega o número na saída (feito em 19/09)
+
+O item 0.1 é o mais antigo do roteiro e o único que nunca andou. A razão não
+era preguiça de ninguém: ele pedia que uma pessoa com o headset na cabeça
+ligasse o contador, ficasse parada lendo uma plaquinha, invocasse três
+selvagens e lesse de novo, abrisse o painel e lesse de novo, abrisse a mochila
+e lesse de novo, e **decorasse quatro pares de números** para anotar depois.
+
+Pedi isso em cinco ciclos seguidos. Um número que depende de alguém decorar
+quatro medidas é um número que não vai existir — e enquanto ele não existia,
+mais de quinze sistemas entraram em cima de um orçamento que ninguém conhece.
+
+O jogo já sabia o tempo de cada quadro e as draw calls (`Medidor`). O que
+faltava era ele **anotar** em vez de só mostrar. Agora:
+
+- **anota sempre**, e não só com o contador ligado — ligar a plaquinha para
+  colher o número mudaria o número, porque ela é um canvas e desenhar canvas
+  custa quadro;
+- **separa por cenário**, na ordem de prioridade que a pergunta exige: parado,
+  com selvagens (e quantos), painel do pulso, mochila, PC. Um quadro com a
+  mochila aberta e dois selvagens conta como mochila e só — contar nos dois
+  faria as duas médias mentirem;
+- **entrega uma tabela em Markdown na tela de saída**, com botão de copiar.
+  Ali e não dentro do jogo porque **em realidade mista não há como copiar um
+  texto**: a saída é a única tela do jogo que tem cursor.
+
+Três decisões que valem estar escritas:
+
+- **histograma, e não a lista de amostras.** Vinte minutos a 90 Hz são 108 mil
+  quadros; guardar cada um custaria quase um megabyte por cenário. O
+  histograma custa o mesmo para um quadro e para um milhão. A média sai da soma
+  exata, sem perda; os percentis, com a precisão de um quarto de milissegundo.
+- **o pior caso é o p95, não o máximo.** O máximo de uma sessão é sempre o
+  quadro em que um modelo terminou de baixar — real e irrelevante, porque não
+  se otimiza contra um evento único. O p95 é o que o corpo sente: um tranco a
+  cada quarto de segundo. O máximo também aparece, para quando a pergunta certa
+  for "o que aconteceu ali".
+- **cenário de menos de três segundos não vira linha.** Uma linha com trinta
+  quadros na tabela vale menos que nada, porque parece uma medida.
+
+De quebra, `ORCAMENTO_MS` estava escrito em dois arquivos com o mesmo valor —
+o tipo de duplicata que diverge no dia em que alguém mudar o alvo para 72 Hz.
+Agora é um só.
+
+- **Esforço:** médio.
+- **Como saber que funcionou:** jogue e saia. A tabela está lá, com o seu
+  orçamento de verdade.
+- **Conferido em:** `npm test`, seção 51 — a média exata, o p95 que não se
+  deixa levar por um quadro de 850 ms, o quadro inválido que não entra na
+  conta, a sessão curta que não vira medida, e (por fonte) que o diário é
+  alimentado ANTES da guarda do contador e lido ANTES da limpeza da sessão —
+  sem isso a tabela sairia sempre vazia.
+
 ## O que depende de você
 
 Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.5, dezessete itens.
+feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.6, dezoito itens.
 
 O que resta depende de você:
 
-- **0.1** — os quatro números de quadro (parado, três selvagens, painel aberto,
-  mochila aberta). É o único item que eu não posso fazer, e já são **quinze
-  sistemas novos** desde a última medida. Tudo depois dele passa a ser decidido
-  com número em vez de opinião.
+- **0.1** — os números de quadro. Não precisa mais decorar nada: **jogue uma
+  sessão, saia, e copie a tabela** que aparece na tela de saída. Tudo depois
+  dela passa a ser decidido com número em vez de opinião.
 - **3.1** — as quatro patas de fogo do Ponyta, que dependem do orçamento de
   quadro que o 0.1 mede.
 - **3.2** — a oclusão ligada por padrão, que precisa de você vendo se o recorte

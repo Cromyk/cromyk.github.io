@@ -73,6 +73,21 @@
       /* O rolo de fotos, na saída da sessão. Ver src/foto.ts: dentro da
          realidade misturada não há como baixar um arquivo, então a entrega
          acontece aqui, quando a página volta a ser uma página. */
+      #quadro { display: none; margin: 16px 0 0; }
+      #quadro h2 { margin: 0 0 8px; font-size: 15px; color: #e8ecf4; font-weight: 600; }
+      #tabela-quadro {
+        margin: 0 0 8px;
+        padding: 10px 12px;
+        background: #0b0e15;
+        border: 1px solid #1e2634;
+        border-radius: 8px;
+        color: #c8d4e6;
+        font-size: 11px;
+        line-height: 1.5;
+        overflow-x: auto;
+        white-space: pre;
+        user-select: all;
+      }
       #rolo { display: none; margin: 16px 0 0; }
       #rolo h2 { margin: 0 0 8px; font-size: 15px; color: #e8ecf4; font-weight: 600; }
       #fotos {
@@ -113,6 +128,15 @@
         <button id="enter" disabled>verificando o dispositivo…</button>
         <button id="widget" class="ghost">modo widget — só o seu companheiro</button>
         <button id="flat" class="ghost">jogar na tela (sem headset)</button>
+        <div id="quadro">
+          <h2>O orçamento de quadro desta sessão</h2>
+          <pre id="tabela-quadro"></pre>
+          <button id="copiar-quadro" class="ghost">copiar a tabela</button>
+          <p class="note">
+            O jogo mede sozinho enquanto você joga. Cole isto no PLAYTEST.md — é o
+            item 0.1 do roteiro.
+          </p>
+        </div>
         <div id="rolo">
           <h2>As suas fotos</h2>
           <div id="fotos"></div>

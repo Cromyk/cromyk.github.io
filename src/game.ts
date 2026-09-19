@@ -81,6 +81,7 @@ import { Mochila } from './mochila';
 import { Medidor } from './medidor';
 import { ALCANCE_ACHADO, Achados } from './achados';
 import { Centro, saidaDoTimeCaido, timeCaido } from './centro';
+import { type Cenario, Diario, relatorio } from './diario';
 import { CONDICOES, condicaoDoGolpe } from './condicao';
 import { pedindoAjuda } from './gesto';
 import { Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
@@ -4664,7 +4665,51 @@ export class Jogo {
    * depois que o desenho aconteceu. Medido de dentro de `atualizar`, o medidor
    * mediria tudo menos a parte cara.
    */
+  /**
+   * O diário de quadro. Ver src/diario.ts — ele existe para o item 0.1 parar
+   * de depender de alguém decorar quatro pares de números.
+   */
+  private diario = new Diario();
+
+  /**
+   * Em que situação o jogo está NESTE quadro, para o diário separar as
+   * medidas.
+   *
+   * A ordem é de prioridade, e a pergunta que ela responde é "quanto custa ter
+   * isto aberto": um quadro com a mochila aberta e dois selvagens em campo
+   * conta como mochila e só. Contar nos dois faria as duas médias mentirem.
+   */
+  private get cenarioDoQuadro(): Cenario {
+    if (this.mochila.estaAberta) return 'mochila';
+    if (this.pc.aberto) return 'pc';
+    if (this.painelTime.aberto || this.painelDex.aberto) return 'painel';
+    if (this.selvagens.length > 0) return 'selvagens';
+    return 'parado';
+  }
+
+  /**
+   * A tabela do orçamento de quadro, pronta para o PLAYTEST.md.
+   *
+   * Lida na saída da sessão (ver src/main.ts), que é o único momento em que
+   * alguém pode copiar um texto: dentro da realidade mista não há como.
+   */
+  relatorioDeQuadro(): string {
+    return relatorio(this.diario);
+  }
+
   medir(dt: number, chamadas: number) {
+    // O diário anota SEMPRE, e não só com o contador ligado. Ele não desenha
+    // nada: é uma soma e um índice de array por quadro, e o custo de medir
+    // precisa ser menor do que o erro de não medir. Ligar o contador para
+    // colher o número mudaria justamente o número que se quer colher — a
+    // plaquinha é um canvas, e desenhar canvas custa quadro.
+    this.diario.registrar(
+      this.cenarioDoQuadro,
+      dt * 1000,
+      chamadas,
+      this.selvagens.length,
+    );
+
     this.medidor.definirVisivel(this.ajustes.contadorDeQuadros);
     if (!this.ajustes.contadorDeQuadros) return;
     this.medidor.atualizar(dt, chamadas);
@@ -6335,6 +6380,11 @@ export class Jogo {
     // medido para ele nascer em cima.
     this.proximoSpawn = 3;
     this.timeEstavaCaido = false;
+  }
+
+  /** Apaga o diário de quadro. Chamado depois de a saída já o ter lido. */
+  limparDiario() {
+    this.diario.limpar();
   }
 
   aoEntrarNaSessao() {

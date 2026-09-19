@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
+import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
 import { LEVANTAR_SEGUNDOS, podeLevantar, segundosParaLevantar } from '../src/state';
 import { Luva, PISO_DO_FLASH_MS, RESPIRO_DE_PULSO_MS, filaDePiscadas } from '../src/glove';
 import { TATO } from '../src/hands';
@@ -4759,6 +4760,123 @@ console.log('\n50. desmaiar custa alguma coisa');
   console.log(
     `   caído: ${LEVANTAR_SEGUNDOS}s para levantar sozinho · Centro e PC curam na hora ` +
       `· machucado continua a 1 HP por 2,5s`,
+  );
+}
+
+// --- 51. o jogo mede a si mesmo, e entrega o número na saída ---
+//
+// O item 0.1 — "o orçamento de quadro, medido uma vez" — é o mais antigo do
+// roteiro e o único que nunca andou. A razão não é preguiça: ele pedia que uma
+// pessoa com o headset na cabeça ligasse o contador, ficasse parada lendo uma
+// plaquinha, invocasse três selvagens e lesse de novo, abrisse o painel e
+// lesse de novo, abrisse a mochila e lesse de novo, e DECORASSE quatro pares
+// de números para anotar depois.
+//
+// Um número que depende de alguém decorar quatro medidas é um número que não
+// vai existir. Agora o jogo anota sozinho e entrega a tabela na saída.
+console.log('\n51. o jogo mede a si mesmo, e entrega o número na saída');
+{
+  const d = new Diario();
+
+  // Cem quadros folgados e cinco trancos, no mesmo cenário.
+  for (let i = 0; i < 95; i++) d.registrar('parado', 8, 40);
+  for (let i = 0; i < 5; i++) d.registrar('parado', 30, 40);
+  const parado = d.resumo().find((r) => r.cenario === 'parado')!;
+
+  checar(parado !== undefined, 'o diário não anotou nada');
+  checar(parado.quadros === 100, `anotou ${parado.quadros} quadros em vez de 100`);
+  // A média sai da soma EXATA, e não do histograma: (95×8 + 5×30) / 100 = 9,1.
+  checar(Math.abs(parado.mediaMs - 9.1) < 1e-9, `a média deu ${parado.mediaMs} em vez de 9,1`);
+
+  // O p95 é o tranco que o corpo sente, não o máximo da sessão: com 5% de
+  // quadros ruins, ele fica na borda de cima dos BONS.
+  checar(
+    parado.p95Ms >= 8 && parado.p95Ms <= 8 + BALDE_MS + 1e-9,
+    `o p95 deu ${parado.p95Ms} ms — devia ficar na borda dos quadros de 8 ms`,
+  );
+  checar(parado.piorMs === 30, `o pior caso deu ${parado.piorMs} em vez de 30`);
+  checar(parado.chamadas === 40, `as draw calls deram ${parado.chamadas} em vez de 40`);
+
+  // Piorando a proporção, o p95 acompanha: com 10% de trancos, um em cada vinte
+  // quadros JÁ é tranco.
+  const d2 = new Diario();
+  for (let i = 0; i < 90; i++) d2.registrar('parado', 8, 40);
+  for (let i = 0; i < 10; i++) d2.registrar('parado', 30, 40);
+  const pior = d2.resumo()[0];
+  checar(pior.p95Ms > 20, `com 10% de trancos o p95 continuou em ${pior.p95Ms} ms`);
+
+  // Um quadro absurdo não some da tabela, mas também não vira o p95: é o
+  // modelo que terminou de baixar, e não se otimiza contra um evento único.
+  const d3 = new Diario();
+  for (let i = 0; i < 999; i++) d3.registrar('parado', 9, 30);
+  d3.registrar('parado', 850, 30);
+  const raro = d3.resumo()[0];
+  checar(raro.piorMs === 850, 'o quadro absurdo sumiu do pior caso');
+  checar(raro.p95Ms < 12, `um único quadro de 850 ms levou o p95 a ${raro.p95Ms} ms`);
+  // Acima do teto do histograma ele ainda conta no total e na média.
+  checar(raro.quadros === 1000, 'o quadro acima do teto do histograma não foi contado');
+
+  // Lixo não entra: um dt de zero ou NaN é um quadro que não aconteceu.
+  const d4 = new Diario();
+  d4.registrar('parado', 0, 10);
+  d4.registrar('parado', -5, 10);
+  d4.registrar('parado', NaN, 10);
+  d4.registrar('parado', Infinity, 10);
+  checar(d4.quadros === 0, `${d4.quadros} quadros inválidos entraram na conta`);
+
+  // --- a tabela ---
+  const d5 = new Diario();
+  // Quatro segundos parado, folgado; e seis segundos com a mochila, estourando.
+  for (let i = 0; i < 400; i++) d5.registrar('parado', 10, 60);
+  for (let i = 0; i < 400; i++) d5.registrar('mochila', 15, 140, 2);
+  // E meio segundo no PC: transição, não medida.
+  for (let i = 0; i < 30; i++) d5.registrar('pc', 12, 200);
+
+  const texto = relatorio(d5);
+  checar(texto.includes('parado'), 'a tabela não tem a linha de parado');
+  checar(texto.includes('mochila'), 'a tabela não tem a linha da mochila');
+  checar(!texto.includes('PC aberto'), 'meio segundo de PC virou uma linha da tabela');
+  checar(texto.includes('| --- |'), 'a tabela não é markdown — não dá para colar no PLAYTEST.md');
+  checar(
+    texto.includes('Estouram o orçamento no p95: mochila aberta'),
+    'a tabela não aponta quem estoura o orçamento',
+  );
+  checar(texto.includes(`${Math.round(ORCAMENTO_MS * 10) / 10}`), 'a tabela não diz qual é o orçamento');
+
+  // Tudo dentro do orçamento também tem de ser dito, e dito como notícia boa.
+  const d6 = new Diario();
+  // Seiscentos quadros de 7 ms: quatro segundos e pouco, acima do mínimo de
+  // três — abaixo dele o relatório não inventa medida, e é o teste de cima.
+  for (let i = 0; i < 600; i++) d6.registrar('parado', 7, 50);
+  checar(relatorio(d6).includes('cabem no orçamento'), 'a tabela não diz quando tudo cabe');
+
+  // Sessão de dez quadros: não inventa tabela nenhuma.
+  const d7 = new Diario();
+  for (let i = 0; i < 10; i++) d7.registrar('parado', 9, 50);
+  checar(relatorio(d7).includes('curta demais'), 'uma sessão de dez quadros virou medida');
+
+  // --- e o jogo anota SEMPRE, não só com o contador ligado ---
+  //
+  // Ligar o contador para colher o número mudaria o número: a plaquinha é um
+  // canvas, e desenhar canvas custa quadro.
+  const fonte = readFileSync('src/game.ts', 'utf8');
+  const medir = fonte.slice(fonte.indexOf('  medir(dt: number'));
+  const corpo = medir.slice(0, medir.indexOf('\n  }'));
+  checar(corpo.includes('this.diario.registrar('), 'o diário deixou de ser alimentado');
+  checar(
+    corpo.indexOf('this.diario.registrar(') < corpo.indexOf('contadorDeQuadros'),
+    'o diário ficou atrás do contador — medir passou a depender de mostrar',
+  );
+
+  const principal = readFileSync('src/main.ts', 'utf8');
+  checar(
+    principal.indexOf('mostrarQuadro()') < principal.indexOf('jogo.aoSairDaSessao()'),
+    'a tabela é lida depois da limpeza da sessão — ou seja, vazia',
+  );
+
+  console.log(
+    `   diário: ${parado.quadros} quadros · média ${parado.mediaMs.toFixed(1)} ms · ` +
+      `p95 ${parado.p95Ms.toFixed(2)} ms · pior ${parado.piorMs} ms · orçamento ${ORCAMENTO_MS.toFixed(1)} ms`,
   );
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
