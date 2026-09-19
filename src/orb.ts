@@ -15,6 +15,31 @@ export type EstadoBola =
   | 'inerte';
 
 const GRAVIDADE = -9.81;
+
+/**
+ * O quanto a gravidade vale para uma bola ARREMESSADA.
+ *
+ * ## Por que ela não é 1
+ *
+ * O playtest de 19/09 foi direto: *"a bola ficou mais pesada, precisa ser
+ * mais leve"*. A física estava certa — 9,81 m/s² é a gravidade — e a
+ * sensação estava errada, que é o que importa aqui.
+ *
+ * A razão é que o gesto de arremesso em VR não tem o que o braço tem na vida
+ * real: você solta o controle com o pulso, dentro de um cômodo, sem espaço
+ * para o passo à frente e a rotação de tronco que dão velocidade a um
+ * arremesso de verdade. O braço entrega uns 4 m/s; um braço de verdade
+ * entrega o dobro. Com gravidade cheia, essa diferença vira uma bola que
+ * despenca a dois metros de distância — e o corpo lê isso como PESO, não
+ * como falta de força, porque quem arremessou sente que arremessou bem.
+ *
+ * Setenta por cento abre o arco sem deixar a bola flutuando: ela ainda cai,
+ * ainda quica, ainda tem peso — só voa a distância que o gesto prometeu.
+ *
+ * Vale SÓ no voo. Depois do primeiro toque no chão, a gravidade é cheia de
+ * novo: uma bola que quica leve no carpete denuncia o truque na hora.
+ */
+const GRAVIDADE_NO_VOO = GRAVIDADE * 0.7;
 /**
  * Quanto tempo uma bola largada fica no chão antes de sumir.
  *
@@ -501,7 +526,9 @@ export class Pokebola {
   }
 
   private integrar(dt: number) {
-    this.velocidade.y += GRAVIDADE * dt;
+    // Arremessada e ainda no ar: gravidade aliviada. Ver `GRAVIDADE_NO_VOO`.
+    const gravidade = this.estado === 'voando' ? GRAVIDADE_NO_VOO : GRAVIDADE;
+    this.velocidade.y += gravidade * dt;
     this.raiz.position.addScaledVector(this.velocidade, dt);
 
     if (this.raiz.position.y - RAIO <= this.pisoY) {

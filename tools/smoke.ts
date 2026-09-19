@@ -16,6 +16,12 @@ import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
 import { MarcaDeContato } from '../src/attacks';
+import {
+  ALTURA_DA_CINTURA,
+  CINTURA_MINIMA_DO_CHAO,
+  Cinto,
+  ZONA_MORTA_DO_RUMO,
+} from '../src/cinto';
 import { assinaturaDe } from '../src/signature';
 import { aindaVale, calar, falar, selo } from '../src/voz';
 import { LEVANTAR_SEGUNDOS, podeLevantar, segundosParaLevantar } from '../src/state';
@@ -5613,5 +5619,228 @@ console.log('\n58. o corpo reage, e não só oscila');
   );
 }
 
+
+// --- 59. o chão não fica na altura dos olhos ---
+//
+// Relatado no headset: *"o chão ficou na altura dos olhos, o Pokémon spawna
+// pra cima"*.
+//
+// A causa é uma linha que sempre esteve lá: o piso de reserva nascia em
+// `y = 0`. Zero é o chão no `local-floor` — é para isso que esse espaço
+// existe —, mas o jogo pede `unbounded` assim que a sessão abre, porque é ele
+// que deixa andar pela casa sem um quadrado invisível em volta. E no
+// `unbounded` a origem nasce ONDE VOCÊ ESTAVA, com a altura que a sua cabeça
+// tinha naquele instante.
+//
+// Nada disso dava erro. O mapa da sala parecia estar funcionando; só que o
+// mundo inteiro estava um metro e meio acima de onde devia.
+console.log('\n59. o chão não fica na altura dos olhos');
+{
+  // A situação exata: a origem do espaço nasceu na cabeça, então o jogador
+  // está em y = 0 e o chão de verdade está lá embaixo.
+  const sala = new Sala(new THREE.Group());
+  const cabeca = new THREE.Vector3(0, 0, 0);
+  sala.usarFallback(cabeca);
+  sala.atualizar(null, null, cabeca);
+
+  checar(
+    sala.pisoY < -1,
+    `sem medida nenhuma, o piso ficou em ${sala.pisoY.toFixed(2)} com a cabeça em 0 — é o chão na cara`,
+  );
+  checar(
+    sala.pisoY > -2,
+    `o piso de reserva foi parar em ${sala.pisoY.toFixed(2)}: isso é um andar abaixo`,
+  );
+
+  // E é onde o bicho nasce: o spawn sai do mapa, então o mapa errado põe o
+  // Pokémon no ar.
+  const local = sala.pontoDeSpawn(cabeca);
+  checar(local !== null, 'sem lugar para nascer depois do fallback');
+  checar(
+    local !== null && local.ponto.y < cabeca.y - 1,
+    `o bicho nasce em y=${local?.ponto.y.toFixed(2)} com a cabeça em 0 — spawna para cima`,
+  );
+
+  // --- a guarda de sanidade vale para o dado REAL também ---
+  //
+  // Um plano rotulado como chão na altura da cabeça é um referencial errado, e
+  // não um cômodo estranho. Sem a guarda, um único plano mal rotulado põe o
+  // mundo inteiro na sua cara — e aí nem medir salva.
+  {
+    const outra = new Sala(new THREE.Group());
+    const eu = new THREE.Vector3(0, 1.6, 0);
+    outra.superficies = [
+      {
+        centro: new THREE.Vector3(0, 1.58, 0),
+        meiaLargura: 3,
+        meiaProfundidade: 3,
+        rotacaoY: 0,
+        rotulo: 'floor',
+        altura: 1.58,
+        area: 36,
+      },
+    ];
+    outra.atualizar(null, null, eu);
+    checar(
+      outra.pisoY <= eu.y - 0.5 + 1e-6,
+      `um plano de chão a 2 cm dos olhos virou o piso (${outra.pisoY.toFixed(2)})`,
+    );
+  }
+
+  // --- e a medida de verdade continua mandando ---
+  //
+  // A guarda é um teto, não uma regra: quando o hit-test responde, é ele quem
+  // decide, inclusive num degrau.
+  {
+    (globalThis as Record<string, unknown>).XRRay = class {};
+    const sessao = {
+      requestReferenceSpace: async () => ({}),
+      requestHitTestSource: async () => ({ cancel() {} }),
+    };
+    let chao = -0.9;
+    const frame = {
+      getHitTestResults: () => [{ getPose: () => ({ transform: { position: { y: chao } } }) }],
+    };
+    const medida = new Sala(new THREE.Group());
+    await medida.prepararSondagem(sessao as unknown as XRSession);
+    const eu = new THREE.Vector3(0, 0, 0);
+    for (let i = 0; i < 12; i++) medida.atualizar(frame as unknown as XRFrame, {} as XRReferenceSpace, eu);
+    checar(
+      Math.abs(medida.pisoY - chao) < 0.05,
+      `o hit-test disse ${chao} e o piso ficou em ${medida.pisoY.toFixed(2)}`,
+    );
+  }
+
+  console.log(
+    `   chão: sem medida, ${sala.pisoY.toFixed(2)} m abaixo da cabeça · com medida, manda quem mediu`,
+  );
+}
+
+// --- 60. o cinto está na cintura, e as duas mãos alcançam ---
+//
+// Pedido do playtest de 19/09: *"tirar as pokébolas do antebraço, colocar no
+// cinto do personagem, olhando para baixo e agarrando com qualquer mão"*.
+//
+// A cintura tinha sido descartada em 18/09 com um argumento correto — o Quest
+// não rastreia o quadril —, e o que mudou não foi o hardware: foi o jogo
+// passar a medir o chão a cada passo. A altura da cintura deixou de ser um
+// palpite solto.
+console.log('\n60. o cinto está na cintura, e as duas mãos alcançam');
+{
+  const cinto = new Cinto();
+  const cena = new THREE.Group();
+  cena.add(cinto.grupo);
+
+  const olhando = (inclinacao: number, quadros = 1, rumo = 0, cabecaY = 1.6) => {
+    for (let q = 0; q < quadros; q++) {
+      cinto.posicionar(1 / 72, new THREE.Vector3(0, cabecaY, 0), rumo, inclinacao, 0);
+    }
+    cinto.atualizar(1 / 72);
+  };
+
+  // (1) NA CINTURA, e não na cabeça nem no chão.
+  olhando(0);
+  const altura = cinto.grupo.position.y;
+  checar(
+    Math.abs(altura - (1.6 - ALTURA_DA_CINTURA)) < 1e-6,
+    `o cinto ficou em ${altura.toFixed(2)} com a cabeça a 1,60 — não é cintura`,
+  );
+
+  // Agachado, ele desce junto — mas não entra no carpete. Sem o piso, olhar
+  // para baixo mostraria as bolas enterradas no chão.
+  olhando(0, 40, 0, 0.7);
+  checar(
+    cinto.grupo.position.y >= CINTURA_MINIMA_DO_CHAO - 1e-6,
+    `agachado, o cinto foi parar a ${cinto.grupo.position.y.toFixed(2)} do chão`,
+  );
+
+  // (2) A ZONA MORTA: olhar para o lado não gira o cinto.
+  {
+    const outro = new Cinto();
+    outro.posicionar(1 / 72, new THREE.Vector3(0, 1.6, 0), 0, 0, 0);
+    const antes = outro.grupo.rotation.y;
+    // Meia zona morta: uma olhada de canto de olho.
+    for (let q = 0; q < 90; q++) {
+      outro.posicionar(1 / 72, new THREE.Vector3(0, 1.6, 0), ZONA_MORTA_DO_RUMO * 0.5, 0, 0);
+    }
+    checar(
+      Math.abs(outro.grupo.rotation.y - antes) < 1e-6,
+      'o cinto girou com uma olhada de canto de olho — você nunca acha a mesma bola',
+    );
+
+    // Virar o corpo, sim: e ele chega lá, devagar.
+    for (let q = 0; q < 200; q++) {
+      outro.posicionar(1 / 72, new THREE.Vector3(0, 1.6, 0), Math.PI * 0.75, 0, 0);
+    }
+    checar(
+      outro.grupo.rotation.y > Math.PI * 0.3,
+      `virando o corpo 135°, o cinto só acompanhou ${((outro.grupo.rotation.y * 180) / Math.PI).toFixed(0)}° — fica nas costas`,
+    );
+  }
+
+  // (3) OLHAR PARA BAIXO ACENDE. Quatro bolas acesas o tempo todo ficariam no
+  //     canto do olho a sessão inteira — e o canto do olho, em MR, é o seu
+  //     quarto.
+  olhando(0, 60);
+  const paradoOlhandoAFrente = cinto.aceso;
+  olhando(0.8, 60);
+  checar(
+    cinto.aceso > paradoOlhandoAFrente + 0.5,
+    `olhando para baixo o cinto foi de ${paradoOlhandoAFrente.toFixed(2)} a ${cinto.aceso.toFixed(2)} — não responde`,
+  );
+  // E não some de vez olhando para a frente: você precisa lembrar que ele existe.
+  checar(paradoOlhandoAFrente < 0.1, 'o cinto fica aceso mesmo sem você olhar');
+
+  // (4) AS DUAS MÃOS alcançam as quatro bolas. É o ponto do pedido: no
+  //     antebraço, a mão que carregava o cinto não alcançava o próprio braço.
+  {
+    const naCintura = new Cinto();
+    new THREE.Group().add(naCintura.grupo);
+    naCintura.posicionar(1 / 72, new THREE.Vector3(0, 1.6, 0), 0, 0.8, 0);
+    naCintura.grupo.updateMatrixWorld(true);
+    naCintura.definirEstoque(() => 5);
+
+    // Uma mão de cada lado do corpo, na altura da cintura.
+    const esquerda = new THREE.Vector3(-0.17, 1, 0.17);
+    const direita = new THREE.Vector3(0.17, 1, 0.17);
+    checar(naCintura.slotSob(esquerda) !== null, 'a mão esquerda não alcança o cinto');
+    checar(naCintura.slotSob(direita) !== null, 'a mão direita não alcança o cinto');
+    // E elas pegam bolas DIFERENTES: a fileira tem lados.
+    checar(
+      naCintura.slotSob(esquerda)?.id !== naCintura.slotSob(direita)?.id,
+      'os dois lados da cintura dão a mesma bola — a fileira não tem lados',
+    );
+
+    // A força de toque existe para as duas, sem escolher o slot: é ela que
+    // deixa o jogo perguntar antes de decidir qual mão ganha o destaque.
+    checar(naCintura.forcaDaMao(esquerda, esquerda) > 0, 'a mão esquerda não sente o cinto');
+    checar(naCintura.forcaDaMao(direita, direita) > 0, 'a mão direita não sente o cinto');
+    checar(
+      naCintura.forcaDaMao(new THREE.Vector3(0, 1.6, -1), new THREE.Vector3(0, 1.6, -1)) === 0,
+      'a mão longe do corpo sente o cinto',
+    );
+  }
+
+  // (5) E O ARREMESSO FICOU MAIS LEVE — pedido do mesmo playtest.
+  //
+  // O gesto em VR é só pulso e antebraço, dentro de um cômodo, sem o passo à
+  // frente que dá velocidade a um arremesso de verdade. Com gravidade cheia, a
+  // bola despencava a dois metros e o corpo lia isso como PESO.
+  {
+    const fonte = readFileSync('src/orb.ts', 'utf8');
+    checar(fonte.includes('GRAVIDADE_NO_VOO'), 'a bola voltou a voar com gravidade cheia');
+    checar(
+      /estado === 'voando' \? GRAVIDADE_NO_VOO : GRAVIDADE/.test(fonte),
+      'a gravidade aliviada vazou para fora do voo — o quique denuncia o truque',
+    );
+    const maos = readFileSync('src/hands.ts', 'utf8');
+    const ganho = /velocidadeArremesso\(tempoMs: number, ganho = ([\d.]+)\)/.exec(maos);
+    checar(ganho !== null && Number(ganho[1]) > 1.3, `o ganho do arremesso é ${ganho?.[1]} — o braço continua preso`);
+  }
+
+  console.log(
+    `   cinto: cintura a ${ALTURA_DA_CINTURA} m dos olhos · zona morta de ${((ZONA_MORTA_DO_RUMO * 180) / Math.PI).toFixed(0)}° · as duas mãos pegam`,
+  );
+}
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

@@ -66,6 +66,7 @@ export type ChaveAjuste =
   | 'contornoDaSala'
   | 'avisoDeGolpe'
   | 'tamanhoReal'
+  | 'hudGrande'
   | 'vozDoNome'
   | 'musicaDeBatalha'
   | 'contadorDeQuadros'
@@ -82,6 +83,12 @@ interface Interruptor {
 }
 
 export const INTERRUPTORES: readonly Interruptor[] = [
+  {
+    id: 'hudGrande',
+    nome: 'Cartazes maiores',
+    ligadoDiz: 'para ler de longe',
+    desligadoDiz: 'compactos, sem tapar o bicho',
+  },
   {
     id: 'tamanhoReal',
     nome: 'Tamanho real',
@@ -168,6 +175,13 @@ export class Ajustes {
    * src/species.ts).
    */
   tamanhoReal = true;
+  /**
+   * O HUD grande é o tamanho ANTIGO: 46 cm a noventa centímetros do rosto,
+   * uns 29 graus de campo de visão. Ele tapava o Pokémon sobre o qual estava
+   * avisando — ver `ESCALA_DO_HUD` em src/hud.ts —, mas continua aqui porque
+   * tamanho de interface é pessoal.
+   */
+  hudGrande = false;
   /** A voz dizendo o nome, no lugar do grito dos jogos. Ver src/audio.ts. */
   vozDoNome = true;
   /**
@@ -347,6 +361,7 @@ export class Ajustes {
       if (typeof dados.avisoDeGolpe === 'boolean') this.avisoDeGolpe = dados.avisoDeGolpe;
       if (typeof dados.contornoDaSala === 'boolean') this.contornoDaSala = dados.contornoDaSala;
       if (typeof dados.tamanhoReal === 'boolean') this.tamanhoReal = dados.tamanhoReal;
+      if (typeof dados.hudGrande === 'boolean') this.hudGrande = dados.hudGrande;
       if (typeof dados.vozDoNome === 'boolean') this.vozDoNome = dados.vozDoNome;
       if (typeof dados.musicaDeBatalha === 'boolean') this.musicaDeBatalha = dados.musicaDeBatalha;
       // Estes dois faltavam na gravação, e o contador voltava desligado a cada
@@ -382,6 +397,7 @@ export class Ajustes {
           avisoDeGolpe: this.avisoDeGolpe,
           contornoDaSala: this.contornoDaSala,
           tamanhoReal: this.tamanhoReal,
+          hudGrande: this.hudGrande,
           vozDoNome: this.vozDoNome,
           musicaDeBatalha: this.musicaDeBatalha,
           contadorDeQuadros: this.contadorDeQuadros,

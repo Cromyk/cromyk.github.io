@@ -36,6 +36,10 @@ export const GRIP = 1;
 export const BOTAO_A = 4;
 /** B na direita, Y na esquerda. */
 export const BOTAO_B = 5;
+/** O apoio de polegar, que o Touch reporta como botão. Não é comando. */
+const APOIO_DE_POLEGAR = 6;
+/** O analógico, quando apertado para baixo. */
+const CLIQUE_DO_ANALOGICO = 3;
 
 /**
  * Uma mão rastreada. Guarda um histórico curto de posições para descobrir com
@@ -253,6 +257,45 @@ export class Mao {
     return this.bordas[indice] === true;
   }
 
+  /**
+   * Algum botão que o jogo NÃO conhece acabou de descer.
+   *
+   * ## Por que não é um índice fixo
+   *
+   * O pedido foi abrir o painel com o botão **MENU** do controle esquerdo. O
+   * problema é que esse botão não tem índice garantido: o perfil
+   * `oculus-touch-v3` do webxr-input-profiles mapeia gatilho, grip,
+   * analógico, A/X, B/Y e o apoio de polegar — e para por aí. O menu é
+   * tratado como botão de SISTEMA, e cada runtime decide se o entrega ao
+   * aplicativo, em que posição, ou se o come para abrir o painel da Meta.
+   *
+   * Escolher um número no escuro daria uma de duas coisas: um comando que
+   * nunca dispara, ou um comando que dispara junto com outra coisa. Então a
+   * pergunta vira outra — *desceu algum botão que não é nenhum dos que eu já
+   * uso?* —, e a resposta serve para qualquer runtime que entregue o menu,
+   * hoje ou depois de uma atualização do sistema.
+   *
+   * O apoio de polegar fica de fora: ele é capacitivo, dispara ao encostar, e
+   * viraria um painel abrindo sozinho toda vez que a mão relaxa.
+   */
+  apertouExtra(): boolean {
+    for (let i = 0; i < this.bordas.length; i++) {
+      if (!this.bordas[i]) continue;
+      if (
+        i === GATILHO ||
+        i === GRIP ||
+        i === BOTAO_A ||
+        i === BOTAO_B ||
+        i === APOIO_DE_POLEGAR ||
+        i === CLIQUE_DO_ANALOGICO
+      ) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+
   segurandoBotao(indice: number): boolean {
     return this.botoes[indice] === true;
   }
@@ -378,7 +421,19 @@ export class Mao {
    * o pulso trava antes do que o cérebro espera — sem isso o arremesso sai
    * sempre curto.
    */
-  velocidadeArremesso(tempoMs: number, ganho = 1.15): THREE.Vector3 {
+  /**
+   * A velocidade do braço na janela recente, com um GANHO em cima.
+   *
+   * O ganho subiu de 1,15 para 1,45 depois do playtest de 19/09 (*"a bola
+   * ficou mais pesada"*), e ele existe pelo mesmo motivo da gravidade
+   * aliviada em src/orb.ts: o arremesso em VR é só pulso e antebraço, dentro
+   * de um cômodo, sem o passo à frente e a rotação de tronco que dão
+   * velocidade a um arremesso de verdade.
+   *
+   * O gesto entrega uns 4 m/s onde um braço entregaria o dobro. Multiplicar
+   * não é trapaça: é devolver o que o cômodo tirou.
+   */
+  velocidadeArremesso(tempoMs: number, ganho = 1.45): THREE.Vector3 {
     const recentes = this.amostras.filter((a) => tempoMs - a.tempo <= JANELA_MS);
     if (recentes.length < 2) return this.ultimaVelocidade.set(0, 0, 0);
 
@@ -394,7 +449,9 @@ export class Mao {
       .multiplyScalar(ganho);
 
     // Teto de segurança: ninguém precisa arremessar a 20 m/s dentro de casa.
-    const limite = 9;
+    // Subiu junto com o ganho — em 9 ele cortava arremessos fortes de verdade,
+    // e cortar o teto é exatamente o que faz um braço parecer preso.
+    const limite = 11;
     if (this.ultimaVelocidade.length() > limite) this.ultimaVelocidade.setLength(limite);
     return this.ultimaVelocidade;
   }

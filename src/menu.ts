@@ -256,6 +256,11 @@ export class PainelTime {
   private destacado: { tipo: Selecao['tipo']; indice: number } | null = null;
   private assinatura = '';
   private abertura = 0;
+  /**
+   * O que o botão de menu mandou, enquanto o gesto não concordar. Ver
+   * `alternarPeloBotao`.
+   */
+  private mandadoPeloBotao: boolean | null = null;
   /** Relógio próprio, para as bolas flutuarem e girarem. */
   private tempo = 0;
   /** Onde o conteúdo da página principal termina, para cima. Ver reposicionar. */
@@ -380,6 +385,18 @@ export class PainelTime {
   }
 
   /** Alterna entre a página principal e a dos ajustes. */
+  /**
+   * Abre ou fecha pelo botão de menu — pedido do playtest de 19/09.
+   *
+   * A ordem importa: ele inverte o estado de AGORA, que pode ter vindo do
+   * gesto. Se o painel está aberto porque você está olhando o pulso, o botão
+   * fecha; e ele continua fechado até você baixar o braço, porque só aí o
+   * gesto volta a concordar e a ordem do botão se desfaz.
+   */
+  alternarPeloBotao() {
+    this.mandadoPeloBotao = !this.aberto;
+  }
+
   alternarAjustes(): boolean {
     this.nosAjustes = !this.nosAjustes;
     this.assinatura = '';
@@ -1267,7 +1284,21 @@ export class PainelTime {
   ) {
     // O lado vem de fora: o painel mora no pulso NÃO dominante, e qual é esse
     // depende de quem está jogando. Ver `canhoto` em src/ajustes.ts.
-    const querAbrir = olhandoORelogio(punhoEsquerdo, lado, camera, this.aberto);
+    // O BOTÃO manda enquanto durar, e o gesto continua valendo.
+    //
+    // Dois caminhos para a mesma coisa, e é de propósito: o gesto do relógio é
+    // o que torna o painel parte do mundo, e o botão é o que salva quem está
+    // com o braço ocupado, com o bicho no colo, ou simplesmente não quer
+    // levantar o pulso pela vigésima vez. Ver `alternarPeloBotao`.
+    //
+    // Quem apertou o botão manda até o gesto CONCORDAR com ele: fechar no
+    // botão e o painel reabrir no quadro seguinte porque o pulso ainda estava
+    // virado seria a pior combinação possível dos dois.
+    const gesto = olhandoORelogio(punhoEsquerdo, lado, camera, this.aberto);
+    if (this.mandadoPeloBotao !== null && gesto === this.mandadoPeloBotao) {
+      this.mandadoPeloBotao = null;
+    }
+    const querAbrir = this.mandadoPeloBotao ?? gesto;
     this.aberto = querAbrir;
 
     this.abertura += ((querAbrir ? 1 : 0) - this.abertura) * Math.min(1, dt * 10);

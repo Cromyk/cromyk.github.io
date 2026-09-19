@@ -49,7 +49,8 @@ import { fatorDoHorario, nomeDoPeriodo, noturnidade } from './hora';
 import { ALCANCE_SLOT, Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
 import { Fotografo, type Foto } from './foto';
-import { Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
+import {
+  ESCALA_DO_HUD, Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
 import {
   Colo,
   ESCORREGAO,
@@ -126,6 +127,9 @@ const gestoDoGolpe = (golpe: Golpe): GestoDeAtaque =>
 
 /** Rascunho do quadro para a origem do feixe — ver atualizarFeixe. */
 const _feixeOrigem = new THREE.Vector3();
+/** Rascunhos da cabeça, para o cinto da cintura. Ver `atualizarPaineis`. */
+const _cabeca = new THREE.Vector3();
+const _olhar = new THREE.Vector3();
 
 /** Rascunhos do quadro para o ouvinte do áudio. Ver atualizarOuvinte. */
 const _ouvintePos = new THREE.Vector3();
@@ -381,6 +385,9 @@ export class Jogo {
 
     this.cena.add(this.painelTime.grupo, this.pc.grupo, this.mochila.grupo, this.centro.grupo);
     this.cena.add(this.painelPulso.grupo);
+    // O cinto vai na cena e não num punho: ele mora na SUA cintura agora, e a
+    // cintura não é filha de mão nenhuma. Ver src/cinto.ts.
+    this.cena.add(this.cinto.grupo);
     this.cena.add(this.pegadas.grupo);
     // A Pokédex não entra solta na cena: as placas dela são a TELA do tablet,
     // e é a carcaça que anda pelo mundo.
@@ -662,7 +669,15 @@ export class Jogo {
    * e some junto quando o controle se desconecta, sem ninguém precisar cuidar
    * disso.
    */
-  private cintos = new Map<'left' | 'right', Cinto>();
+  /**
+   * O cinto, na sua cintura. UM, e alcançável pelas duas mãos.
+   *
+   * Eram dois, um em cada antebraço, porque a mão que carrega o cinto não
+   * alcança o próprio braço. Na cintura o problema deixa de existir: as duas
+   * mãos chegam nas quatro bolas, e o braço desce sozinho por gravidade. Ver
+   * o cabeçalho de src/cinto.ts.
+   */
+  private cinto = new Cinto();
   /** A carcaça da Pokédex, nas suas costas. Ver src/tablet.ts. */
   private tablet = new Tablet();
   /**
@@ -1353,9 +1368,17 @@ export class Jogo {
    * antebraço dela, a distância seria sempre zero, e todo grip daquela mão
    * viraria "peguei uma bola".
    */
-  private cintoPara(mao: Mao): Cinto | null {
-    if (mao.lado !== 'left' && mao.lado !== 'right') return null;
-    return this.cintos.get(mao.lado === 'left' ? 'right' : 'left') ?? null;
+  /**
+   * O cinto que ESTA mão alcança: o único que existe.
+   *
+   * A função continua existindo — e continua recebendo a mão — porque a
+   * pergunta que ela responde é boa e pode voltar a ter resposta diferente
+   * por mão. No antebraço a resposta era "o do outro braço", porque a mão que
+   * carrega o cinto não alcança o próprio. Na cintura, as duas alcançam as
+   * quatro bolas.
+   */
+  private cintoPara(_mao: Mao): Cinto | null {
+    return this.cinto;
   }
 
   /**
@@ -1705,7 +1728,7 @@ export class Jogo {
     this.saiuDoCinto.delete(mao.indice);
     // Fecha nos DOIS cintos: o mesmo slot existe nos dois braços, e deixar o
     // outro aberto mostraria um berço piscando sem bola nenhuma para voltar.
-    for (const cinto of this.cintos.values()) cinto.definirAberto(origem, false);
+    this.cinto.definirAberto(origem, false);
   }
 
   /** Tira a bola da mão e da cena, sem julgar o motivo. */
@@ -2181,7 +2204,7 @@ export class Jogo {
     if (slotDeOrigem) {
       this.bolaVeioDoSlot.set(mao.indice, slotDeOrigem);
       this.saiuDoCinto.delete(mao.indice);
-      for (const cinto of this.cintos.values()) cinto.definirAberto(slotDeOrigem, true);
+      this.cinto.definirAberto(slotDeOrigem, true);
     }
 
     if (vaiInvocar) {
@@ -2781,6 +2804,18 @@ export class Jogo {
     );
   }
 
+  /**
+   * Põe o HUD no tamanho escolhido. Ver `ESCALA_DO_HUD` em src/hud.ts.
+   *
+   * Um por cento a mais de trabalho aqui evita a pergunta "por que o meu
+   * ajuste não pegou": isto é chamado na entrada da sessão E quando o
+   * interruptor muda, porque o valor é lido do módulo e não do objeto de
+   * ajustes.
+   */
+  private aplicarTamanhoDoHud() {
+    ESCALA_DO_HUD.valor = this.ajustes.hudGrande ? 1 : 0.78;
+  }
+
   private alternarInterruptor(id: ChaveAjuste) {
     const ligado = this.ajustes.alternar(id);
     audio.clique();
@@ -2789,6 +2824,7 @@ export class Jogo {
     if (id === 'contornoDaSala' && this.sala.debugLigado !== ligado) this.sala.alternarDebug();
     if (id === 'vozDaDex' && !ligado) calar();
     if (id === 'vozDoNome') audio.vozDoNome = ligado;
+    if (id === 'hudGrande') this.aplicarTamanhoDoHud();
     if (id === 'musicaDeBatalha') {
       audio.musicaDeBatalha = ligado;
       // Desligar no meio de uma briga precisa calar AGORA: o laço só chamaria
@@ -4609,6 +4645,25 @@ export class Jogo {
    *   Y (esquerda) abre e fecha o PC
    */
   private botoesDaMao(mao: Mao) {
+    // O MENU abre e fecha o painel do pulso — pedido do playtest de 19/09.
+    //
+    // Vem antes de tudo porque é um comando de INTERFACE: ele não compete com
+    // nada que aconteça no mundo, e se a pergunta da evolução estiver na tela
+    // abrir o painel continua sendo uma coisa razoável de querer.
+    //
+    // Na mão do painel, que é a esquerda por padrão e a direita para canhotos
+    // (ver `ladoDoPainel`): é o braço onde o painel MORA, e mandar abri-lo pelo
+    // outro seria mais um comando para decorar.
+    //
+    // `apertouExtra` e não um índice fixo: o botão de menu não tem posição
+    // garantida no perfil do Touch, e cada runtime decide se o entrega. Ver
+    // `Mao.apertouExtra`.
+    if (mao.lado === this.ladoDoPainel && mao.apertouExtra()) {
+      this.painelTime.alternarPeloBotao();
+      audio.abrirPainel();
+      return;
+    }
+
     // A pergunta da evolução toma A e B enquanto estiver na tela: ela é modal
     // de propósito, e é curta.
     if (this.evolucaoPendente && mao.lado === this.ladoQueAponta) {
@@ -5448,15 +5503,8 @@ export class Jogo {
       // a mão girava — metade da queixa de "painel inclinado" do playtest de
       // 18/09. Ele entra na cena uma vez, em `montarCena`.
 
-      // Um cinto por antebraço, criado quando aquele punho aparece. Um controle
-      // sem lado declarado (`none`) não ganha cinto: sem saber o lado, o cinto
-      // sairia espelhado e as bolas ficariam do lado de dentro do braço.
-      const lado = mao.lado;
-      if ((lado === 'left' || lado === 'right') && !this.cintos.has(lado)) {
-        const cinto = new Cinto(lado);
-        mao.pulso.add(cinto.grupo);
-        this.cintos.set(lado, cinto);
-      }
+      // O cinto não nasce por mão: ele é um só, na sua cintura, e entra na
+      // cena com o resto do mundo. Ver `montarCena`.
     }
   }
 
@@ -5466,38 +5514,44 @@ export class Jogo {
     // trocam de braço. Ver `ladoQueAponta`.
     const doPainel = this.maos.find((m) => m.lado === this.ladoDoPainel && m.conectada);
     const queAponta = this.maos.find((m) => m.lado === this.ladoQueAponta && m.conectada);
-    // Os cintos continuam falando em esquerda e direita: eles são simétricos de
-    // verdade — um em cada antebraço, e quem pega é sempre a mão oposta.
-    const esquerda = this.maos.find((m) => m.lado === 'left' && m.conectada);
-    const direita = this.maos.find((m) => m.lado === 'right' && m.conectada);
+    // --- o cinto, na cintura ---
+    //
+    // Um só, e alcançável pelas DUAS mãos: no antebraço, a mão que carregava o
+    // cinto não alcançava o próprio braço, e por isso eram dois. Ver o
+    // cabeçalho de src/cinto.ts para o porquê da mudança.
+    this.cinto.definirEstoque((id: string) => this.dex.bolas(id));
 
-    // --- os cintos, um em cada antebraço ---
-    //
-    // Dois, desde 18/09. O cinto morava só no antebraço esquerdo, e como a mão
-    // que CARREGA o cinto não alcança o próprio braço, só a direita podia tirar
-    // uma bola: quem prefere arremessar com a esquerda não tinha de onde pegar.
-    // Agora cada braço tem o seu, e quem pega é sempre a mão oposta — como num
-    // braço de verdade.
-    //
-    // O estoque é O MESMO nos dois: é uma mochila, não duas. Tirar a última
-    // Bola Comum pelo braço direito esvazia o slot do esquerdo no mesmo quadro,
-    // porque os dois perguntam a mesma coisa à Dex.
-    for (const [lado, cinto] of this.cintos) {
-      cinto.definirEstoque((id: string) => this.dex.bolas(id));
-      // Quem destaca é a mão que VEM PEGAR, e ela é sempre a do outro braço.
-      const quemPega = lado === 'left' ? direita : esquerda;
-      // O mesmo par de pontos que o GRIP usa para decidir o que pegar — palma e
-      // ponta do dedo (ver `slotSobAMao`). E a força volta como VIBRAÇÃO na mão
-      // que está chegando: é o que transforma "vejo que acendeu" em "sinto que
-      // encostei". Ver src/toque.ts.
-      const podePegar = quemPega !== undefined && !this.maoCheia(quemPega);
-      const forca = cinto.destacar(
-        podePegar ? this.pontoDeAgarre(quemPega!) : null,
-        podePegar ? this.pontoDoDedo(quemPega!) : null,
-      );
-      if (forca > 0 && quemPega) quemPega.rocar(forca);
-      cinto.atualizar(dt);
+    // A cabeça manda a posição, o rumo e a inclinação. A inclinação sai do eixo
+    // −Z da câmera, que é para onde ela olha: −1 é o teto, 1 é o chão.
+    this.camera.getWorldPosition(_cabeca);
+    this.camera.getWorldDirection(_olhar);
+    const rumoDaCabeca = Math.atan2(-_olhar.x, -_olhar.z);
+    this.cinto.posicionar(dt, _cabeca, rumoDaCabeca, -_olhar.y, this.sala.pisoY);
+
+    // QUALQUER mão destaca, e a que estiver mais perto ganha a vibração. O
+    // mesmo par de pontos que o GRIP usa para decidir o que pegar — palma e
+    // ponta do dedo (ver `slotSobAMao`) —, e a força volta como toque na mão
+    // que está chegando: é o que transforma "vejo que acendeu" em "sinto que
+    // encostei". Ver src/toque.ts.
+    let melhorForca = 0;
+    let maoDoToque: Mao | null = null;
+    let agarre: THREE.Vector3 | null = null;
+    let dedo: THREE.Vector3 | null = null;
+    for (const mao of this.maos) {
+      if (!mao.conectada || this.maoCheia(mao)) continue;
+      const p = this.pontoDeAgarre(mao);
+      const d = this.pontoDoDedo(mao);
+      const f = this.cinto.forcaDaMao(p, d);
+      if (f > melhorForca) {
+        melhorForca = f;
+        maoDoToque = mao;
+        agarre = p.clone();
+        dedo = d.clone();
+      }
     }
+    const forca = this.cinto.destacar(agarre, dedo);
+    if (forca > 0 && maoDoToque) maoDoToque.rocar(forca);
+    this.cinto.atualizar(dt);
 
     // --- painel do time, na mão esquerda ---
     // Uma vaga vazia vira uma ENTRADA vazia, e não some da lista: o painel
@@ -6548,6 +6602,7 @@ export class Jogo {
     // Os ajustes salvos valem desde o primeiro quadro: o contorno da sala é o
     // único que mexe na cena e precisa ser aplicado à mão.
     if (this.ajustes.contornoDaSala !== this.sala.debugLigado) this.sala.alternarDebug();
+    this.aplicarTamanhoDoHud();
 
     // As narrações dos iniciais são um MP3 de ~190 kB cada. Só dá para baixá-las
     // agora, e não no construtor: elas são decodificadas no AudioContext, e ele
@@ -6680,7 +6735,7 @@ export class Jogo {
     this.painelPulso.descartar();
     this.painelTime.descartar();
     this.painelDex.descartar();
-    for (const cinto of this.cintos.values()) cinto.descartar();
+    this.cinto.descartar();
     this.tablet.descartar();
     this.pc.descartar();
     this.promptEvolucao.descartar();

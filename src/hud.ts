@@ -105,6 +105,32 @@ export class Placa {
 }
 
 /** Aviso grande que aparece à frente do jogador e some sozinho. */
+/**
+ * O tamanho do HUD, e a distância a que ele fica dos seus olhos.
+ *
+ * ## Por que existe um número só para isso
+ *
+ * O cartaz de aviso é a coisa mais vista do jogo depois da sua própria mão:
+ * ele aparece na captura, no golpe, no achado, no carinho, no erro. Ele
+ * nasceu com 46 × 22 cm a noventa centímetros do rosto — o que, na conta do
+ * ângulo, ocupa uns 29 graus de campo de visão na horizontal.
+ *
+ * Vinte e nove graus é MUITO. O campo útil de um Quest 3 tem uns 110, e um
+ * cartaz de trinta cobre a área onde o Pokémon costuma estar: na prática, o
+ * aviso tapava justamente aquilo sobre o que ele estava avisando.
+ *
+ * O playtest de 19/09 pediu "redesenhar o tamanho do HUD", e o conserto é
+ * este número: 0,78 põe o cartaz em 23 graus, que é o que um letreiro de
+ * cinema ocupa visto da última fileira — dá para ler de relance sem tirar o
+ * mundo de trás dele.
+ *
+ * Fica como AJUSTE e não como decisão minha porque tamanho de interface é
+ * pessoal: quem usa óculos por baixo do headset, quem tem o headset mais
+ * afastado do rosto e quem simplesmente enxerga menos precisam de números
+ * diferentes. Ver `HUD` em src/ajustes.ts.
+ */
+export const ESCALA_DO_HUD = { valor: 0.78 };
+
 export class Aviso {
   readonly placa = new Placa(0.46, 0.22, 640);
   private restante = 0;
@@ -230,6 +256,10 @@ export class Aviso {
     const alvo = new THREE.Vector3(0, -0.1, -0.9).applyMatrix4(camera.matrixWorld);
     this.placa.malha.position.lerp(alvo, Math.min(1, dt * 7));
     this.placa.malha.quaternion.copy(camera.quaternion);
+    // O tamanho é regulável e vale por quadro: mudar o ajuste no headset tem
+    // de mudar o cartaz que está na tela AGORA, senão ninguém consegue
+    // escolher o número olhando para ele. Ver `ESCALA_DO_HUD`.
+    this.placa.malha.scale.setScalar(ESCALA_DO_HUD.valor);
   }
 
   descartar() {

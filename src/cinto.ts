@@ -12,22 +12,37 @@ import { AVISO, forcaDeToque } from './toque';
  * Aqui elas são objetos: quatro bolas de verdade presas ao seu antebraço, que
  * você alcança com a outra mão e pega.
  *
- * ## Por que o antebraço, e não a cintura
+ * ## Da cintura para o antebraço, e de volta para a cintura
  *
- * A cintura é onde um treinador usaria, e foi a primeira ideia. Mas o Quest não
- * rastreia o seu quadril: ele rastreia a sua cabeça e as suas mãos. Uma bola
- * "na cintura" ficaria presa a uma altura adivinhada a partir da cabeça, e
- * mudaria de lugar toda vez que você se abaixasse. O antebraço é rastreado de
- * verdade, está sempre no campo de visão quando você olha para ele, e a mão
- * outra mão já sabe chegar lá — é o mesmo alcance de quem coça o braço.
+ * A cintura foi a primeira ideia e foi descartada com um argumento que estava
+ * certo na época: *"o Quest não rastreia o seu quadril, e uma bola na cintura
+ * ficaria presa a uma altura adivinhada a partir da cabeça"*. Então as bolas
+ * foram para o antebraço, que é rastreado de verdade.
  *
- * ## Um em cada braço, desde 18/09
+ * O playtest de 19/09 desfez isso em uma frase: **"tirar as pokébolas do
+ * antebraço, colocar no cinto do personagem, olhando para baixo e agarrando
+ * com qualquer mão"**. E ele tem razão, por dois motivos que só aparecem com
+ * o headset:
  *
- * A mão que CARREGA o cinto não alcança o próprio antebraço, então um cinto só,
- * no braço esquerdo, queria dizer que apenas a mão direita podia tirar uma bola
- * — e quem prefere arremessar com a esquerda não tinha de onde pegar. Com um em
- * cada braço, qualquer mão pega do braço oposto. O estoque é o mesmo nos dois:
- * é uma mochila, não duas.
+ * - **o antebraço some quando você precisa dele.** Para pegar uma bola do
+ *   braço esquerdo você tem de levantar o braço esquerdo E levar a direita
+ *   até ele: duas mãos ocupadas, os dois braços no ar, no meio de uma briga.
+ *   Na cintura, é uma mão só, e o braço desce sozinho por gravidade.
+ * - **é o gesto do desenho.** Você olha para baixo e pega — e é esse gesto que
+ *   a realidade misturada tem de graça e um menu nunca vai ter.
+ *
+ * ## O quadril continua não sendo rastreado — e agora dá para viver com isso
+ *
+ * O que mudou não foi o hardware, foi o que o jogo sabe do seu quarto. O chão
+ * é medido a cada passo por hit-test (ver src/room.ts), então a altura da
+ * cintura deixou de ser um palpite solto: ela é a cabeça menos um tronco, com
+ * um piso para não afundar no carpete quando você se agacha.
+ *
+ * E o RUMO é o problema de verdade. Um cinto preso ao yaw da cabeça gira a
+ * cada olhada, e você nunca alcança a mesma bola duas vezes; um cinto que não
+ * gira fica nas suas costas assim que você vira. A saída é a zona morta: ele
+ * ignora os primeiros cinquenta graus e só então acompanha, devagar. Olhar
+ * para o lado não mexe nele; virar o corpo, sim.
  *
  * ## O que é um slot
  *
@@ -63,22 +78,47 @@ import { AVISO, forcaDeToque } from './toque';
 /** Raio da miniatura. A bola de verdade tem 4,5 cm; esta é pouco mais da metade. */
 const RAIO = 0.026;
 /**
- * Distância entre um slot e o próximo, ao longo do antebraço.
+ * Distância entre um slot e o próximo, ao longo da cintura.
  *
- * Subiu de 5,8 para 6,6 cm depois do playtest de 18/09, e o motivo é a conta
- * abaixo: com 5,8 de passo e 7 de alcance, os campos de dois slots vizinhos se
- * sobrepunham em mais de um centímetro de cada lado. `slotSob` escolhe o mais
- * perto e nunca erra feio, mas na zona de sobreposição a mão precisa de menos
- * de 3 cm de precisão para pegar a bola que você QUER — e 3 cm é menos do que
- * um braço no ar entrega, ainda mais com a outra mão tapando o alvo.
+ * Onze centímetros, contra os 6,6 do antebraço, e é a mudança de escala que a
+ * cintura permite: um antebraço tem 27 cm úteis e tinha de caber quatro slots
+ * neles; a frente de uma cintura tem quase meio metro. Com o passo maior, a
+ * zona onde dois slots disputam a mesma mão encolhe, e a precisão que o gesto
+ * pede cai junto.
  *
- * Quatro slots a 6,6 cm, começando 7,5 cm atrás do punho, terminam a 27 cm —
- * o comprimento de um antebraço adulto. Mais do que isto e o último slot sai
- * para fora do cotovelo.
+ * Quatro slots a 11 cm ocupam 33 cm — da anca esquerda à direita, que é
+ * exatamente onde a mão cai quando o braço relaxa.
  */
-export const PASSO_SLOT = 0.066;
-/** Onde o primeiro slot começa, medido para trás a partir do punho. */
-export const INICIO_SLOT = 0.075;
+export const PASSO_SLOT = 0.11;
+/** O deslocamento lateral do primeiro slot: metade da fileira, para a esquerda. */
+export const INICIO_SLOT = -0.165;
+
+/**
+ * A que distância da CABEÇA a cintura fica, e onde ela para de descer.
+ *
+ * Sessenta centímetros abaixo dos olhos é a cintura de quem está de pé. Como
+ * o quadril não é rastreado, a conta acompanha a cabeça — quem senta leva o
+ * cinto junto, que é o certo —, mas com um piso: agachado até o chão, a
+ * cintura pararia dentro do carpete, e as bolas ficariam enterradas
+ * justamente no gesto de olhar para baixo.
+ */
+export const ALTURA_DA_CINTURA = 0.6;
+export const CINTURA_MINIMA_DO_CHAO = 0.38;
+/** O quanto a fileira fica à frente do corpo. */
+export const CINTURA_A_FRENTE = 0.17;
+
+/**
+ * Quantos graus a cabeça gira antes de o cinto acompanhar.
+ *
+ * É o número que decide se a cintura funciona. Preso ao yaw da cabeça, o
+ * cinto gira a cada olhada e você nunca alcança a mesma bola duas vezes;
+ * parado, ele fica nas suas costas assim que você vira o corpo.
+ *
+ * Cinquenta graus é mais do que qualquer olhada de canto de olho e menos do
+ * que virar o corpo. Dentro deles o cinto não se mexe; passando, ele persegue
+ * devagar — ver `posicionar`.
+ */
+export const ZONA_MORTA_DO_RUMO = Math.PI * 0.28;
 
 /**
  * Quão perto a mão precisa chegar para o slot contar como alcançado.
@@ -92,7 +132,7 @@ export const INICIO_SLOT = 0.075;
  * indicador vai uns seis centímetros à frente da palma, então a mão chegava ao
  * slot já tendo passado por ele.
  */
-export const ALCANCE_SLOT = 0.075;
+export const ALCANCE_SLOT = 0.1;
 
 /**
  * O quanto o slot já escolhido desconta da própria distância para continuar
@@ -177,6 +217,7 @@ interface Slot {
 
 /** Reaproveitado nas medições por quadro, para não alocar por slot. */
 const _centro = new THREE.Vector3();
+const _alvo = new THREE.Vector3();
 
 export class Cinto {
   readonly grupo = new THREE.Group();
@@ -189,29 +230,31 @@ export class Cinto {
   /** Quanto a mão está encostando nele, de 0 a 1. Ver `destacar`. */
   private forca = 0;
 
-  constructor(lado: 'left' | 'right' = 'left') {
+  /** O rumo que o cinto está encarando. Ver `posicionar`. */
+  private rumo = 0;
+  /** Quanto você está olhando para baixo, de 0 a 1. Ver `posicionar`. */
+  private olhandoParaBaixo = 0;
+  private pronto = false;
+
+  constructor() {
     const guardar = <T extends THREE.BufferGeometry | THREE.Material>(x: T): T => {
       this.descartaveis.push(x);
       return x;
     };
 
-    // Pela convenção do grip space, −Z é para onde os dedos apontam, então o
-    // antebraço sai por +Z. O dorso é −X na esquerda e +X na direita: é a face
-    // que você vê ao levantar o braço, e é onde as bolas ficam.
-    const ladoDoDorso = lado === 'left' ? -1 : 1;
-
     for (let i = 0; i < BOLAS.length; i++) {
       const tipo = BOLAS[i];
 
       const base = new THREE.Group();
-      // Quatro centímetros para fora do antebraço, e não dois.
+      // Lado a lado na frente da cintura, da esquerda para a direita, e um
+      // palmo à frente do corpo: é onde a mão cai quando o braço relaxa, e é
+      // onde ela chega sem você ter de levantar o outro braço.
       //
-      // A conta é a da mão que vem pegar: a luva tem uns quatro centímetros de
-      // meia-largura, então uma bola a dois centímetros do eixo do braço nasce
-      // DENTRO da silhueta da própria luva. Ela aparecia enquanto o braço
-      // estava sozinho e sumia no instante em que a outra mão chegava — que é
-      // justamente o instante em que você precisa vê-la.
-      base.position.set(ladoDoDorso * 0.04, 0.015, INICIO_SLOT + i * PASSO_SLOT);
+      // O arco é de raio grande (a fileira encurva de leve para acompanhar o
+      // corpo) porque uma fileira reta na frente da barriga tem as pontas
+      // longe demais: o slot da ponta ficaria a 25 cm do quadril.
+      const x = INICIO_SLOT + i * PASSO_SLOT;
+      base.position.set(x, 0, CINTURA_A_FRENTE - (x * x) / 0.9);
 
       // Cada uma fora de fase: quatro bolas subindo juntas viram um elevador,
       // e quatro subindo em tempos diferentes viram quatro bolas.
@@ -229,6 +272,90 @@ export class Cinto {
     // `guardar` continua existindo para quem vier depois precisar de geometria
     // própria; hoje a bola de luz cuida dos materiais dela.
     void guardar;
+  }
+
+  /**
+   * Põe o cinto na sua cintura, neste quadro.
+   *
+   * ## A altura
+   *
+   * Sai da cabeça, porque o quadril não é rastreado — mas com um piso vindo do
+   * chão medido, que existe desde que a sala passou a sondar o piso a cada
+   * passo. Sem ele, agachar enterraria as bolas no carpete bem no gesto de
+   * olhar para baixo.
+   *
+   * ## O rumo, que é o problema de verdade
+   *
+   * Preso ao yaw da cabeça, o cinto gira a cada olhada e você nunca alcança a
+   * mesma bola duas vezes. Parado, ele fica nas suas costas assim que você
+   * vira o corpo. A zona morta resolve os dois: dentro de cinquenta graus ele
+   * não se mexe, e passando disso persegue devagar — o suficiente para
+   * acompanhar quem virou de verdade e lento o bastante para não seguir um
+   * olhar.
+   *
+   * ## Olhar para baixo acende
+   *
+   * Foi o gesto pedido, e é o que dá ao cinto o mesmo contrato que o painel do
+   * pulso tem: ele existe o tempo todo, discreto, e se mostra quando você o
+   * procura. Sem isso, quatro bolas acesas na cintura ficariam no canto do
+   * olho a sessão inteira.
+   */
+  posicionar(dt: number, cabeca: THREE.Vector3, rumoDaCabeca: number, inclinacao: number, pisoY: number) {
+    const altura = Math.max(pisoY + CINTURA_MINIMA_DO_CHAO, cabeca.y - ALTURA_DA_CINTURA);
+    const alvo = _alvo.set(cabeca.x, altura, cabeca.z);
+    // No primeiro quadro ele aparece no lugar certo, sem vir voando da
+    // origem do mundo.
+    if (!this.pronto) {
+      this.grupo.position.copy(alvo);
+      this.rumo = rumoDaCabeca;
+      this.pronto = true;
+    } else {
+      this.grupo.position.lerp(alvo, Math.min(1, dt * 6));
+    }
+
+    // A zona morta: a diferença é normalizada para meia volta, senão cruzar
+    // ±π manda o cinto girar o caminho longo.
+    let diferenca = rumoDaCabeca - this.rumo;
+    while (diferenca > Math.PI) diferenca -= Math.PI * 2;
+    while (diferenca < -Math.PI) diferenca += Math.PI * 2;
+    const fora = Math.abs(diferenca) - ZONA_MORTA_DO_RUMO;
+    if (fora > 0) {
+      this.rumo += Math.sign(diferenca) * Math.min(fora, dt * 2.4);
+    }
+    this.grupo.rotation.y = this.rumo;
+
+    // `inclinacao` é quanto a cabeça olha para baixo, de −1 (teto) a 1 (chão).
+    // A partir de um terço ele começa a acender, e acende de vez perto de dois
+    // terços — que é a inclinação de quem está olhando para a própria cintura.
+    const quer = THREE.MathUtils.clamp((inclinacao - 0.3) / 0.35, 0, 1);
+    this.olhandoParaBaixo += (quer - this.olhandoParaBaixo) * Math.min(1, dt * 7);
+  }
+
+  /** O quanto ele está aceso agora, de 0 a 1. Ver `posicionar`. */
+  get aceso(): number {
+    return this.olhandoParaBaixo;
+  }
+
+  /**
+   * O quanto ESTA mão está chegando no cinto, sem mexer em nada.
+   *
+   * Existe porque agora são duas mãos disputando os mesmos quatro slots, e
+   * `destacar` tem efeito colateral — ele escolhe o slot aceso e guarda a
+   * escolha para a histerese do quadro seguinte. Chamá-lo uma vez por mão
+   * faria a segunda apagar a decisão da primeira, e a bola acesa piscaria
+   * entre as duas mãos.
+   *
+   * Então o jogo pergunta primeiro (aqui), escolhe a mão mais perto, e só
+   * então chama `destacar` uma vez.
+   */
+  forcaDaMao(agarre: THREE.Vector3, dedo: THREE.Vector3): number {
+    let menor = Infinity;
+    const centro = _centro;
+    for (const slot of this.slots) {
+      slot.base.getWorldPosition(centro);
+      menor = Math.min(menor, centro.distanceTo(agarre), centro.distanceTo(dedo));
+    }
+    return forcaDeToque(menor, ALCANCE_SLOT, AVISO.slot);
   }
 
   /** Quantas bolas de cada tipo o cinto mostra. */
@@ -343,7 +470,22 @@ export class Cinto {
       // - aberta: você está segurando esta bola. O fantasma pulsa, porque é
       //   para cá que ela volta se você mudar de ideia.
       const pulso = slot.aberto ? 0.1 + Math.abs(Math.sin(this.tempo * 3)) * 0.14 : 0;
-      slot.bola.definirCheia(slot.aberto ? pulso : vazio ? 0.1 : 1);
+      // E tudo isso multiplicado por OLHAR PARA BAIXO.
+      //
+      // O cinto tem o mesmo contrato do painel do pulso: existe o tempo todo,
+      // discreto, e se mostra quando você o procura. Quatro bolas acesas na
+      // cintura a sessão inteira ficariam no canto do olho o jogo inteiro — e
+      // o canto do olho, em MR, é onde o seu quarto está.
+      //
+      // Não some de vez: 35% de brilho mesmo olhando para a frente é o
+      // bastante para você lembrar que elas estão ali, e pouco para competir
+      // com o Pokémon à sua frente.
+      const olhar = 0.35 + this.olhandoParaBaixo * 0.65;
+      slot.bola.definirCheia((slot.aberto ? pulso : vazio ? 0.1 : 1) * olhar);
+      // A escala acompanha, mas de leve: crescer 12% ao ser olhado é o que faz
+      // o cinto parecer responder, e mais do que isso vira zoom.
+      const escala = 0.88 + this.olhandoParaBaixo * 0.12;
+      slot.base.scale.setScalar(escala);
       slot.bola.atualizar(dt, this.tempo, i === this.destacado && temBola ? this.forca : 0);
     }
   }

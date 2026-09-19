@@ -135,6 +135,37 @@ const chaveDaCelula = (x: number, z: number) =>
  * Plano é estático no mundo. Então o que se viu uma vez, se guarda — indexado
  * pelo próprio `XRPlane`, que o runtime mantém estável entre quadros.
  */
+/**
+ * A que distância os olhos de um adulto em pé ficam do chão.
+ *
+ * ## Por que o jogo precisa adivinhar isso
+ *
+ * Porque **y = 0 nem sempre é o chão**. No `local-floor` é, por definição —
+ * é para isso que esse espaço existe. Mas o jogo pede `unbounded` assim que a
+ * sessão abre (ver src/main.ts), porque é ele que deixa você andar pela casa
+ * sem um quadrado invisível em volta; e no `unbounded` a origem nasce ONDE
+ * VOCÊ ESTAVA, com a altura que a sua cabeça tinha naquele instante.
+ *
+ * O jogo tratava y = 0 como chão de qualquer jeito. O resultado, quando o
+ * runtime não punha a origem no piso: o chão do jogo na altura dos olhos, os
+ * Pokémon nascendo acima da sua cabeça, e nada apontando para a causa — nem
+ * erro, nem aviso, e um mapa de sala que parecia estar funcionando.
+ *
+ * Um metro e meio e pouco é o palpite de partida. Ele vale até o primeiro
+ * raio de hit-test voltar, e a partir daí quem manda é a medida de verdade.
+ */
+const ALTURA_DOS_OLHOS = 1.55;
+
+/**
+ * O chão nunca está a menos disto dos seus olhos.
+ *
+ * É a guarda de sanidade que vale para TODOS os caminhos — plano do Space
+ * Setup, célula de hit-test e piso de reserva. Meio metro abaixo dos olhos é
+ * mais baixo do que a cabeça de alguém deitado no chão, então qualquer
+ * medida acima disso é erro de referencial e não um cômodo estranho.
+ */
+const FOLGA_MINIMA_DA_CABECA = 0.5;
+
 export class Sala {
   /** A lista achatada que o resto do jogo consulta. */
   superficies: Superficie[] = [];
@@ -215,8 +246,15 @@ export class Sala {
    * há chão nenhum mapeado dois passos adiante.
    */
   usarFallback(jogador?: THREE.Vector3) {
+    // A altura sai da CABEÇA enquanto não houver medida real. Ela vinha de
+    // `this.pisoY`, que começa em zero — e zero só é o chão no `local-floor`.
+    // Ver `ALTURA_DOS_OLHOS`.
     const centro = jogador
-      ? new THREE.Vector3(jogador.x, this.pisoY, jogador.z)
+      ? new THREE.Vector3(
+          jogador.x,
+          this.temDadosReais ? this.pisoY : this.pisoProvavel(jogador),
+          jogador.z,
+        )
       : new THREE.Vector3(0, 0, 0);
     if (!this.sintetica) {
       this.sintetica = {
@@ -615,8 +653,20 @@ export class Sala {
    * outro cômodo — o Pokémon ficava desenhado no nível do lugar mais baixo que
    * o headset já tinha visto.
    */
+  /**
+   * Onde o chão provavelmente está, quando ninguém mediu nada ainda.
+   *
+   * A partir da CABEÇA, que é a única coisa que o jogo sabe de verdade sobre
+   * a sua posição no espaço. Ver `ALTURA_DOS_OLHOS`.
+   */
+  private pisoProvavel(jogador: THREE.Vector3): number {
+    return jogador.y - ALTURA_DOS_OLHOS;
+  }
+
   private alturaDoPisoPerto(jogador: THREE.Vector3): number {
-    let melhor = this.pisoY;
+    // O palpite de partida é a cabeça, e não o zero do espaço de referência:
+    // no `unbounded` esse zero pode estar na altura dos seus olhos.
+    let melhor = this.temDadosReais ? this.pisoY : this.pisoProvavel(jogador);
     let menorDist = Infinity;
     const considerar = (s: Superficie) => {
       if (s.rotulo !== 'floor') return;
@@ -631,7 +681,11 @@ export class Sala {
     for (const s of this.planos.values()) considerar(s);
     for (const s of this.celulas.values()) considerar(s);
     if (this.sintetica) considerar(this.sintetica);
-    return Number.isFinite(melhor) ? melhor : 0;
+    if (!Number.isFinite(melhor)) return this.pisoProvavel(jogador);
+    // A guarda de sanidade, por último e sobre tudo: um chão a menos de meio
+    // metro dos seus olhos não é um cômodo estranho, é um referencial errado.
+    // Sem ela, um único plano mal rotulado põe o mundo inteiro na sua cara.
+    return Math.min(melhor, jogador.y - FOLGA_MINIMA_DA_CABECA);
   }
 
   /** Quantas superfícies o mapa já conhece — o HUD mostra isso crescendo. */
