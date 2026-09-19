@@ -118,6 +118,38 @@ const checar = (cond: boolean, msg: string) => {
   }
 };
 const finito = (v: THREE.Vector3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+
+/**
+ * Um `localStorage` de mentira, instalado ANTES de qualquer `Dex`.
+ *
+ * Três motivos, e o terceiro só apareceu hoje:
+ *
+ * 1. os testes de estado passam a ter persistência de verdade, em vez de
+ *    gravarem no vazio;
+ * 2. a seção 53 precisa CONTAR as escritas;
+ * 3. o Node 26 traz um `localStorage` experimental que, sem arquivo onde
+ *    guardar, avisa em voz alta na primeira vez que é tocado. O aviso é
+ *    assíncrono: ele só era impresso quando o teste finalmente cedia o laço de
+ *    eventos, o que fazia uma linha de erro do runtime aparecer no meio da
+ *    saída de uma seção que não tinha nada a ver com ele.
+ *
+ * `defineProperty` e não atribuição: a propriedade nativa é de acesso, e
+ * atribuir nela acorda justamente o backend que se quer evitar.
+ */
+const armazenamento = { escritas: 0, dados: new Map<string, string>() };
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: {
+    getItem: (k: string) => armazenamento.dados.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      armazenamento.escritas++;
+      armazenamento.dados.set(k, v);
+    },
+    removeItem: (k: string) => armazenamento.dados.delete(k),
+    clear: () => armazenamento.dados.clear(),
+  },
+});
+
 const JOGADOR = new THREE.Vector3(0, 1.6, 0);
 
 /** Um corpo de mentira com a mesma forma que src/modelos.ts entrega. */
@@ -4948,6 +4980,94 @@ console.log('\n52. o som sabe quando alguém mandou parar');
   );
 
   console.log('   voz: o pedido morre com o gesto que o fez · trilha, voz e contexto param na saída');
+}
+
+// --- 53. gravar o estado não trava o quadro ---
+//
+// `salvar()` é chamado de vinte e quatro lugares, e gravar é caro: um
+// `JSON.stringify` do estado inteiro — 151 registros da Pokédex, os
+// exemplares, o estoque — e um `localStorage.setItem`, que é SÍNCRONO e
+// bloqueia o quadro.
+//
+// O problema não é uma chamada, são as RAJADAS. A regeneração do time roda a
+// cada 2,5 s e escreve a vida de até seis Pokémon de uma vez: seis stringify e
+// seis escritas no MESMO quadro, a cada dois segundos e meio. É exatamente a
+// forma de um tranco periódico — o que o p95 do diário enxerga.
+console.log('\n53. gravar o estado não trava o quadro');
+{
+  // O armazenamento falso é o do topo do arquivo — ver o comentário lá.
+  const guardado = armazenamento.dados;
+
+  const esperar = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+  // Drena o que as seções anteriores possam ter agendado antes de contar.
+  await esperar(400);
+
+  const dex = new Dex();
+  dex.limpar();
+  dex.receberInicial('charmander');
+  for (const id of ['pidgey', 'rattata', 'caterpie', 'zubat', 'geodude']) {
+    dex.registrarCaptura(id, 10, 8, false);
+  }
+  await esperar(400);
+
+  // A RAJADA: a regeneração escrevendo a vida de seis bichos no mesmo quadro.
+  armazenamento.escritas = 0;
+  for (const e of dex.timeVivo) dex.definirHp(e, dex.hpMaxDe(e) - 1);
+  checar(
+    armazenamento.escritas === 0,
+    `seis definirHp gravaram ${armazenamento.escritas} vezes NO QUADRO — é o tranco`,
+  );
+  await esperar(400);
+  checar(
+    armazenamento.escritas === 1,
+    `a rajada de seis virou ${armazenamento.escritas} gravações em vez de uma`,
+  );
+
+  // E o que foi gravado é o estado FINAL, não o do meio da rajada: agrupar só
+  // é seguro porque a última chamada já contém tudo o que as outras diriam.
+  const salvo = JSON.parse(guardado.get('critter-quest/dex/v4')!) as {
+    exemplares: Array<{ hp: number }>;
+  };
+  checar(
+    salvo.exemplares.length === dex.timeVivo.length,
+    'o que ficou gravado não tem o time inteiro',
+  );
+  checar(
+    salvo.exemplares.every((e, i) => e.hp === dex.timeVivo[i].hp),
+    'o estado gravado é o do meio da rajada, e não o final',
+  );
+
+  // A PORTA DE EMERGÊNCIA: sair da sessão, esconder a página, fechar a aba.
+  // Um debounce sem ela é perda de dados esperando o dia certo — a captura de
+  // um brilhante a 200 ms de ser gravada some se o headset fechar.
+  armazenamento.escritas = 0;
+  dex.definirHp(dex.timeVivo[0], 3);
+  checar(armazenamento.escritas === 0, 'a gravação não esperou nem um pouco');
+  dex.gravarAgora();
+  checar(
+    armazenamento.escritas === 1,
+    `gravarAgora escreveu ${armazenamento.escritas} vezes em vez de uma`,
+  );
+  // E o pedido que estava pendente não grava DE NOVO depois.
+  await esperar(400);
+  checar(armazenamento.escritas === 1, 'o pedido pendente gravou de novo depois do flush');
+
+  // Sem nada sujo, forçar não escreve à toa? Escreve — e deve: `gravarAgora` é
+  // a porta de emergência, e uma porta que decide sozinha se abre não serve.
+  // O que não pode é a espera se renovar para sempre, que é o teto abaixo.
+  const fonte = readFileSync('src/state.ts', 'utf8');
+  checar(fonte.includes('TETO_MS'), 'não existe teto: a espera pode se renovar para sempre');
+  checar(
+    /agora - this\.sujoDesde >= Dex\.TETO_MS/.test(fonte),
+    'o teto existe mas não é comparado com o tempo desde a primeira sujeira',
+  );
+
+  const principal = readFileSync('src/main.ts', 'utf8');
+  for (const porta of ['pagehide', 'visibilitychange']) {
+    checar(principal.includes(porta), `a porta '${porta}' não grava o estado ao sumir`);
+  }
+
+  console.log('   estado: seis gravações em rajada viraram uma · e três portas forçam antes de sumir');
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

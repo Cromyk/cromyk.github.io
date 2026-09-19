@@ -886,10 +886,56 @@ linhas e torcer.
   fez, o `calar` que conta mesmo com o silêncio na sala (era essa a saída
   antecipada que causava o bug), e que a saída zera o volume ANTES de suspender.
 
+### 5.8 ✅ Gravar o estado travava o quadro (feito em 19/09)
+
+`salvar()` é chamado de vinte e quatro lugares, e gravar é caro: um
+`JSON.stringify` do estado inteiro — 151 registros da Pokédex, os exemplares, o
+estoque — e um `localStorage.setItem`, que é **síncrono** e bloqueia o quadro.
+
+O problema não é uma chamada, são as **rajadas**. A regeneração do time roda a
+cada 2,5 s e escreve a vida de até seis Pokémon de uma vez: seis `stringify` e
+seis escritas no MESMO quadro, a cada dois segundos e meio. É exatamente a
+forma de um tranco periódico — o que o p95 do diário (item 5.6) enxerga, e o
+que em VR embrulha o estômago.
+
+Agrupar as seis numa só não perde nada: elas descrevem o mesmo estado, e a
+última já contém tudo o que as outras diriam. A espera é de um quarto de
+segundo — menos do que qualquer jogada e mais do que qualquer rajada.
+
+**E um debounce sem saída de emergência é perda de dados esperando o dia
+certo**, então há duas proteções:
+
+- um **teto de dois segundos**: se alguma coisa pedir gravação a cada quadro, a
+  espera se renovaria para sempre e o jogo nunca gravaria. Passado o teto, ele
+  grava sem renovar;
+- **três portas que forçam a gravação**: sair da sessão, a página ir para
+  segundo plano (`visibilitychange`) e a página fechar (`pagehide`). A segunda é
+  a que importa no Quest — tirar o headset, trocar de app ou apertar o botão da
+  Meta esconde a página sem nunca a fechar, e em alguns casos ela é morta
+  depois sem disparar mais nada.
+
+De quebra, o `npm test` ficou honesto e silencioso: as seções que mexem em
+estado gravavam no vazio, porque `localStorage` não existe no Node — e o Node
+26 traz um experimental que **avisa em voz alta** na primeira vez que é tocado.
+Como esse aviso é assíncrono, ele só era impresso quando o teste finalmente
+cedia o laço de eventos: uma linha de erro do runtime no meio da saída de uma
+seção que não tinha nada a ver com ele. Agora há um armazenamento de mentira
+instalado antes da primeira `Dex`, e os testes de estado passaram a ter
+persistência de verdade.
+
+- **Esforço:** baixo.
+- **Como saber que funcionou:** é invisível, e é esse o ponto — mas o p95 da
+  tabela do item 0.1 deve ficar mais liso. **Este é o primeiro item que a sua
+  medição pode confirmar ou desmentir.**
+- **Conferido em:** `npm test`, seção 53 — seis `definirHp` não gravam nada no
+  quadro e viram uma gravação só; o que fica gravado é o estado FINAL e não o do
+  meio da rajada; `gravarAgora` escreve na hora e cancela o pedido pendente em
+  vez de gravar duas vezes; e as três portas existem.
+
 ## O que depende de você
 
 Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.7, dezenove itens.
+feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.8, vinte itens.
 
 O que resta depende de você:
 

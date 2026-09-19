@@ -6387,6 +6387,11 @@ export class Jogo {
     // nada. Ver `calar` em src/voz.ts e `pausar` em src/audio.ts.
     calar();
     audio.pausar();
+
+    // E o que estava esperando para ser gravado vai agora: a gravação é
+    // agrupada (ver `salvar` em src/state.ts), e sair da sessão é uma das três
+    // portas em que esperar não é opção.
+    this.dex.gravarAgora();
   }
 
   /** Apaga o diário de quadro. Chamado depois de a saída já o ter lido. */

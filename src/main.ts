@@ -391,6 +391,26 @@ renderer.setAnimationLoop(() => {
   jogo.medir(dt, renderer.info.render.calls);
 });
 
+// ------------------------------------------------------ gravar ao sumir
+
+/**
+ * As duas portas por onde o jogo pode sumir sem avisar.
+ *
+ * A gravação do estado é agrupada para não travar o quadro (ver `salvar` em
+ * src/state.ts), e um debounce sem uma saída de emergência é uma perda de
+ * dados esperando o dia certo: a captura de um brilhante a 200 ms de ser
+ * gravada some se o headset for fechado nesse intervalo.
+ *
+ * `pagehide` é a porta da frente. `visibilitychange` para `hidden` é a que
+ * importa no Quest: tirar o headset, trocar de app ou apertar o botão da Meta
+ * esconde a página sem nunca a fechar, e em alguns casos ela é morta depois
+ * sem disparar mais nada.
+ */
+window.addEventListener('pagehide', () => jogo.dex.gravarAgora());
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') jogo.dex.gravarAgora();
+});
+
 // ---------------------------------------------------------------- PWA
 
 // Só em produção: em desenvolvimento um service worker servindo cache velho

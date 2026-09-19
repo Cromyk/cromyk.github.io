@@ -283,7 +283,66 @@ export class Dex {
     this.itens = new Map(Object.entries(ESTOQUE_ITENS_INICIAL));
   }
 
+  /**
+   * A gravação está pedida, mas ainda não aconteceu.
+   *
+   * ## Por que não gravar na hora
+   *
+   * `salvar()` é chamado de vinte e quatro lugares, e gravar é caro: são um
+   * `JSON.stringify` do estado inteiro — 151 registros da Pokédex, os
+   * exemplares, o estoque — e um `localStorage.setItem`, que é **síncrono** e
+   * bloqueia o quadro.
+   *
+   * O problema não é uma chamada, são as RAJADAS. A regeneração do time roda
+   * a cada 2,5 s e escreve a vida de até seis Pokémon de uma vez: seis
+   * `stringify` e seis escritas no MESMO quadro, a cada dois segundos e meio.
+   * É exatamente a forma de um tranco periódico — o que o p95 do diário
+   * enxerga e o que, em VR, embrulha o estômago.
+   *
+   * Agrupar as seis numa só não perde nada: elas descrevem o mesmo estado, e
+   * a última já contém tudo o que as outras diriam.
+   *
+   * ## Por que a espera é curta, e por que existe um teto
+   *
+   * O atraso é o risco: o que não foi gravado se perde se o aparelho morrer.
+   * Um quarto de segundo é menos do que qualquer jogada e mais do que
+   * qualquer rajada. E o teto de dois segundos existe para o caso em que algo
+   * peça gravação a cada quadro: sem ele, a espera se renovaria para sempre e
+   * o jogo NUNCA gravaria — que é o modo clássico de um debounce virar perda
+   * de dados silenciosa.
+   */
+  private pedido: ReturnType<typeof setTimeout> | null = null;
+  /** Desde quando há coisa não gravada. Ver `salvar`. */
+  private sujoDesde = 0;
+  private static readonly ESPERA_MS = 250;
+  private static readonly TETO_MS = 2000;
+
   private salvar() {
+    const agora = Date.now();
+    if (this.pedido === null) this.sujoDesde = agora;
+    // Passou do teto: grava já, sem renovar a espera de novo.
+    if (agora - this.sujoDesde >= Dex.TETO_MS) {
+      this.gravarAgora();
+      return;
+    }
+    if (this.pedido !== null) clearTimeout(this.pedido);
+    this.pedido = setTimeout(() => this.gravarAgora(), Dex.ESPERA_MS);
+  }
+
+  /**
+   * Grava de verdade, agora.
+   *
+   * Público porque há três momentos em que esperar não é opção: sair da
+   * sessão, a página ir para segundo plano, e a página ser fechada. Ver
+   * src/main.ts — um debounce sem essas três portas é uma perda de dados
+   * esperando o dia certo.
+   */
+  gravarAgora() {
+    if (this.pedido !== null) {
+      clearTimeout(this.pedido);
+      this.pedido = null;
+    }
+    this.sujoDesde = 0;
     try {
       localStorage.setItem(
         CHAVE,
