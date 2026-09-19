@@ -283,6 +283,201 @@ export class Impacto {
 }
 
 /**
+ * A marca do CONTATO: a garra que risca e o baque que estoura.
+ *
+ * ## O que faltava
+ *
+ * Todo golpe do jogo terminava no mesmo punhado de partículas esféricas
+ * (`Impacto`), com a cor do tipo e mais nada. Um Arranhão, uma Investida e um
+ * Megassoco chegavam no corpo do outro exatamente iguais — e o corpo do
+ * atacante já fazia gestos diferentes para cada um (ver `GestoDeAtaque` em
+ * src/anima.ts), então o jogo sabia a diferença e não a desenhava.
+ *
+ * Num combate de três segundos, o momento do contato é o único que o olho
+ * acompanha de verdade. É ali que cabe dizer o que foi o golpe.
+ *
+ * ## Duas formas, e não oito
+ *
+ * - **garra** — três riscos paralelos, um atraso entre eles, na diagonal. É a
+ *   leitura mais antiga que existe para "cortou", e funciona de longe porque o
+ *   que se lê é o PARALELISMO, não o traço.
+ * - **baque** — um anel que se abre no plano do contato, com faíscas na borda.
+ *   Serve para tudo que é pancada: soco, cabeçada, cauda, pisão.
+ *
+ * Mordida e sopro não ganham marca de propósito: a mordida acontece dentro da
+ * boca do outro, onde ninguém vê, e o sopro já é o efeito inteiro.
+ *
+ * ## Por que encara quem bateu
+ *
+ * Uma marca desenhada num plano qualquer vira uma linha quando você anda para
+ * o lado — e em MR você anda o tempo todo. Ela nasce virada para o ATACANTE,
+ * que é de onde o golpe veio e, quase sempre, de onde você está olhando.
+ */
+export type FeitioDaMarca = 'garra' | 'baque';
+
+export class MarcaDeContato {
+  readonly grupo = new THREE.Group();
+
+  private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
+  private riscos: THREE.Mesh[] = [];
+  private anel: THREE.Mesh | null = null;
+  private faiscas: THREE.Points | null = null;
+  private posFaiscas: THREE.Vector3[] = [];
+  private velFaiscas: THREE.Vector3[] = [];
+  private materiais: THREE.Material[] = [];
+  private tempo = 0;
+  private readonly duracao: number;
+  private readonly escala: number;
+
+  /**
+   * `forca` de 0 a 1 — o quanto o golpe doeu, que vira TAMANHO e não
+   * velocidade: uma marca que dura mais atrapalha a leitura do golpe seguinte,
+   * e uma marca maior não.
+   */
+  constructor(
+    feitio: FeitioDaMarca,
+    posicao: THREE.Vector3,
+    deOnde: THREE.Vector3,
+    cor: number,
+    forca = 0.5,
+  ) {
+    this.escala = 0.16 + forca * 0.2;
+    this.duracao = feitio === 'garra' ? 0.34 : 0.28;
+    this.grupo.position.copy(posicao);
+    this.grupo.lookAt(deOnde);
+    // Uma inclinação por golpe: três arranhões idênticos em sequência viram
+    // um carimbo.
+    this.grupo.rotateZ((Math.random() - 0.5) * 1.4);
+
+    if (feitio === 'garra') this.montarGarra(cor);
+    else this.montarBaque(cor);
+
+    // O estado do instante ZERO, aplicado aqui e não no primeiro quadro: o anel
+    // nasce com a escala 1 do three, que neste tamanho é um metro de raio, e
+    // quem entrasse na cena antes do primeiro `atualizar` o veria piscar
+    // gigante. Chamar a própria função de quadro é o que impede a fórmula de
+    // existir escrita duas vezes.
+    this.atualizar(0);
+  }
+
+  private novoMaterial(cor: number, opacidade: number): THREE.MeshBasicMaterial {
+    const m = new THREE.MeshBasicMaterial({
+      color: cor,
+      transparent: true,
+      opacity: opacidade,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.descartaveis.push(m);
+    this.materiais.push(m);
+    return m;
+  }
+
+  /** Três riscos finos, levemente abertos em leque e desencontrados. */
+  private montarGarra(cor: number) {
+    const geo = new THREE.PlaneGeometry(1, 1);
+    this.descartaveis.push(geo);
+    for (let i = 0; i < 3; i++) {
+      const risco = new THREE.Mesh(geo, this.novoMaterial(cor, 0.95));
+      // O do meio é o mais longo: é o que dá a curva da mão em vez de três
+      // paus paralelos.
+      const comprimento = i === 1 ? 1 : 0.82;
+      risco.scale.set(0.055 * this.escala * 6, comprimento * this.escala * 2.1, 1);
+      risco.position.x = (i - 1) * this.escala * 0.34;
+      risco.position.y = (i - 1) * this.escala * 0.1;
+      risco.rotation.z = (i - 1) * 0.16;
+      this.grupo.add(risco);
+      this.riscos.push(risco);
+    }
+  }
+
+  /** Um anel que se abre, e faíscas saindo da borda dele. */
+  private montarBaque(cor: number) {
+    const geo = new THREE.RingGeometry(0.62, 1, 22);
+    this.descartaveis.push(geo);
+    this.anel = new THREE.Mesh(geo, this.novoMaterial(cor, 0.9));
+    this.grupo.add(this.anel);
+
+    const N = 12;
+    const geoFaiscas = new THREE.BufferGeometry();
+    geoFaiscas.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+    this.descartaveis.push(geoFaiscas);
+    const mat = new THREE.PointsMaterial({
+      color: cor,
+      size: 0.03,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.descartaveis.push(mat);
+    this.materiais.push(mat);
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2 + Math.random() * 0.3;
+      this.posFaiscas.push(new THREE.Vector3(0, 0, 0));
+      this.velFaiscas.push(
+        new THREE.Vector3(Math.cos(a), Math.sin(a), 0).multiplyScalar(0.7 + Math.random() * 0.9),
+      );
+    }
+    this.faiscas = new THREE.Points(geoFaiscas, mat);
+    this.faiscas.frustumCulled = false;
+    this.grupo.add(this.faiscas);
+  }
+
+  get terminou(): boolean {
+    return this.tempo > this.duracao;
+  }
+
+  adicionarA(cena: THREE.Object3D) {
+    cena.add(this.grupo);
+  }
+
+  atualizar(dt: number) {
+    this.tempo += dt;
+    const t = Math.min(1, this.tempo / this.duracao);
+
+    // Aparece num quadro e apaga devagar. O contrário — crescer e sumir junto —
+    // faz o golpe parecer que chegou atrasado.
+    const vida = 1 - t * t;
+
+    for (let i = 0; i < this.riscos.length; i++) {
+      // Os três riscos não chegam juntos: 40 ms entre um e outro é o que
+      // transforma três linhas numa mão passando.
+      const atraso = i * 0.04;
+      const tr = Math.max(0, Math.min(1, (this.tempo - atraso) / (this.duracao - atraso)));
+      const risco = this.riscos[i];
+      risco.visible = this.tempo >= atraso;
+      // Ele RASGA: nasce curto e se estica ao longo do próprio eixo.
+      risco.scale.y = (0.35 + 0.65 * Math.min(1, tr * 3)) * (i === 1 ? 1 : 0.82) * this.escala * 2.1;
+      (risco.material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - tr * tr);
+    }
+
+    if (this.anel) {
+      const raio = (0.25 + t * 0.95) * this.escala * 3;
+      this.anel.scale.set(raio, raio, 1);
+      (this.anel.material as THREE.MeshBasicMaterial).opacity = 0.9 * vida;
+    }
+
+    if (this.faiscas) {
+      const pos = this.faiscas.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < this.posFaiscas.length; i++) {
+        this.posFaiscas[i].addScaledVector(this.velFaiscas[i], dt * this.escala * 2.4);
+        this.velFaiscas[i].multiplyScalar(1 - dt * 4);
+        const q = this.posFaiscas[i];
+        pos.setXYZ(i, q.x, q.y, q.z);
+      }
+      pos.needsUpdate = true;
+      (this.faiscas.material as THREE.PointsMaterial).opacity = vida;
+    }
+  }
+
+  descartar(cena: THREE.Object3D) {
+    cena.remove(this.grupo);
+    for (const d of this.descartaveis) d.dispose();
+  }
+}
+
+/**
  * O anel dos golpes de status.
  *
  * Buff e debuff não têm projétil nem impacto: o que muda é um número. Sem uma

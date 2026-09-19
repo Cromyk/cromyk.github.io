@@ -84,7 +84,9 @@ import { Centro, saidaDoTimeCaido, timeCaido } from './centro';
 import { type Cenario, Diario, relatorio } from './diario';
 import { CONDICOES, condicaoDoGolpe } from './condicao';
 import { pedindoAjuda } from './gesto';
-import { Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
+import {
+  MarcaDeContato,
+  type FeitioDaMarca, Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
 import { PainelPc } from './pc';
 import { calar, falar, preparar, temNarracao } from './voz';
@@ -102,6 +104,21 @@ import { escolherPesado } from './rng';
 /** O gesto de um golpe. Os gerados trazem; os sintéticos caem no padrão. */
 const golpeDe = (s: { golpe: Golpe | null }): GestoDeAtaque =>
   s.golpe ? gestoDoGolpe(s.golpe) : 'investida';
+
+/**
+ * A marca que cada gesto deixa no corpo de quem levou. Ver `MarcaDeContato`.
+ *
+ * Só os golpes de CONTATO deixam marca. A mordida acontece dentro da boca do
+ * outro, onde ninguém vê; o sopro e a aura já são o efeito inteiro, e uma
+ * marca por cima deles só somaria geometria a uma imagem que já existe.
+ */
+const MARCA_DO_GESTO: Partial<Record<GestoDeAtaque, FeitioDaMarca>> = {
+  garra: 'garra',
+  soco: 'baque',
+  salto: 'baque',
+  cauda: 'baque',
+  investida: 'baque',
+};
 
 const gestoDoGolpe = (golpe: Golpe): GestoDeAtaque =>
   (golpe.animacao as GestoDeAtaque | undefined) ??
@@ -208,6 +225,8 @@ export class Jogo {
   private bolas: Pokebola[] = [];
   private efeitos: Efeito[] = [];
   private impactos: Impacto[] = [];
+  /** As marcas de contato — garra e baque. Ver src/attacks.ts. */
+  private marcas: MarcaDeContato[] = [];
   /** Os números de dano subindo dos bichos. Ver src/attacks.ts. */
   private numeros: NumeroDeDano[] = [];
   /** Os efeitos exclusivos dos iniciais. Ver src/signature.ts. */
@@ -3279,6 +3298,22 @@ export class Jogo {
     this.cena.add(impacto.pontos);
     this.impactos.push(impacto);
 
+    // E a marca do contato, que diz O QUE foi o golpe. O corpo do atacante já
+    // fazia gestos diferentes para arranhar, socar e se jogar; o corpo de quem
+    // levava recebia as mesmas partículas esféricas para os três.
+    const feitio = MARCA_DO_GESTO[gestoDoGolpe(golpe)];
+    if (feitio) {
+      const marca = new MarcaDeContato(
+        feitio,
+        defensor.centro,
+        atacante.centro,
+        TIPOS[golpe.tipo].cor,
+        forca / 0.5,
+      );
+      marca.adicionarA(this.cena);
+      this.marcas.push(marca);
+    }
+
     // O número, no corpo de quem levou — item 2.2 do roteiro.
     //
     // A cor é a da EFETIVIDADE, não a do tipo do golpe: o que o jogador precisa
@@ -6136,6 +6171,13 @@ export class Jogo {
         this.impactos.splice(this.impactos.indexOf(impacto), 1);
       }
     }
+    for (const marca of [...this.marcas]) {
+      marca.atualizar(dt);
+      if (marca.terminou) {
+        marca.descartar(this.cena);
+        this.marcas.splice(this.marcas.indexOf(marca), 1);
+      }
+    }
     for (const numero of [...this.numeros]) {
       numero.atualizar(dt);
       if (numero.terminou) {
@@ -6618,6 +6660,7 @@ export class Jogo {
     for (const bola of this.bolas) bola.descartar(this.cena);
     for (const efeito of this.efeitos) efeito.descartar(this.cena);
     for (const impacto of this.impactos) impacto.descartar(this.cena);
+    for (const marca of this.marcas) marca.descartar(this.cena);
     for (const numero of this.numeros) numero.descartar(this.cena);
     for (const assinatura of this.assinaturas) assinatura.descartar(this.cena);
     for (const aura of this.auras) aura.descartar(this.cena);

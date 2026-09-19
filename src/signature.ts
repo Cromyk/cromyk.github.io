@@ -491,6 +491,34 @@ const TIPO_DA_ASSINATURA: Record<AssinaturaId, string> = {
 };
 
 /**
+ * O efeito que cada TIPO elemental ganha, para quem não tem assinatura de
+ * espécie.
+ *
+ * ## Por que isto deixou de ser privilégio dos iniciais
+ *
+ * Os quatro efeitos foram escritos para o Charmander, o Squirtle, o Bulbasaur
+ * e o Pikachu porque são os bichos que você mais vê. O resto do jogo desenhava
+ * golpe por FORMATO — jato, projétil, raio —, e o argumento era que dezoito
+ * efeitos distintos não se distinguem numa briga de três segundos.
+ *
+ * Só que não são dezoito: são QUATRO, e eles já existem, prontos e medidos. O
+ * argumento valia contra escrever dezoito; não vale para deixar um Vulpix
+ * cuspindo o borrifo laranja genérico enquanto o Charmander ao lado dele tem
+ * uma chama de verdade. A partir de hoje o efeito é do TIPO do golpe:
+ * qualquer bicho de fogo faz a rajada, qualquer um de elétrico solta o raio,
+ * qualquer um de água manda o jato.
+ *
+ * A assinatura de ESPÉCIE continua vindo antes, e é o que mantém a porta
+ * aberta para um efeito que seja só do Charizard um dia.
+ */
+const POR_TIPO: Record<string, AssinaturaId> = {
+  fogo: 'lanca-chamas',
+  agua: 'jato-dagua',
+  eletrico: 'choque-trovao',
+  planta: 'chicote-cipo',
+};
+
+/**
  * A assinatura deste bicho com este golpe, se houver.
  *
  * O tipo do golpe precisa bater: um Bulbasaur usando a jogada de cobertura de
@@ -498,7 +526,10 @@ const TIPO_DA_ASSINATURA: Record<AssinaturaId, string> = {
  * golpe principal, não do bicho.
  */
 export function assinaturaDe(especieId: string, tipoDoGolpe: string): AssinaturaId | null {
-  const id = POR_ESPECIE[especieId];
-  if (!id) return null;
-  return TIPO_DA_ASSINATURA[id] === tipoDoGolpe ? id : null;
+  const daEspecie = POR_ESPECIE[especieId];
+  // A da espécie ganha quando o tipo do golpe bate com ela: o Charmander
+  // usando Lança-Chamas faz a chama DELE.
+  if (daEspecie && TIPO_DA_ASSINATURA[daEspecie] === tipoDoGolpe) return daEspecie;
+  // Fora isso, vale o tipo do golpe — para qualquer bicho. Ver `POR_TIPO`.
+  return POR_TIPO[tipoDoGolpe] ?? null;
 }

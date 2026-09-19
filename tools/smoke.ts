@@ -15,6 +15,8 @@ import { Pokemon } from '../src/creature';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
+import { MarcaDeContato } from '../src/attacks';
+import { assinaturaDe } from '../src/signature';
 import { aindaVale, calar, falar, selo } from '../src/voz';
 import { LEVANTAR_SEGUNDOS, podeLevantar, segundosParaLevantar } from '../src/state';
 import { Luva, PISO_DO_FLASH_MS, RESPIRO_DE_PULSO_MS, filaDePiscadas } from '../src/glove';
@@ -5347,6 +5349,115 @@ console.log('\n56. a voz dele é o grito dele');
   );
 
   console.log('   voz: o grito oficial na frente, a fala em quatro momentos, e tudo vindo de onde o bicho está');
+}
+
+// --- 57. o golpe diz o que foi ---
+//
+// Duas coisas que o combate sabia e não desenhava.
+//
+// A primeira: os quatro efeitos elementais — rajada de fogo, jato d'água,
+// raio, chicote — existiam só para os iniciais. Um Vulpix cuspia o borrifo
+// laranja genérico ao lado de um Charmander com chama de verdade.
+//
+// A segunda: todo golpe terminava no mesmo punhado de partículas esféricas. O
+// corpo do ATACANTE já fazia gestos diferentes para arranhar, socar e se
+// jogar; o corpo de quem LEVAVA recebia o mesmo para os três.
+console.log('\n57. o golpe diz o que foi');
+{
+  // (1) O EFEITO É DO TIPO DO GOLPE, e vale para qualquer bicho.
+  checar(assinaturaDe('vulpix', 'fogo') === 'lanca-chamas', 'um bicho de fogo qualquer não faz a rajada');
+  checar(assinaturaDe('psyduck', 'agua') === 'jato-dagua', 'um bicho de água qualquer não faz o jato');
+  checar(assinaturaDe('magnemite', 'eletrico') === 'choque-trovao', 'um elétrico qualquer não solta o raio');
+  checar(assinaturaDe('oddish', 'planta') === 'chicote-cipo', 'um de planta qualquer não chicoteia');
+
+  // A assinatura da ESPÉCIE continua vindo antes — é a porta para um efeito
+  // que seja só do Charizard um dia.
+  checar(assinaturaDe('charmander', 'fogo') === 'lanca-chamas', 'o Charmander perdeu a chama dele');
+
+  // E um tipo sem efeito próprio continua no desenho comum: são quatro, e
+  // inventar dezoito era justamente o que o jogo decidiu não fazer.
+  checar(assinaturaDe('rattata', 'normal') === null, 'um golpe normal ganhou efeito elemental');
+  checar(assinaturaDe('geodude', 'pedra') === null, 'um golpe de pedra ganhou efeito elemental');
+  // Nem o inicial: o Bulbasaur usando um golpe normal não chicoteia.
+  checar(assinaturaDe('bulbasaur', 'normal') === null, 'a assinatura ignorou o tipo do golpe');
+
+  // (2) A MARCA DO CONTATO.
+  const onde = new THREE.Vector3(0, 1, 0);
+  const deOnde = new THREE.Vector3(0, 1, 1.2);
+
+  const garra = new MarcaDeContato('garra', onde, deOnde, 0xffffff, 1);
+  const cena = new THREE.Group();
+  garra.adicionarA(cena);
+  checar(garra.grupo.parent === cena, 'a marca não entrou na cena');
+  checar(garra.grupo.position.distanceTo(onde) < 1e-6, 'a marca não nasceu no corpo de quem levou');
+
+  // Três riscos, e não um borrão: o que se lê de longe é o paralelismo.
+  const riscos = garra.grupo.children.filter((o) => (o as THREE.Mesh).isMesh);
+  checar(riscos.length === 3, `a garra tem ${riscos.length} riscos, e não três`);
+
+  // Ela encara quem bateu. Sem isso vira uma linha quando você anda de lado —
+  // e em MR você anda o tempo todo.
+  const frente = new THREE.Vector3(0, 0, 1).applyQuaternion(garra.grupo.quaternion);
+  const paraOAtacante = deOnde.clone().sub(onde).normalize();
+  checar(frente.dot(paraOAtacante) > 0.95, 'a marca não está virada para quem bateu');
+
+  // Os riscos não chegam juntos: o segundo ainda não existe no primeiro quadro.
+  garra.atualizar(1 / 90);
+  checar(riscos[0].visible, 'o primeiro risco não apareceu de imediato');
+  checar(!riscos[2].visible, 'os três riscos saíram no mesmo quadro — vira um carimbo');
+
+  // E ela some sozinha, rápido: uma marca que dura atrapalha a leitura do
+  // golpe seguinte.
+  checar(!garra.terminou, 'a garra terminou antes de ser vista');
+  for (let q = 0; q < 40; q++) garra.atualizar(1 / 90);
+  checar(garra.terminou, 'a garra ficou na tela quase meio segundo depois');
+  garra.descartar(cena);
+  checar(garra.grupo.parent === null, 'a marca não saiu da cena');
+
+  // (3) O BAQUE é outra coisa: anel e faíscas, não riscos.
+  const baque = new MarcaDeContato('baque', onde, deOnde, 0xffd23b, 0.5);
+  const anel = baque.grupo.children.find((o) => (o as THREE.Mesh).isMesh) as THREE.Mesh;
+  const faiscas = baque.grupo.children.find((o) => (o as THREE.Points).isPoints);
+  checar(anel !== undefined, 'o baque não tem anel');
+  checar(faiscas !== undefined, 'o baque não tem faíscas');
+
+  // Ele nasce FECHADO, e no tamanho certo: a escala 1 do three, neste objeto,
+  // é um metro de raio, e um anel desse tamanho por um quadro é um flash na
+  // cara de quem está com o headset.
+  const antes = anel.scale.x;
+  checar(antes < 0.6, `o anel nasce com raio ${antes.toFixed(2)} — pisca gigante no primeiro quadro`);
+
+  // E ABRE: é isso que lê como impacto.
+  for (let q = 0; q < 8; q++) baque.atualizar(1 / 90);
+  checar(anel.scale.x > antes, 'o anel do baque não abre');
+  checar(
+    (anel.material as THREE.MeshBasicMaterial).opacity < 0.9,
+    'o anel não começa a apagar enquanto abre',
+  );
+  baque.descartar(cena);
+
+  // A força vira TAMANHO e não duração — uma marca mais longa atrapalharia o
+  // golpe seguinte, uma maior não.
+  const fraco = new MarcaDeContato('baque', onde, deOnde, 0xffffff, 0);
+  const forte = new MarcaDeContato('baque', onde, deOnde, 0xffffff, 1);
+  fraco.atualizar(1 / 90);
+  forte.atualizar(1 / 90);
+  const escalaDe = (m: MarcaDeContato) =>
+    (m.grupo.children.find((o) => (o as THREE.Mesh).isMesh) as THREE.Mesh).scale.x;
+  checar(escalaDe(forte) > escalaDe(fraco) * 1.5, 'o golpe forte não deixa marca maior');
+  fraco.descartar(cena);
+  forte.descartar(cena);
+
+  // (4) E o jogo liga as duas coisas: cada gesto de contato tem o seu feitio.
+  const jogo = readFileSync('src/game.ts', 'utf8');
+  checar(jogo.includes('MARCA_DO_GESTO'), 'o jogo não escolhe a marca pelo gesto');
+  checar(/garra: 'garra'/.test(jogo), 'o gesto de garra não deixa risco');
+  checar(/soco: 'baque'/.test(jogo), 'o soco não deixa baque');
+  // Mordida e sopro NÃO deixam marca, e isso é a decisão — não um esquecimento.
+  checar(!/mordida: '/.test(jogo), 'a mordida ganhou marca: ela acontece onde ninguém vê');
+  checar(!/sopro: '/.test(jogo), 'o sopro ganhou marca por cima do efeito que já é a imagem inteira');
+
+  console.log('   golpe: quatro efeitos elementais para todos · garra risca, baque estoura');
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);
