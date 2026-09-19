@@ -59,6 +59,8 @@ import {
   multiplicador,
   nivelPorXp,
   pesoSpawn,
+  sortearLendario,
+  CAPTURAS_PARA_LENDARIO,
   porId,
   statsNoNivel,
   TOTAL_ESPECIES,
@@ -1790,9 +1792,43 @@ console.log('28. tamanho real');
   );
   checar(pertinho < 2, `o Diglett ficou longe demais (${pertinho.toFixed(2)} m) para o tamanho dele`);
 
+  // E O COMANDO DE IR VALE PARA ELES TAMBÉM.
+  //
+  // Queixa do playtest de 19/09: *"Pokémons tamanho grande não vão onde eu
+  // mando ir, eles ficam parados"*. A tolerância de chegada era
+  // `folga(0.12, 0.45)`, proporcional ao raio — dois metros para o Onix. Ele
+  // andava 89 cm de 2,8 m, decidia que tinha chegado e parava. Ver
+  // `chegadaNaMarca`.
+  {
+    const mandado = new Pokemon(
+      onix,
+      corpoFalso(onix.alturaReal),
+      new THREE.Vector3(0, 0, -1.2),
+      0,
+      'companheiro',
+      30,
+      false,
+      7,
+    );
+    mandado.estado = 'ocioso';
+    const marca = new THREE.Vector3(2.5, 0, -2.5);
+    mandado.irPara(marca);
+    for (let i = 0; i < 72 * 14 && mandado.indoParaAlgumLugar; i++) {
+      mandado.atualizar(1 / 72, JOGADOR);
+    }
+    const falta = Math.hypot(
+      marca.x - mandado.raiz.position.x,
+      marca.z - mandado.raiz.position.z,
+    );
+    checar(
+      falta < 0.6,
+      `mandado a 2,8 m, o Onix parou a ${falta.toFixed(2)} m da marca — "não vai onde eu mando"`,
+    );
+  }
+
   console.log(
     `   Onix ${onix.alturaReal} m para a ${perto.toFixed(1)} m; ` +
-      `Diglett ${diglett.alturaReal} m para a ${pertinho.toFixed(1)} m`,
+      `Diglett ${diglett.alturaReal} m para a ${pertinho.toFixed(1)} m; e o grande obedece à marca`,
   );
 }
 
@@ -1858,6 +1894,55 @@ console.log('29. as pedras de evolução');
   // As convidadas entraram para ser ponta de linha, não para povoar a sala.
   for (const e of ESPECIES.filter((x) => x.convidada)) {
     checar(pesoSpawn(e, false, 40) === 0, `${e.nome} é convidada e não devia nascer selvagem`);
+  }
+
+  // OS LENDÁRIOS E O EEVEE — playtest de 19/09: *"quero ver lendários, eu não
+  // vi ainda nenhum... nem Eevee eu encontrei no jogo"*.
+  {
+    const lendarios = ESPECIES.filter((e) => e.lendario);
+    checar(lendarios.length >= 4, `só ${lendarios.length} lendários na Pokédex`);
+    for (const e of lendarios) {
+      checar(
+        pesoSpawn(e, false, 40) === 0,
+        `${e.nome} ainda sai no sorteio comum — o caminho dele é sortearLendario`,
+      );
+    }
+
+    // Cedo demais, ele não vem: um Mewtwo de nível 40 no seu quinto minuto.
+    checar(
+      sortearLendario(() => 0, () => false, CAPTURAS_PARA_LENDARIO - 1) === null,
+      'lendário apareceu antes da hora',
+    );
+    // Com o dado no chão e a coleção andando, vem.
+    const veio = sortearLendario(() => 0, () => false, CAPTURAS_PARA_LENDARIO + 4);
+    checar(veio !== null && veio.lendario, 'o lendário não apareceu nem com o dado no chão');
+    // Dado alto: não vem. É raro por construção.
+    checar(
+      sortearLendario(() => 0.99, () => false, 40) === null,
+      'o lendário veio com o dado no teto — ele não é raro',
+    );
+    // E não repete: quem já está na sua coleção não volta a nascer.
+    checar(
+      sortearLendario(() => 0, () => true, 40) === null,
+      'um lendário já capturado voltou a aparecer',
+    );
+
+    // Eevee: enquanto não for capturado, vale como incomum. Era `raro` (3
+    // contra 22 de um comum) e ninguém o encontrava.
+    const eevee = porId('eevee')!;
+    const raroQualquer = ESPECIES.find(
+      (e) => e.raridade === 'raro' && e.estagio === 0 && e.id !== 'eevee' && !e.lendario,
+    )!;
+    checar(
+      pesoSpawn(eevee, false, 20) > pesoSpawn(raroQualquer, false, 20) * 2,
+      `Eevee (${pesoSpawn(eevee, false, 20).toFixed(1)}) não ficou mais provável que um raro qualquer (${pesoSpawn(raroQualquer, false, 20).toFixed(1)})`,
+    );
+    // Capturado, ele volta a ser o que era: o empurrão é para ACHAR, não para
+    // encher a sala de Eevee.
+    checar(
+      pesoSpawn(eevee, true, 20) <= pesoSpawn(eevee, false, 20),
+      'Eevee capturado continua com o empurrão',
+    );
   }
 
   // O golpe acerta alguém — item 2.1 do roteiro.
@@ -5883,5 +5968,44 @@ console.log('\n60. o cinto está na cintura, e as duas mãos alcançam');
     `   cinto: cintura a ${ALTURA_DA_CINTURA} m dos olhos · zona morta de ${((ZONA_MORTA_DO_RUMO * 180) / Math.PI).toFixed(0)}° · as duas mãos pegam`,
   );
 }
+// A BOLA QUE VEM QUANDO VOCÊ CHAMA — playtest de 19/09.
+//
+// *"Quero poder apontar a mão para a pokébola no chão, ela vai brilhar e
+// quando eu apertar o grip ela vem para a minha mão"*. O que se confere aqui é
+// o voo: que ela sobe até a mão em vez de rastejar pelo carpete, que chega, e
+// que ela persegue uma mão que se MEXE — o destino é reescrito por quadro.
+console.log('\n61. a pokébola vem quando você chama');
+{
+  const bola = new Pokebola(0);
+  bola.raiz.position.set(2.4, 0.04, -1.8);
+  bola.largarNoChao();
+  checar(bola.noChao, 'a bola largada não ficou no chão');
+
+  const mao = new THREE.Vector3(0.2, 1.15, -0.3);
+  bola.chamarPara(mao);
+
+  let quadros = 0;
+  for (; quadros < 72 * 4 && !bola.chegouDaChamada; quadros++) {
+    // A mão anda enquanto ela vem: é o caso real, e é o que distingue uma bola
+    // chamada de uma bola lançada em linha reta para um ponto morto.
+    mao.x += 0.004;
+    bola.destinoDaChamada.copy(mao);
+    bola.atualizar(1 / 72);
+  }
+
+  checar(bola.chegouDaChamada, `a bola não chegou na mão em ${(quadros / 72).toFixed(1)} s`);
+  checar(quadros / 72 < 2.5, `a bola levou ${(quadros / 72).toFixed(1)} s para atravessar 3 m`);
+  checar(
+    bola.posicao.y > 0.6,
+    `a bola chegou a ${bola.posicao.y.toFixed(2)} m — ela rastejou pelo chão em vez de voar`,
+  );
+  // Entregue, ela vira bola de mão; abandonada, volta para o carpete — e nunca
+  // fica em 'mao' sem ninguém segurando, que é o jeito de congelar no ar.
+  bola.largarNoChao();
+  checar(bola.noChao, 'a chamada abandonada deixou a bola fora do chão');
+
+  console.log(`   chamada: 3 m em ${(quadros / 72).toFixed(1)} s, subindo até ${bola.posicao.y.toFixed(2)} m`);
+}
+
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

@@ -12,9 +12,13 @@ export type EstadoBola =
   | 'sucesso'
   | 'falha'
   | 'soltando'
-  | 'inerte';
+  | 'inerte'
+  /** Chamada de longe e voltando para a sua mão. Ver `chamarPara`. */
+  | 'vindo';
 
 const GRAVIDADE = -9.81;
+/** Reaproveitado pela bola chamada, uma vez por quadro. Ver `chamarPara`. */
+const _chamada = new THREE.Vector3();
 
 /**
  * O quanto a gravidade vale para uma bola ARREMESSADA.
@@ -522,6 +526,26 @@ export class Pokebola {
         this.chamando = 0;
         break;
       }
+
+      case 'vindo': {
+        // Ela sai do chão com pressa e chega devagar: a velocidade sobe com o
+        // tempo de voo e cai com a proximidade. Sem a segunda metade, a bola
+        // bate na mão e atravessa.
+        this.cronometro += dt;
+        const ate = _chamada.copy(this.destinoDaChamada).sub(this.raiz.position);
+        const distancia = ate.length();
+        const pressa = Math.min(1, this.cronometro * 3.2);
+        const velocidade = THREE.MathUtils.clamp(distancia * 4.2, 0.9, 7) * pressa;
+        if (distancia > 1e-4) {
+          this.raiz.position.addScaledVector(ate.divideScalar(distancia), Math.min(distancia, velocidade * dt));
+        }
+        // Girando e acesa, para se achar no ar contra o seu quarto.
+        this.raiz.rotation.y += dt * 9;
+        this.luz.intensity = 0.7;
+        this.matBotao.emissiveIntensity = 1.1;
+        this.chamando = 0;
+        break;
+      }
     }
   }
 
@@ -608,6 +632,64 @@ export class Pokebola {
 
   get noChao(): boolean {
     return this.estado === 'inerte';
+  }
+
+  /** Há quanto tempo ela está deitada no carpete. Ver `Jogo.limparBolasDemais`. */
+  get tempoNoChao(): number {
+    return this.tempoInerte;
+  }
+
+  /**
+   * Ela vem até a sua mão, chamada de longe.
+   *
+   * ## Por que isto existe
+   *
+   * Pedido do playtest de 19/09: *"quero poder apontar a mão para a pokébola
+   * no chão, ela vai brilhar, e quando eu apertar o grip ela vem para a minha
+   * mão"*. Até aqui, recolher uma bola era agachar e alcançar — o gesto mais
+   * incômodo do jogo inteiro, ainda por cima com a sua própria mão tapando o
+   * alvo. E uma bola que caiu atrás do sofá era uma bola perdida.
+   *
+   * ## Por que ela VOA em vez de aparecer na mão
+   *
+   * Porque em realidade misturada o caminho é a informação: uma bola que some
+   * do carpete e reaparece na palma não diz qual bola veio. Vendo-a subir e
+   * cruzar a sala, você sabe exatamente de onde ela saiu — e o gesto vira um
+   * truque seu, não uma teleportação do sistema.
+   *
+   * O destino é um vetor VIVO, copiado pelo jogo a cada quadro: a mão que
+   * chamou continua se mexendo, e uma bola que persegue a mão de verdade é o
+   * que faz ela parecer chamada em vez de lançada.
+   */
+  chamarPara(destino: THREE.Vector3) {
+    this.estado = 'vindo';
+    this.destinoDaChamada.copy(destino);
+    this.velocidade.set(0, 0, 0);
+    this.cronometro = 0;
+    this.tempoInerte = 0;
+  }
+
+  /** Para onde a bola chamada está indo. O jogo reescreve por quadro. */
+  readonly destinoDaChamada = new THREE.Vector3();
+
+  /** Chegou na mão de quem a chamou, e pode ser entregue. */
+  get chegouDaChamada(): boolean {
+    return this.estado === 'vindo' && this.posicao.distanceTo(this.destinoDaChamada) < 0.08;
+  }
+
+  /**
+   * A chamada não deu certo: ela volta a ser uma bola caída, onde estiver.
+   *
+   * O estado 'mao' não serve aqui. Nele, quem escreve a posição é o jogo, a
+   * partir da mão que segura — e uma bola em 'mao' que ninguém segura congela
+   * no ar, no meio da sala, para sempre. Aconteceria toda vez que a mão
+   * enchesse durante o voo.
+   */
+  largarNoChao() {
+    this.estado = 'inerte';
+    this.velocidade.set(0, 0, 0);
+    this.tempoInerte = 0;
+    this.chamando = 0;
   }
 
   /**

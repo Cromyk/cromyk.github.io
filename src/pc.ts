@@ -13,6 +13,8 @@ import {
   pilula,
 } from './estilo';
 import { TAMANHO_TIME, type Dex, type Exemplar } from './state';
+import { recompensaPorSoltar, pedraDoTipo, type Achado } from './itens';
+import { pedraPorId } from './pedras';
 
 /**
  * O PC do treinador: a caixa inteira e a sua equipe, lado a lado, para você
@@ -56,7 +58,14 @@ export type AlvoPc =
   | { tipo: 'caixa'; indice: number }
   | { tipo: 'pagina'; direcao: 1 | -1 }
   | { tipo: 'curar' }
+  | { tipo: 'soltar' }
   | { tipo: 'fechar' };
+
+/** O que a natureza devolveu pelo bicho que você soltou. Ver `soltarArrasto`. */
+export interface Despedida {
+  nome: string;
+  itens: Achado[];
+}
 
 export class PainelPc {
   readonly grupo = new THREE.Group();
@@ -64,6 +73,13 @@ export class PainelPc {
   mudouDestaque = false;
   /** Quem está na mão: índice em `dex.todos`, ou −1. */
   pegou = -1;
+  /**
+   * O último bicho solto na natureza e o que ele rendeu.
+   *
+   * Fica aqui para quem tem VOZ e TELA — o `Jogo` — dizer o que aconteceu: o
+   * painel sabe soltar e sabe pagar, mas não sabe falar. Quem lê, limpa.
+   */
+  despedida: Despedida | null = null;
 
   private placa = new Placa(LARGURA, ALTURA, PX);
   private alvos: THREE.Mesh[] = [];
@@ -79,6 +95,9 @@ export class PainelPc {
   // e para posicionar os alvos — foi o que evitou o menu onde o clique cai a
   // meia carta do que se vê.
   private static readonly MARGEM = 34;
+  /** Onde a área de soltar fica no rodapé, em pixels do canvas. */
+  private static readonly SOLTAR_X = 348;
+  private static readonly SOLTAR_L = 360;
   private static readonly TOPO = 96;
   private static readonly CARD_L = 224;
   private static readonly CARD_A = 150;
@@ -114,6 +133,10 @@ export class PainelPc {
     const rodape = alturaCanvas - 66;
     novoAlvo({ tipo: 'pagina', direcao: -1 }, PainelPc.MARGEM, rodape, 120, 54);
     novoAlvo({ tipo: 'pagina', direcao: 1 }, PainelPc.MARGEM + 132, rodape, 120, 54);
+    // A área de soltar fica no meio do rodapé, longe das duas pontas: ela é a
+    // única coisa irreversível desta tela, e não pode ficar encostada no botão
+    // de fechar. Ver `soltarArrasto`.
+    novoAlvo({ tipo: 'soltar' }, PainelPc.SOLTAR_X, rodape, PainelPc.SOLTAR_L, 54);
     novoAlvo({ tipo: 'curar' }, PX - PainelPc.MARGEM - 400, rodape, 190, 54);
     novoAlvo({ tipo: 'fechar' }, PX - PainelPc.MARGEM - 190, rodape, 190, 54);
   }
@@ -252,7 +275,7 @@ export class PainelPc {
    * Soltar no mesmo lugar de onde saiu não é erro nem desistência: é o gesto de
    * quem pegou para olhar e devolveu. Por isso devolve `largou`, e não `null`.
    */
-  soltarArrasto(): 'largou' | 'trocou' | 'moveu' | null {
+  soltarArrasto(): 'largou' | 'trocou' | 'moveu' | 'soltou' | 'recusou' | null {
     if (this.pegou < 0 || !this.dex) return null;
 
     const de = this.pegou;
@@ -260,6 +283,30 @@ export class PainelPc {
     this.assinatura = '';
 
     const alvo = this.destacado;
+
+    // SOLTAR NA NATUREZA — pedido do playtest de 19/09.
+    //
+    // É a única coisa irreversível desta tela, e por isso ela pede um gesto
+    // inteiro: pegar o bicho, atravessar o painel com ele na mão e largar numa
+    // área que está escrita em vermelho. Não há confirmação depois, pelo mesmo
+    // motivo que a pedra não tem — a confirmação é o caminho até aqui.
+    //
+    // O que não se faz é ficar sem ninguém: `Dex.soltar` recusa o último, e a
+    // recusa volta como `'recusou'` para o jogo poder dizer por quê em vez de
+    // engolir o gesto calado.
+    if (alvo?.tipo === 'soltar') {
+      const quem = this.dex.todosComVagas[de] ?? null;
+      const especie = quem ? porId(quem.id) : null;
+      if (!quem || !especie) return 'largou';
+      const nivel = this.dex.nivelDe(quem);
+      const saiu = this.dex.soltar(de);
+      if (!saiu) return 'recusou';
+
+      const itens = recompensaPorSoltar(especie.tipos, nivel);
+      for (const item of itens) this.dex.ganharItem(item.id, item.quantidade);
+      this.despedida = { nome: especie.nome, itens };
+      return 'soltou';
+    }
     // Soltou fora de qualquer vaga — no cabeçalho, no vão entre cartas, ou com
     // a mira já fora do painel. O bicho volta para onde estava, que é o que
     // qualquer coisa arrastada faz quando se solta no lugar errado.
@@ -377,16 +424,71 @@ export class PainelPc {
     ctx.textAlign = 'left';
     ctx.font = '600 26px system-ui, -apple-system, "Segoe UI", sans-serif';
     ctx.fillStyle = COR.textoFraco;
-    ctx.fillText(
-      `página ${this.pagina + 1} de ${this.totalPaginas}`,
-      PainelPc.MARGEM + 274,
-      rodape + 14,
-    );
+    ctx.fillText(`${this.pagina + 1}/${this.totalPaginas}`, PainelPc.MARGEM + 266, rodape + 14);
+
+    // A área de soltar. Ela só fica ACESA com um bicho na mão: parada, é um
+    // lembrete apagado de que existe; com alguém na mão, é uma porta aberta.
+    this.areaDeSoltar(PainelPc.SOLTAR_X, rodape, PainelPc.SOLTAR_L, 54);
 
     this.botao(canvas.width - PainelPc.MARGEM - 400, rodape, 190, 54, 'curar time', this.destacado?.tipo === 'curar', COR.bom);
     this.botao(canvas.width - PainelPc.MARGEM - 190, rodape, 190, 54, 'fechar', this.destacado?.tipo === 'fechar', COR.ruim);
 
     this.placa.marcarSujo();
+  }
+
+  /**
+   * "Soltar na natureza": a porta de saída, e o que ela paga.
+   *
+   * Ela muda de cara conforme o que está acontecendo, porque as três situações
+   * pedem três coisas diferentes:
+   *
+   * - **Mão vazia.** Tracejado apagado: existe, não convida.
+   * - **Com um bicho na mão.** Acende e passa a DIZER O PREÇO — qual pedra
+   *   aquele bicho vale. É a informação que faz o gesto ser uma escolha e não
+   *   uma aposta.
+   * - **Com a mira em cima.** Vermelho cheio, e o aviso de que não volta.
+   */
+  private areaDeSoltar(x: number, y: number, l: number, a: number) {
+    const { ctx } = this.placa;
+    const arrastando = this.arrastando;
+    const sobMira = this.destacado?.tipo === 'soltar';
+    const especie = arrastando ? porId(arrastando.id) : null;
+
+    if (!arrastando) {
+      ctx.save();
+      ctx.setLineDash([9, 8]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+      ctx.beginPath();
+      ctx.roundRect(x, y, l, a, RAIO.pequeno);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = fonte(22, 600);
+      ctx.fillStyle = 'rgba(154,165,184,0.65)';
+      ctx.fillText('arraste aqui para soltar na natureza', x + l / 2, y + a / 2 + 1);
+      ctx.textBaseline = 'top';
+      return;
+    }
+
+    cartao(ctx, x, y, l, a, { sobMira, ativo: sobMira }, RAIO.pequeno);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = fonte(25, 700);
+    ctx.fillStyle = sobMira ? COR.ruim : COR.texto;
+    ctx.fillText(
+      sobMira ? 'soltar — e não volta' : 'soltar na natureza',
+      x + l / 2,
+      y + a / 2 - 8,
+    );
+
+    const pedra = especie ? pedraPorId(pedraDoTipo(especie.tipos)) : null;
+    ctx.font = fonte(20, 600);
+    ctx.fillStyle = pedra ? hex(pedra.cor) : COR.textoFraco;
+    ctx.fillText(pedra ? `rende ${pedra.nome} + itens` : 'rende itens', x + l / 2, y + a / 2 + 16);
+    ctx.textBaseline = 'top';
   }
 
   private botao(

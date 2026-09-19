@@ -276,6 +276,28 @@ export class Pokemon {
   }
 
   /**
+   * A que distância da marca ele considera que CHEGOU.
+   *
+   * ## Por que isto não é uma `folga`
+   *
+   * Era `folga(0.12, 0.45)`, e com o tamanho real ligado isso dava dois metros
+   * para um Onix (raio 4,4 m). O relato do playtest de 19/09 foi *"Pokémons
+   * tamanho grande não vão onde eu mando ir, eles ficam parados"*, e medindo
+   * era literalmente isso: mandado a 2,8 m, o Onix andava 89 cm, decidia que
+   * tinha chegado e parava — faltando 1,94 m da marca. Um Gyarados andava 1,4
+   * de 2,8.
+   *
+   * A folga proporcional está certa para DISTÂNCIA PESSOAL: um Onix que tenta
+   * parar a 80 cm de você para dentro de você. Mas "cheguei na marca" é outra
+   * coisa: é uma ordem sua, e uma ordem obedecida pela metade lê como ordem
+   * ignorada, por maior que seja o bicho. Então o raio entra, mas com teto —
+   * meio metro é o quanto um passo de bicho grande erra sem parecer desobediência.
+   */
+  private get chegadaNaMarca(): number {
+    return Math.min(this.folga(0.12, 0.45), 0.5 * Pokemon.escalaPessoal);
+  }
+
+  /**
    * Multiplica TODA distância pessoal do jogo — item 4.1 do roteiro.
    *
    * As distâncias deste arquivo foram escritas para quem joga de pé, com espaço
@@ -1063,7 +1085,7 @@ export class Pokemon {
         // em cima da mesa, parar assim que o X e o Z batem deixaria o bicho
         // pousado no ar a meio caminho da rampa.
         const noApoio = Math.abs(alvo.y - this.pisoY) < 0.03;
-        if ((falta < this.folga(0.12, 0.45) && noApoio) || this.cronometroEstado > 12) {
+        if ((falta < this.chegadaNaMarca && noApoio) || this.cronometroEstado > 12) {
           this.destinoComandado = null;
           this.estado = 'ocioso';
           this.olharPara = jogador.clone();
@@ -1278,12 +1300,16 @@ export class Pokemon {
         jogador.z - this.raiz.position.z,
       );
       const dist = paraJogador.length();
-      if (dist > this.folga(1.1, 1.5)) {
+      // Um palmo mais longe do que era, nos dois números: *"precisam ficar um
+      // pouco mais distante do VR"* (playtest de 19/09). Em passthrough, um
+      // bicho a 75 cm dos olhos não é companhia, é uma parede — e a câmera do
+      // headset ainda por cima não o enxerga inteiro a essa distância.
+      if (dist > this.folga(1.35, 1.5)) {
         // Anda até um ponto um pouco à frente e ao lado do treinador.
         const lado = new THREE.Vector3(-paraJogador.z, 0, paraJogador.x).normalize();
         this.destino
           .copy(jogador)
-          .addScaledVector(paraJogador.normalize(), -this.folga(0.75, 1.2))
+          .addScaledVector(paraJogador.normalize(), -this.folga(1.05, 1.2))
           .addScaledVector(lado, 0.45);
         this.destino.y = this.pisoY;
         this.impulso(1.9);
@@ -1431,7 +1457,23 @@ export class Pokemon {
     // A condição multiplica tudo o que vem abaixo: paralisado anda a 45%, e
     // dormindo não anda. É um lugar só porque todo deslocamento passa por aqui.
     const fator = this.perfilDaCondicao?.fatorVelocidade ?? 1;
-    return this.velocidadeCrua * fator;
+    return this.velocidadeCrua * fator * this.fatorDoTamanho;
+  }
+
+  /**
+   * Bicho grande anda mais depressa — em metros por segundo, não em passadas.
+   *
+   * Um metro e meio por segundo é o passo de quem tem meio metro de altura. Um
+   * Onix de quase nove metros andando a esse mesmo 1,5 atravessa o próprio
+   * corpo em seis segundos, e o olho lê isso como *parado* mesmo com ele se
+   * mexendo — foi metade da queixa "os grandes ficam parados".
+   *
+   * Limitado a 1,7× porque o quarto não cresce junto: quem é grande já precisa
+   * de menos passos para cruzar a sala, e o dobro da velocidade viraria um
+   * caminhão dentro da sua sala de estar.
+   */
+  private get fatorDoTamanho(): number {
+    return THREE.MathUtils.clamp(this.corpo.altura / 1.1, 1, 1.7);
   }
 
   private get velocidadeCrua(): number {

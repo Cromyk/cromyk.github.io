@@ -1048,6 +1048,20 @@ export function ondeNasce(especie: Especie): Preferencia {
   return 'qualquer';
 }
 
+/**
+ * Quem o jogo PROMETE, e por isso não pode deixar de entregar.
+ *
+ * Eevee é a porta de cinco convidadas, três pedras novas e a única escolha
+ * irreversível do jogo. Ele é `raro` na tabela da PokeAPI (taxa 45), o que o
+ * punha em 3 contra 22 de um comum — e o relato do playtest de 19/09 foi
+ * exatamente *"nem Eevee eu encontrei no jogo"*.
+ *
+ * Enquanto não for capturado, ele vale como um incomum; depois volta ao que
+ * era. Não é um atalho: é o jogo não prometer uma mecânica inteira e deixá-la
+ * atrás de um dado que pode não cair nunca.
+ */
+const PROMETIDOS: ReadonlySet<string> = new Set(['eevee']);
+
 export function pesoSpawn(especie: Especie, jaCapturou: boolean, nivelJogador: number): number {
   // Convidada não nasce no quarto de ninguém. Um Sylveon passeando pela sala
   // seria a resposta errada para o pedido que o trouxe: ele entrou para ser o
@@ -1055,12 +1069,22 @@ export function pesoSpawn(especie: Especie, jaCapturou: boolean, nivelJogador: n
   // simplesmente encontrar não é resultado de escolha nenhuma.
   if (especie.convidada) return 0;
 
+  // Lendário não sai no sorteio comum — sai no caminho DELE. Ver
+  // `sortearLendario` e `Jogo.nascerSelvagem`. Com peso 0,05 num bolo de mais
+  // de mil, a conta dava um encontro a cada dezenas de milhares: o jogo tinha
+  // cinco lendários que ninguém ia ver, e o playtest de 19/09 disse isso com
+  // todas as letras — *"quero ver lendários, eu não vi ainda nenhum"*.
+  if (especie.lendario) return 0;
+
   const porRaridade: Record<Raridade, number> = {
     comum: 10,
     incomum: 4.5,
     raro: 1.4,
-    lendario: 0.05,
+    lendario: 0,
   };
+  if (PROMETIDOS.has(especie.id) && !jaCapturou) {
+    return porRaridade.incomum * (especie.estagio === 0 ? 1 : 0.38) * 2.2;
+  }
   const porEstagio = [1, 0.38, 0.14][especie.estagio] ?? 0.1;
 
   // As evoluções e os raros só começam a aparecer quando o seu time cresce.
@@ -1068,6 +1092,45 @@ export function pesoSpawn(especie: Especie, jaCapturou: boolean, nivelJogador: n
   const forte = soma > 200 ? THREE.MathUtils.clamp((nivelJogador - 8) / 16, 0.05, 1) : 1;
 
   return porRaridade[especie.raridade] * porEstagio * forte * (jaCapturou ? 1 : 2.2);
+}
+
+/**
+ * O encontro lendário: raro, anunciado, e um de cada.
+ *
+ * ## Por que ele é um caminho separado
+ *
+ * Um lendário não é "um bicho com peso baixo". Ele é um ACONTECIMENTO: tem de
+ * aparecer uma vez, valer a corrida até ele e não voltar depois de capturado.
+ * Misturado no sorteio por peso, ele era as duas piores coisas ao mesmo tempo
+ * — nunca saía (0,05 num bolo de mil) e, se saísse duas vezes seguidas, seria
+ * um Mewtwo qualquer passeando pela cozinha.
+ *
+ * ## As três condições
+ *
+ * 1. **Você já está jogando de verdade.** Menos de `CAPTURAS_PARA_LENDARIO`
+ *    espécies capturadas e ele nem entra na conta: um Zapdos no primeiro
+ *    minuto é um bicho de nível 40 contra o seu inicial de nível 5.
+ * 2. **Sobrou lendário.** Só entram os que você nunca capturou.
+ * 3. **O dado.** Uma em vinte, e o jogo ainda segura um intervalo mínimo entre
+ *    dois (ver `Jogo`), para que dois seguidos não aconteçam.
+ */
+export const CAPTURAS_PARA_LENDARIO = 6;
+export const CHANCE_LENDARIO = 0.05;
+
+export function lendariosDisponiveis(jaCapturou: (id: string) => boolean): Especie[] {
+  return ESPECIES.filter((e) => e.lendario && !e.convidada && !jaCapturou(e.id));
+}
+
+export function sortearLendario(
+  aleatorio: () => number,
+  jaCapturou: (id: string) => boolean,
+  especiesCapturadas: number,
+): Especie | null {
+  if (especiesCapturadas < CAPTURAS_PARA_LENDARIO) return null;
+  const candidatos = lendariosDisponiveis(jaCapturou);
+  if (candidatos.length === 0) return null;
+  if (aleatorio() >= CHANCE_LENDARIO) return null;
+  return candidatos[Math.floor(aleatorio() * candidatos.length)] ?? candidatos[0];
 }
 
 /** Nível de um selvagem, puxado pelo tamanho do seu time. */

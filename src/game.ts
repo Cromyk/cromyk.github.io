@@ -25,6 +25,7 @@ import {
   evolucaoEm,
   evolucaoDaPedra,
   nivelSelvagem,
+  sortearLendario,
   ondeNasce,
   pesoSpawn,
   porId,
@@ -150,6 +151,21 @@ const MAX_SELVAGENS = 3;
 const DISTANCIA_DE_SUMICO = 9;
 /** Só a bola comum recarrega sozinha; as outras vêm de capturas. */
 const RECARGA_BOLA_COMUM = 5;
+/**
+ * Quantos encontros seguidos sem novidade até o jogo forçar um inédito.
+ *
+ * Doze é a ordem de grandeza de meia hora de jogo no modo Batalha. Ver
+ * `sortearEspecie`: a carência escolhe o BOLO, não o bicho — os pesos
+ * continuam valendo dentro dele.
+ */
+const ENCONTROS_ATE_FORCAR_NOVIDADE = 12;
+/**
+ * O mínimo entre dois lendários, em segundos de sessão.
+ *
+ * Cinco minutos. A chance sozinha já é de uma em vinte, mas o dado não tem
+ * memória e dois Zapdos em dois minutos matariam a coisa toda.
+ */
+const INTERVALO_ENTRE_LENDARIOS = 300;
 const ALCANCE_BATALHA = 4.5;
 
 /**
@@ -161,6 +177,23 @@ const ALCANCE_BATALHA = 4.5;
  * vezes", que é o oposto do gesto.
  */
 const ALCANCE_DO_CHAO = 0.16;
+/**
+ * Até onde o braço CHAMA uma bola caída, e quão estreito é o cone.
+ *
+ * Cinco metros cobre o cômodo inteiro — a bola que rolou para debaixo da mesa
+ * é justamente a que você não vai buscar de joelhos. O cone de 9° é estreito
+ * de propósito: mais largo, uma mão apoiada no corpo já acenderia uma bola
+ * qualquer do outro lado da sala, e o GRIP de pegar no cinto viraria uma bola
+ * voando na sua cara.
+ */
+const ALCANCE_DA_CHAMADA = 5;
+const COSSENO_DA_CHAMADA = Math.cos(Math.PI * 0.05);
+/**
+ * Quantas bolas podem ficar no carpete ao mesmo tempo. Ver `limparBolasDemais`.
+ */
+const MAX_BOLAS_NO_CHAO = 6;
+/** Reaproveitado por `bolaApontadaPor`, uma vez por bola por quadro. */
+const _paraABola = new THREE.Vector3();
 
 /**
  * O mapeamento de boas-vindas, em superfícies e em segundos.
@@ -242,6 +275,8 @@ export class Jogo {
   /** O laser de combate, um por mão. Ver FeixeDeAlvo. */
   private feixes = new Map<number, FeixeDeAlvo>();
   private bolaNaMao = new Map<number, Pokebola>();
+  /** As bolas que estão voando de volta, por mão. Ver `bolaApontadaPor`. */
+  private bolaChamada = new Map<number, Pokebola>();
   /** Linha e anel do comando "vá até ali". */
   private marca = new MarcaDeDestino();
   /** A pergunta na tela: deixa evoluir? Fica até ser respondida. */
@@ -910,6 +945,10 @@ export class Jogo {
    * fuso, e o smoke consegue afirmar o que ele produz.
    */
   private relogioDaSessao = 0;
+  /** Quando o último lendário apareceu, no relógio da sessão. */
+  private ultimoLendario = -Infinity;
+  /** Encontros seguidos sem nenhuma espécie inédita. Ver `sortearEspecie`. */
+  private semNovidade = 0;
   /** As fotos desta sessão, para a página entregar na saída. */
   get rolo(): readonly Foto[] {
     return this.fotografo.fotos;
@@ -1423,6 +1462,36 @@ export class Jogo {
   }
 
   /**
+   * A bola caída para a qual esta mão está APONTANDO.
+   *
+   * Pedido do playtest de 19/09: apontar acende a bola, e o GRIP a traz. Até
+   * então, recolher uma bola era agachar até ela — e a que caiu atrás do sofá
+   * ficava lá até sumir sozinha.
+   *
+   * A escolha é pelo ÂNGULO e não pela distância: com duas bolas no chão, a que
+   * está mais perto do dedo não é a que você está olhando. Quem vence é quem
+   * está mais no eixo do braço, e só dentro de um cone estreito — um cone largo
+   * faria toda mão estendida acender uma bola do outro lado da sala.
+   */
+  private bolaApontadaPor(mao: Mao): Pokebola | null {
+    const { origem, direcao } = mao.mira();
+    let melhor: Pokebola | null = null;
+    let maiorAlinhamento = COSSENO_DA_CHAMADA;
+    for (const bola of this.bolas) {
+      if (!bola.noChao) continue;
+      const ate = _paraABola.copy(bola.posicao).sub(origem);
+      const distancia = ate.length();
+      if (distancia < 0.2 || distancia > ALCANCE_DA_CHAMADA) continue;
+      const alinhamento = ate.divideScalar(distancia).dot(direcao);
+      if (alinhamento > maiorAlinhamento) {
+        maiorAlinhamento = alinhamento;
+        melhor = bola;
+      }
+    }
+    return melhor;
+  }
+
+  /**
    * O cinto que ESTA mão alcança: o do outro braço.
    *
    * A mão que carrega um cinto nunca alcança o próprio — ele está preso ao
@@ -1592,6 +1661,19 @@ export class Jogo {
         this.bolaNaMao.set(mao.indice, caida);
         mao.segurando = true;
         mao.sentir('acertou');
+        audio.clique();
+        return;
+      }
+
+      // E a que está LONGE, apontada: ela vem voando. Ver `bolaApontadaPor` e
+      // `Pokebola.chamarPara`. Depois da bola debaixo da mão de propósito —
+      // com uma bola encostada na palma, é essa que você quer, por mais que o
+      // braço esteja apontando para a sala inteira.
+      const apontada = this.bolaApontadaPor(mao);
+      if (apontada) {
+        apontada.chamarPara(this.pontoDeAgarre(mao));
+        this.bolaChamada.set(mao.indice, apontada);
+        mao.sentir('marcou');
         audio.clique();
         return;
       }
@@ -2764,9 +2846,52 @@ export class Jogo {
     const feito = this.pc.soltarArrasto();
     if (!feito) return;
 
-    mao.sentir(feito === 'largou' ? 'marcou' : 'acertou');
+    mao.sentir(feito === 'largou' || feito === 'recusou' ? 'marcou' : 'acertou');
     if (feito === 'largou') {
       audio.clique();
+      return;
+    }
+
+    // O último não sai. Ver `Dex.soltar`: sem ninguém, não há jogo — e um
+    // gesto engolido em silêncio seria lido como bug.
+    if (feito === 'recusou') {
+      audio.clique();
+      this.aviso.mostrar(
+        [
+          { texto: 'esse é o último', tamanho: 34, cor: '#ff9f9f' },
+          {
+            texto: 'você precisa de pelo menos um Pokémon',
+            tamanho: 22,
+            cor: '#9aa5b8',
+            peso: 500,
+          },
+        ],
+        2.4,
+      );
+      return;
+    }
+
+    // Soltou na natureza: o que a natureza devolveu é a única razão de o gesto
+    // existir, então ele é dito por inteiro. Ver `recompensaPorSoltar`.
+    if (feito === 'soltou') {
+      const despedida = this.pc.despedida;
+      this.pc.despedida = null;
+      if (despedida) {
+        audio.tilintar();
+        this.aviso.mostrar(
+          [
+            { texto: `${despedida.nome} voltou para a natureza`, tamanho: 32, cor: '#9ff0c4' },
+            ...despedida.itens.map((achado) => ({
+              texto: `+${achado.quantidade} ${itemPorId(achado.id)?.nome ?? achado.id}`,
+              tamanho: 23,
+              cor: ehPedra(achado.id) ? '#ffd78a' : '#9aa5b8',
+              peso: 600,
+            })),
+          ],
+          3.4,
+        );
+      }
+      if (this.temCompanheiroEmCampo) this.recolherCompanheiro();
       return;
     }
 
@@ -3969,9 +4094,26 @@ export class Jogo {
     // A hora entra no sorteio, e não no `pesoSpawn`: aquele é a regra do jogo
     // sobre a espécie, esta é uma condição do mundo lá fora. Ver src/hora.ts.
     const noite = noturnidade();
-    return escolherPesado(Math.random, ESPECIES, (e) => {
+
+    // A CARÊNCIA DE NOVIDADE.
+    //
+    // Doze encontros seguidos sem nada que você nunca viu e o próximo sai do
+    // bolo dos inéditos. Sem isso, a Pokédex deixa de ser uma caçada e vira
+    // uma espera: os pesos favorecem os comuns, você já capturou os comuns, e
+    // o jogo passa a mostrar os mesmos dez bichos a tarde inteira. Foi a
+    // mesma queixa que trouxe Eevee para `PROMETIDOS` — só que geral.
+    //
+    // Os pesos continuam valendo DENTRO do bolo: um inédito comum sai antes de
+    // um inédito raro. A carência decide de onde se sorteia, não o quê.
+    const inedito = this.semNovidade >= ENCONTROS_ATE_FORCAR_NOVIDADE;
+    const bolo = inedito ? ESPECIES.filter((e) => !this.dex.jaViu(e.id)) : ESPECIES;
+    const candidatos = bolo.length > 0 ? bolo : ESPECIES;
+
+    return escolherPesado(Math.random, candidatos, (e) => {
       const base = pesoSpawn(e, this.dex.jaCapturou(e.id), nivel) * fatorDoHorario(e.id, noite);
-      return e.id === corrente ? base * 3 : base;
+      // Na carência, a corrente não manda: ela existe para encadear encontros
+      // da MESMA espécie, que é o oposto do que se está tentando fazer aqui.
+      return !inedito && e.id === corrente ? base * 3 : base;
     });
   }
 
@@ -3984,12 +4126,29 @@ export class Jogo {
     if (this.nascendo) return;
     this.nascendo = true;
     try {
-      const especie = this.sortearEspecie();
+      // O lendário tem a primeira palavra, e ela é rara. Ver `sortearLendario`.
+      const lendario =
+        this.relogioDaSessao - this.ultimoLendario > INTERVALO_ENTRE_LENDARIOS
+          ? sortearLendario(
+              Math.random,
+              (id) => this.dex.jaCapturou(id),
+              this.dex.especiesCapturadas,
+            )
+          : null;
+      const especie = lendario ?? this.sortearEspecie();
+      if (lendario) this.ultimoLendario = this.relogioDaSessao;
+
+      // A carência de novidade conta ENCONTROS, e conta aqui: é o único ponto
+      // por onde todo selvagem passa.
+      this.semNovidade = this.dex.jaViu(especie.id) ? this.semNovidade + 1 : 0;
       // A corrente conta ESTE encontro, e é com ela que o dado é rolado.
       const corrente = this.dex.encadear(especie.id);
       const sorte = this.dex.sorteBrilhante;
       const shiny = sortearShiny(especie, sorte);
-      const nivel = nivelSelvagem(this.dex.nivelDoTreinador);
+      // Lendário vem acima do seu time, e de propósito: ele é a briga que você
+      // não ganha de primeira. Seis níveis — o bastante para doer, pouco para
+      // não ser um muro.
+      const nivel = nivelSelvagem(this.dex.nivelDoTreinador) + (lendario ? 6 : 0);
 
       const gltf = await garantir(especie.id, shiny);
       if (!gltf) return;
@@ -4003,10 +4162,17 @@ export class Jogo {
       // Sentado, o cômodo inteiro encolhe: não adianta pôr um bicho a cinco
       // metros de quem não vai levantar para ir até ele. Ver o item 4.1.
       const perto = Pokemon.escalaPessoal;
+      // O mínimo subiu de 1,2 para 1,9 m: *"precisam ficar um pouco mais
+      // distante do VR"*. Um bicho que nasce a um metro e vinte nasce dentro
+      // do seu campo de visão inteiro, e em tamanho real nasce dentro de VOCÊ.
+      // E ele cresce com o bicho: um Onix precisa de mais espaço para caber na
+      // cena do que um Diglett.
+      const corpo0 = this.alturaDe(especie);
+      const minimo = (1.9 + Math.min(2.4, corpo0 * 0.35)) * perto;
       const local = this.sala.pontoDeSpawn(
         this.posicaoJogador,
-        1.2 * perto,
-        5.5 * perto,
+        minimo,
+        Math.max(minimo + 1.2, 5.5 * perto),
         ondeNasce(especie),
       );
       if (!local) return;
@@ -4035,11 +4201,14 @@ export class Jogo {
         avisou: false,
       });
       this.dex.registrarEncontro(especie.id, shiny);
-      audio.surgiu(especie.id === 'pikachu' || shiny);
+      audio.surgiu(especie.id === 'pikachu' || shiny || lendario !== null);
       // O brilhante tem carimbo sonoro próprio. Ele aparece uma vez a cada
       // milhares de encontros e pode nascer atrás de você: o som é, muitas
       // vezes, a única chance de saber que ele está ali.
-      if (shiny) audio.brilhante();
+      //
+      // O lendário toma o mesmo carimbo emprestado, pelo mesmo motivo: ele
+      // pode nascer às suas costas, e a chance de ver aquele Zapdos é uma só.
+      if (shiny || lendario) audio.brilhante();
       // Um encontro comum respeita o intervalo; um BRILHANTE não. Ele aparece
       // uma vez a cada milhares e pode nascer atrás de você — perder essa voz
       // por causa de um cronômetro custaria caro demais.
@@ -4059,11 +4228,16 @@ export class Jogo {
         [
           shiny
             ? { texto: `${especie.nome} BRILHANTE!`, tamanho: 42, cor: '#ffd76a' }
-            : {
-                texto: `${especie.nome} selvagem apareceu!`,
-                tamanho: 36,
-                cor: corHexDe(especie),
-              },
+            : lendario
+              ? { texto: `${especie.nome.toUpperCase()}!`, tamanho: 44, cor: '#ffd23b' }
+              : {
+                  texto: `${especie.nome} selvagem apareceu!`,
+                  tamanho: 36,
+                  cor: corHexDe(especie),
+                },
+          ...(lendario
+            ? [{ texto: 'um LENDÁRIO — ele não volta se fugir', tamanho: 25, cor: '#ffd78a', peso: 700 }]
+            : []),
           { texto: `nível ${nivel} · ${textoTipos(especie)}`, tamanho: 23, cor: '#9aa5b8', peso: 500 },
           ...(novidade
             ? [{ texto: 'espécie nova', tamanho: 24, cor: '#ffd78a', peso: 600 }]
@@ -5948,6 +6122,31 @@ export class Jogo {
     this.companheiro = null;
   }
 
+  /**
+   * O carpete tem um teto de bolas.
+   *
+   * Pedido do playtest de 19/09: *"quero limitar a quantidade de pokébolas no
+   * chão para não travar"*. Cada bola caída é uma malha, uma luz pontual e um
+   * corpo integrando física por quadro — e elas ficam noventa segundos.
+   * Batalhando a sério, uma sessão junta bolas até o headset sentir.
+   *
+   * Quem sai é a MAIS ANTIGA, e não a mais longe: a mais antiga é a que já
+   * estava mesmo indo embora, e some de um lugar onde você não está olhando.
+   * Ela não custa nada ao jogador — a bola já foi gasta quando voou; o que se
+   * perde é a chance de recolher aquela ali.
+   */
+  private limparBolasDemais() {
+    const caidas = this.bolas.filter((b) => b.noChao);
+    if (caidas.length <= MAX_BOLAS_NO_CHAO) return;
+
+    caidas.sort((a, b) => b.tempoNoChao - a.tempoNoChao);
+    for (const bola of caidas.slice(0, caidas.length - MAX_BOLAS_NO_CHAO)) {
+      bola.descartar(this.cena);
+      const i = this.bolas.indexOf(bola);
+      if (i >= 0) this.bolas.splice(i, 1);
+    }
+  }
+
   private atualizarBolas(dt: number) {
     // As bolas caídas respondem à mão que chega: acendem, e a mão sente. Antes
     // do laço principal porque `aproximar` é consumido dentro de `atualizar`,
@@ -5964,7 +6163,43 @@ export class Jogo {
           bola.aproximar(forca);
         }
       }
+
+      // A bola APONTADA acende, mesmo do outro lado da sala: é ela que o GRIP
+      // vai chamar, e acender é a única forma de dizer qual antes de apertar.
+      for (const mao of this.maos) {
+        if (!mao.conectada || this.maoCheia(mao) || this.colo.tem(mao.indice)) continue;
+        this.bolaApontadaPor(mao)?.aproximar(0.85);
+      }
     }
+
+    // A bola chamada persegue a mão que a chamou, e chega. Ver `chamarPara`.
+    for (const [indice, bola] of [...this.bolaChamada]) {
+      const mao = this.maos[indice];
+      // A mão sumiu, a bola foi capturada por outro caminho, ou a mão encheu
+      // no meio do voo: a chamada morre e a bola volta a ser uma bola no chão.
+      if (!mao?.conectada || bola.estado !== 'vindo') {
+        this.bolaChamada.delete(indice);
+        if (bola.estado === 'vindo') bola.largarNoChao();
+        continue;
+      }
+      bola.destinoDaChamada.copy(this.pontoDeAgarre(mao));
+      if (!bola.chegouDaChamada) continue;
+
+      this.bolaChamada.delete(indice);
+      // A mão encheu no meio do voo — pegou outra coisa, ou o bicho subiu no
+      // colo. A bola cai onde chegou, em vez de ficar parada no ar.
+      if (this.maoCheia(mao)) {
+        bola.largarNoChao();
+        continue;
+      }
+      bola.recolher();
+      this.bolaNaMao.set(indice, bola);
+      mao.segurando = true;
+      mao.sentir('acertou');
+      audio.tilintar();
+    }
+
+    this.limparBolasDemais();
 
     for (const bola of [...this.bolas]) {
       const anterior = bola.posicao.clone();
