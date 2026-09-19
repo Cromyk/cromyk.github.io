@@ -15,6 +15,7 @@ import { Pokemon } from '../src/creature';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
+import { aindaVale, calar, falar, selo } from '../src/voz';
 import { LEVANTAR_SEGUNDOS, podeLevantar, segundosParaLevantar } from '../src/state';
 import { Luva, PISO_DO_FLASH_MS, RESPIRO_DE_PULSO_MS, filaDePiscadas } from '../src/glove';
 import { TATO } from '../src/hands';
@@ -4878,6 +4879,75 @@ console.log('\n51. o jogo mede a si mesmo, e entrega o número na saída');
     `   diário: ${parado.quadros} quadros · média ${parado.mediaMs.toFixed(1)} ms · ` +
       `p95 ${parado.p95Ms.toFixed(2)} ms · pior ${parado.piorMs} ms · orçamento ${ORCAMENTO_MS.toFixed(1)} ms`,
   );
+}
+
+// --- 52. o som sabe quando alguém mandou parar ---
+//
+// `falar` espera o MP3 baixar e só então manda tocar — e entre uma coisa e
+// outra o mundo anda:
+//
+//   1. você aponta para o Charmander na Pokédex e puxa o gatilho
+//   2. os 190 kB da narração começam a baixar
+//   3. você fecha a Pokédex, e o jogo chama `calar()`
+//   4. o download termina, e `falar` continua de onde parou e TOCA
+//
+// O jogo já sabia que isso é ruim: a linha que chama `calar()` ao fechar o
+// painel diz, por escrito, que ouvir a descrição de um Pikachu com a Pokédex
+// guardada faz parecer que o jogo travou. A proteção existia e não cobria o
+// caso — e o caso é justamente a PRIMEIRA vez que se aponta para uma espécie,
+// que é quando o arquivo ainda não está em memória.
+console.log('\n52. o som sabe quando alguém mandou parar');
+{
+  // O selo de um pedido vale até alguém mandar calar.
+  const meu = selo();
+  checar(aindaVale(meu), 'o selo do pedido nasceu inválido');
+  calar();
+  checar(!aindaVale(meu), 'calar não invalidou o pedido que estava a caminho');
+
+  // E ele sobe MESMO sem nada tocando, que é exatamente o caso do bug: um
+  // pedido em voo não tem nó de áudio para parar, só um `await` para
+  // invalidar. A versão antiga saía antes de contar.
+  const segundo = selo();
+  calar();
+  calar();
+  checar(!aindaVale(segundo), 'calar com o silêncio na sala não contou');
+  checar(selo() === segundo + 2, 'os pedidos de calar não são contados um a um');
+
+  // Contador e não booleano: com três pedidos em voo, só o mais recente vale.
+  const a = selo();
+  calar();
+  const b = selo();
+  checar(!aindaVale(a), 'o pedido mais antigo sobreviveu');
+  checar(aindaVale(b), 'o pedido mais novo foi invalidado junto');
+
+  // Sem AudioContext — que é o caso do Node —, falar desiste em silêncio em
+  // vez de explodir. É o mesmo caminho de quem abre o jogo sem tocar na tela.
+  checar((await falar('charmander')) === false, 'falar sem contexto de áudio não desistiu');
+
+  // --- e a saída da sessão manda parar tudo ---
+  const fonte = readFileSync('src/game.ts', 'utf8');
+  const i = fonte.indexOf('aoSairDaSessao()');
+  const saida = fonte.slice(i, fonte.indexOf('\n  }', i));
+  checar(saida.includes('calar()'), 'sair da sessão não cala a narração');
+  checar(saida.includes('audio.pausar()'), 'sair da sessão deixa o contexto de áudio aberto');
+
+  const som = readFileSync('src/audio.ts', 'utf8');
+  const j = som.indexOf('  pausar() {');
+  const pausar = som.slice(j, som.indexOf('\n  }', j));
+  checar(j > 0, 'não existe audio.pausar()');
+  checar(
+    pausar.includes('this.batalhaAcabou()'),
+    'sair no meio de uma briga deixa a trilha em loop por cima da tela de saída',
+  );
+  // O volume ZERA antes de suspender: suspender congela o relógio do contexto,
+  // e o que estava agendado continua agendado. Sem isso, o resto do som
+  // estouraria no primeiro quadro da sessão seguinte.
+  checar(
+    pausar.indexOf('setValueAtTime(0') < pausar.indexOf('suspend()'),
+    'o contexto é suspenso antes de o volume zerar — o som volta estourando',
+  );
+
+  console.log('   voz: o pedido morre com o gesto que o fez · trilha, voz e contexto param na saída');
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

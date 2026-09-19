@@ -838,10 +838,58 @@ Agora é um só.
   alimentado ANTES da guarda do contador e lido ANTES da limpeza da sessão —
   sem isso a tabela sairia sempre vazia.
 
+### 5.7 ✅ O som não sabia que alguém mandou parar (feito em 19/09)
+
+Dois vazamentos de som, com a mesma causa: alguma coisa começa, e o pedido de
+parar não alcança o que já estava em movimento.
+
+**A narração que toca depois de você fechar a Pokédex.** `falar` espera o MP3
+baixar e só então manda tocar — e entre uma coisa e outra o mundo anda:
+
+1. você aponta para o Charmander e puxa o gatilho;
+2. os 190 kB da narração começam a baixar;
+3. você fecha a Pokédex, e o jogo chama `calar()`;
+4. o download termina, e `falar` continua de onde parou e **toca**.
+
+O jogo já sabia que isso é ruim: a linha que chama `calar()` ao fechar o painel
+diz, por escrito, que *"ouvir uma descrição de Pikachu com a Pokédex já
+guardada é o tipo de coisa que faz parecer que o jogo travou"*. A proteção
+existia e não cobria o caso — e o caso é justamente a **primeira vez** que se
+aponta para uma espécie, que é quando o arquivo ainda não está em memória.
+
+Agora cada pedido leva um selo, e `calar()` invalida os que estão em voo. Um
+contador e não um booleano, porque pode haver três pedidos no ar ao mesmo
+tempo — apontar para três fichas enquanto a primeira baixa — e um booleano
+seria limpo pelo segundo, deixando o primeiro tocar.
+
+**E sair da realidade mista não parava nada.** Sair no meio de uma briga
+deixava a **trilha de batalha em loop** tocando por cima da tela de saída, para
+sempre: ela só para quando a briga acaba, e a briga tinha acabado junto com a
+sessão sem ninguém avisar. O `AudioContext` também seguia aberto, gastando
+bateria do headset para não tocar nada.
+
+A saída agora cala a voz, encerra a trilha e suspende o contexto — **zerando o
+volume antes de suspender**, porque suspender congela o relógio do contexto e
+tudo o que estava agendado continua agendado: sem isso, o resto do som
+estouraria no primeiro quadro da sessão seguinte. Ele volta numa rampa curta.
+
+De quebra, `0.55` — o volume geral — estava escrito em quatro lugares, três
+deles em `abafar`, que é onde mais dói: duas dessas linhas devolvem o volume
+ao "normal", e normal é esse número. Mudar o volume do jogo era mudar quatro
+linhas e torcer.
+
+- **Esforço:** baixo.
+- **Como saber que funcionou:** aponte para uma ficha que você nunca abriu,
+  puxe o gatilho e guarde a Pokédex imediatamente — nenhuma voz sai depois. E
+  saia da realidade mista durante uma briga: a música para junto.
+- **Conferido em:** `npm test`, seção 52 — o selo que morre com o gesto que o
+  fez, o `calar` que conta mesmo com o silêncio na sala (era essa a saída
+  antecipada que causava o bug), e que a saída zera o volume ANTES de suspender.
+
 ## O que depende de você
 
 Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.6, dezoito itens.
+feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.7, dezenove itens.
 
 O que resta depende de você:
 

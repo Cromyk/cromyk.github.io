@@ -6380,6 +6380,13 @@ export class Jogo {
     // medido para ele nascer em cima.
     this.proximoSpawn = 3;
     this.timeEstavaCaido = false;
+
+    // E o SOM, que não sabia que a sessão tinha acabado: a narração em curso
+    // (e a que ainda estava baixando), a trilha da briga em loop e o próprio
+    // contexto de áudio, que seguia aberto gastando bateria para não tocar
+    // nada. Ver `calar` em src/voz.ts e `pausar` em src/audio.ts.
+    calar();
+    audio.pausar();
   }
 
   /** Apaga o diário de quadro. Chamado depois de a saída já o ter lido. */

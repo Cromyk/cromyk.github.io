@@ -28,6 +28,48 @@ const baixando = new Map<string, Promise<AudioBuffer | null>>();
 let tocando: AudioBufferSourceNode | null = null;
 let idTocando: string | null = null;
 
+/**
+ * Quantas vezes alguém já mandou calar.
+ *
+ * ## O bug que isto conserta
+ *
+ * `falar` espera o MP3 baixar (`await carregar`) e só então manda tocar — e
+ * entre uma coisa e outra o mundo anda. A sequência é banal:
+ *
+ * 1. você aponta para o Charmander na Pokédex e puxa o gatilho;
+ * 2. os 190 kB da narração começam a baixar;
+ * 3. você fecha a Pokédex, e o jogo chama `calar()`;
+ * 4. o download termina, e `falar` continua de onde parou e **toca**.
+ *
+ * A voz sai com a Pokédex já guardada, e o jogo já sabia que isso é ruim: a
+ * linha que chama `calar()` ao fechar o painel diz, por escrito, que *"ouvir
+ * uma descrição de Pikachu com a Pokédex já guardada é o tipo de coisa que faz
+ * parecer que o jogo travou"*. A proteção existia e não cobria o caso — e o
+ * caso é justamente a PRIMEIRA vez que se aponta para uma espécie, que é
+ * quando o arquivo ainda não está em memória.
+ *
+ * ## Por que um contador, e não um booleano
+ *
+ * Porque pode haver mais de um pedido em voo: apontar para três fichas
+ * seguidas enquanto a primeira baixa. Um booleano de "cancelado" seria
+ * limpo pelo segundo pedido e deixaria o primeiro tocar. O contador dá a cada
+ * pedido um SELO, e só o mais recente vale.
+ */
+let geracao = 0;
+
+/**
+ * O selo do pedido atual. Quem vai esperar alguma coisa guarda o seu antes de
+ * esperar, e confere depois com `aindaVale`.
+ */
+export function selo(): number {
+  return geracao;
+}
+
+/** Este pedido ainda é o mais recente, ou alguém mandou calar no meio? */
+export function aindaVale(meu: number): boolean {
+  return meu === geracao;
+}
+
 function arquivoDe(chave: string): string {
   return `${PASTA}${chave}.mp3`;
 }
@@ -62,8 +104,15 @@ async function carregar(chave: string): Promise<AudioBuffer | null> {
   return promessa;
 }
 
-/** Interrompe o que estiver sendo narrado. */
+/**
+ * Interrompe o que estiver sendo narrado — e o que estiver a caminho.
+ *
+ * O contador sobe ANTES de qualquer saída antecipada, e é isso que faz a
+ * função valer para o caso em que nada está tocando ainda: um pedido em voo
+ * não tem nó de áudio para parar, só um `await` para invalidar.
+ */
 export function calar() {
+  geracao++;
   if (!tocando) return;
   try {
     tocando.stop();
@@ -92,8 +141,13 @@ export async function falar(chave: string): Promise<boolean> {
     return false;
   }
 
+  // O selo antes da espera: ver `geracao`.
+  const meu = selo();
   const buffer = await carregar(chave);
   if (!buffer) return false;
+  // Alguém calou enquanto o arquivo baixava — fechou a Pokédex, guardou o
+  // tablet, saiu da sessão. O pedido morreu com o gesto que o fez.
+  if (!aindaVale(meu)) return false;
 
   calar();
   const fonte = ctx.createBufferSource();

@@ -49,6 +49,16 @@ export interface Ponto {
 }
 
 const TRILHA_BATALHA = './trilha/batalha.mp3';
+
+/**
+ * O volume geral do jogo.
+ *
+ * Estava escrito 0.55 em quatro lugares — no nascimento do master e nas três
+ * linhas de `abafar`, que é onde ele mais dói: duas delas voltam ao "normal",
+ * e normal é este número. Mudar o volume do jogo era mudar quatro linhas e
+ * torcer.
+ */
+const VOLUME_MASTER = 0.55;
 const SFX_BRILHANTE = './sfx/brilhante.mp3';
 const SFX_NIVEL = './sfx/nivel.mp3';
 
@@ -197,12 +207,17 @@ export class Audio {
 
   iniciar() {
     if (this.ctx) {
-      void this.ctx.resume();
+      // Voltando de uma sessão anterior: o contexto foi suspenso com o volume
+      // em zero (ver `pausar`), e sobe de novo numa rampa curta. A rampa não é
+      // estética: enquanto o contexto está suspenso, o TEMPO dele para, e um
+      // som que estava no ar continua agendado. Retomar com o volume cheio
+      // faria o pedaço que sobrou estourar no primeiro quadro da sessão nova.
+      void this.ctx.resume().then(() => this.restaurarVolume());
       return;
     }
     const ctx = new AudioContext();
     const master = ctx.createGain();
-    master.gain.value = 0.55;
+    master.gain.value = VOLUME_MASTER;
     master.connect(ctx.destination);
     this.ctx = ctx;
     this.master = master;
@@ -222,6 +237,48 @@ export class Audio {
     for (const [id, quantas] of Object.entries(DUBLAGEM)) {
       for (let n = 1; n <= quantas; n++) void this.carregarDublagem(`${id}-${n}`);
     }
+  }
+
+  /**
+   * A sessão acabou: o som para de verdade.
+   *
+   * ## O que continuava tocando
+   *
+   * Nada parava o áudio ao sair da realidade mista. Sair no meio de uma briga
+   * deixava a **trilha de batalha em loop** tocando por cima da tela de saída,
+   * para sempre — ela só para quando a briga acaba, e a briga tinha acabado
+   * junto com a sessão, sem ninguém avisar. E o `AudioContext` seguia
+   * `running`, gastando bateria do headset para não tocar nada.
+   *
+   * ## Por que zerar o volume ANTES de suspender
+   *
+   * Suspender congela o relógio do contexto, e tudo o que estava agendado
+   * continua agendado — retomar é continuar de onde parou. Com o volume já em
+   * zero, o resto do som que ficou no ar sai mudo, e a rampa de `iniciar` o
+   * traz de volta depois de ele ter terminado.
+   */
+  pausar() {
+    this.batalhaAcabou();
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return;
+    const t = this.agora;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(0, t);
+    // A trilha pede 1,3 s para sumir; suspender antes disso a congelaria no
+    // meio, e ela voltaria na próxima sessão. Zerado o volume, ninguém ouve a
+    // espera.
+    void ctx.suspend();
+  }
+
+  /** Devolve o volume geral numa rampa curta. Ver `pausar`. */
+  private restaurarVolume() {
+    const master = this.master;
+    if (!master || !this.ctx) return;
+    const t = this.agora;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(0, t);
+    master.gain.linearRampToValueAtTime(VOLUME_MASTER, t + 0.25);
   }
 
   private get agora() {
@@ -1039,9 +1096,9 @@ export class Audio {
     const t = this.agora;
     master.gain.cancelScheduledValues(t);
     master.gain.setValueAtTime(master.gain.value, t);
-    master.gain.linearRampToValueAtTime(0.55 * quanto, t + 0.25);
-    master.gain.setValueAtTime(0.55 * quanto, t + Math.max(0.3, segundos - 0.4));
-    master.gain.linearRampToValueAtTime(0.55, t + Math.max(0.6, segundos));
+    master.gain.linearRampToValueAtTime(VOLUME_MASTER * quanto, t + 0.25);
+    master.gain.setValueAtTime(VOLUME_MASTER * quanto, t + Math.max(0.3, segundos - 0.4));
+    master.gain.linearRampToValueAtTime(VOLUME_MASTER, t + Math.max(0.6, segundos));
   }
 }
 
