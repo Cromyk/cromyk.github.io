@@ -665,7 +665,10 @@ export class Animador {
 
     this.mixer?.update(dt);
 
-    if (!this.temRig) return;
+    if (!this.temRig) {
+      this.animarSemOsso(ctx);
+      return;
+    }
 
     this.oscilacao = 0;
     this.compressao = 0;
@@ -685,6 +688,66 @@ export class Animador {
       : this.clipes.has(this.base) || (this.base === 'parado' && this.clipes.size > 0);
     const peso = temClipe ? (this.gesto ? 0.35 : 0.22) : 1;
     this.rig.aplicar(peso);
+  }
+
+  /**
+   * OS QUARENTA E SEIS SEM ESQUELETO.
+   *
+   * ## O que o censo achou
+   *
+   * `node tools/diag-rig.mjs` abre os 151 (mais as cinco convidadas) e aplica
+   * a régua do `Rig`. O resultado: **110 animam pelos ossos e 46 não têm osso
+   * nenhum** — Snorlax, Lapras, Hitmonlee, Chansey, Magmar, Electabuzz,
+   * Kabutops, Tauros e mais três dezenas chegam do Pokemon-3D-api como malha
+   * ESTÁTICA, sem `skin` e sem nó de junta. Não é o `Rig` que não reconhece: o
+   * arquivo não tem o que reconhecer, e nenhuma linha de código conserta isso.
+   *
+   * ## O que dava para fazer, e não estava sendo feito
+   *
+   * Até agora esses 46 saíam daqui por um `return` seco, e com ele iam embora
+   * `oscilacao` e `compressao` — o pulo do passo e o afundar no contato. Sobrava
+   * só a respiração do corpo (que é de src/creature.ts e vale para todos), o
+   * que quer dizer que um Snorlax atravessava o quarto DESLIZANDO: a posição
+   * mudava e o corpo não se mexia nem um milímetro.
+   *
+   * O corpo inteiro não substitui um esqueleto, mas responde pelas duas coisas
+   * que mais denunciam o deslize: subir a cada passo e afundar quando o pé
+   * chega. É a animação de boneco de mola, e ela é muito melhor que nenhuma —
+   * quem não tem perna para dobrar tem corpo para saltitar.
+   *
+   * A amplitude é MAIOR que a dos que têm osso, de propósito: num rigado o
+   * pulo é um detalhe somado às pernas, e aqui ele é a passada inteira.
+   */
+  private animarSemOsso(ctx: Contexto) {
+    this.oscilacao = 0;
+    this.compressao = 0;
+
+    const pAndar = this.pesos.andando;
+    const pCorrer = this.pesos.correndo;
+    const pPassada = pAndar + pCorrer;
+    if (pPassada > 0.01) {
+      const f = this.fase;
+      // Sobe duas vezes por ciclo — uma por pé, mesmo sem pé.
+      this.oscilacao += Math.abs(Math.sin(f)) * (0.035 + pCorrer * 0.03) * pPassada;
+      // E afunda no contato, que é onde `Math.abs(sin)` é zero.
+      const contato = 1 - Math.abs(Math.sin(f));
+      this.compressao += contato * contato * (pAndar * 0.55 + pCorrer * 1);
+    }
+
+    // Parado, um sobe-e-desce lento: é o mesmo ritmo da respiração de
+    // src/creature.ts, e somado a ela dá um corpo que infla E se levanta um
+    // pouco, em vez de só engordar no lugar.
+    const pParado = this.pesos.parado;
+    if (pParado > 0.01) {
+      const ritmo = 1.5 + ctx.alarme * 2.2 + (1 - ctx.vida) * 1.4;
+      this.oscilacao += (Math.sin(this.tempo * ritmo) * 0.5 + 0.5) * 0.008 * pParado;
+    }
+
+    // Desmaiado, o corpo assenta no chão. Sem osso não há cabeça para pender,
+    // então o que sobra é afundar — e é o bastante para se ler como caído.
+    if (this.pesos.desmaiado > 0.01) {
+      this.compressao += this.pesos.desmaiado * 1.6;
+    }
   }
 
   /**

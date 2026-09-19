@@ -1002,6 +1002,33 @@ Duas armadilhas dos arquivos, resolvidas no código e não à mão:
   só o **primeiro quadro** do clipe é tomado emprestado como pose de descanso, e
   o golpe volta a ser golpe.
 
+### Quarenta e seis não têm osso nenhum
+
+`npm run rig-censo` abre os 156 arquivos e aplica a mesma régua do `Rig` — lida
+de src/rig.ts, para não envelhecer no dia em que alguém somar um papel. A conta:
+
+| | |
+|---|---|
+| animam pelos ossos | 110 / 156 |
+| com braço | 92 / 156 |
+| com dedo | 60 / 156 |
+| com mandíbula | 56 / 156 |
+| com apêndice (asa, barbatana, bigode) | 79 / 156 |
+
+Os **46 que faltam** — Snorlax, Lapras, Hitmonlee, Chansey, Magmar, Electabuzz,
+Kabutops, Tauros e mais três dezenas — chegam do Pokemon-3D-api como malha
+**estática**: sem `skin`, sem nó de junta. Não é o `Rig` que não reconhece; o
+arquivo não tem o que reconhecer, e nenhuma linha de código conserta isso.
+
+O que dava para consertar era o outro lado. Eles saíam do `Animador` por um
+`return` seco, e com ele iam embora o pulo do passo e o afundar do contato:
+sobrava só a respiração do corpo, o que quer dizer que um Snorlax atravessava o
+quarto **deslizando**, com a posição mudando e o corpo absolutamente parado.
+Agora o corpo inteiro responde pelas duas coisas que mais denunciam o deslize —
+sobe a cada passo e afunda quando o pé chega —, com amplitude maior que a de
+quem tem osso, porque ali o pulo é um detalhe somado às pernas e aqui ele é a
+passada inteira.
+
 A folha de poses acima sai de `npm run poses`, e ela usa o `Rig` e o `Animador`
 de verdade — não uma reimplementação. Se a imagem sair errada, é o jogo que está
 errado. As duas colunas de "andando" têm de mostrar as pernas trocadas.
@@ -1100,6 +1127,7 @@ tools/
   golpes.mjs     baixa os golpes da PokeAPI e gera src/golpes.gen.ts
   paineis.ts     folha de contato dos painéis, rasterizada (npm run paineis)
   pasto.ts       folha do rancho em quatro vistas; falha se sobrar buraco (npm run pasto)
+  diag-rig.mjs   o censo do esqueleto: osso, braço, dedo e apêndice dos 156
   encaixe.mjs    confere que todo mundo encaixa no chão (npm run encaixe)
   smoke.ts       simula o jogo sem navegador (npm test)
   draco.mjs      copia o decodificador Draco do three para public/
@@ -1121,6 +1149,7 @@ npm run narracao   # grava a voz da Pokédex (só o que estiver faltando)
 npm run gritos     # baixa os gritos oficiais (--legacy para os de 8 bits)
 npm run paineis    # folha de contato dos painéis, para conferir a interface
 npm run pasto      # folha do rancho: quatro vistas, e o teste de "tapou o quarto?"
+npm run rig-censo  # quem dos 156 tem osso, braço, dedo e apêndice
 npm run golpes     # regenera os golpes e as tabelas de aprendizado
 npm run encaixe    # confere o encaixe de todos no chão
 npm run build      # typecheck + bundle em dist/

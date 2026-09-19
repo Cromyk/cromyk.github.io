@@ -6651,5 +6651,80 @@ console.log('\n67. o rancho nasce onde você está, e o bando cabe nele');
   );
 }
 
+// ---------------------------------------------------------------------------
+// --- 68. quem não tem osso também se mexe ---
+//
+// `node tools/diag-rig.mjs` abriu os 156 arquivos e contou: 110 têm esqueleto e
+// 46 NÃO TÊM NENHUM — Snorlax, Lapras, Hitmonlee, Chansey, Magmar, Kabutops…
+// chegam do Pokemon-3D-api como malha estática, sem `skin` e sem junta. Não é o
+// `Rig` que não reconhece; o arquivo não tem o que reconhecer.
+//
+// O que dava para consertar era o outro lado: esses 46 saíam do `Animador` por
+// um `return` seco, e com ele iam embora o pulo do passo e o afundar do
+// contato. Eles atravessavam o quarto DESLIZANDO, com o corpo absolutamente
+// parado. Ver `animarSemOsso`.
+console.log('\n68. quem não tem osso também se mexe');
+{
+  // Um corpo sem osso nenhum: é exatamente o que os 46 são.
+  const especie = porId('snorlax')!;
+  const corpo = corpoFalso(especie.altura);
+  const animador = new Animador(corpo);
+  checar(!animador.temRig, 'o corpo sem osso foi reconhecido como rigado');
+
+  const ctx = (velocidade: number) => ({
+    velocidade,
+    alarme: 0,
+    vida: 1,
+    encarar: null,
+    desmaiado: false,
+  });
+
+  // PARADO: o corpo respira, de leve. Amplitude pequena de propósito — é
+  // respiração, não trampolim.
+  let menor = Infinity;
+  let maior = -Infinity;
+  for (let i = 0; i < 400; i++) {
+    animador.atualizar(1 / 72, ctx(0));
+    menor = Math.min(menor, animador.oscilacao);
+    maior = Math.max(maior, animador.oscilacao);
+  }
+  const parado = maior - menor;
+  checar(parado > 0.002, `parado, o corpo sem osso não se mexeu (${parado.toFixed(4)})`);
+  checar(parado < 0.02, `parado, o corpo sem osso pula demais (${parado.toFixed(4)})`);
+
+  // ANDANDO: o pulo do passo aparece, e a compressão acompanha em oposição —
+  // o corpo está no alto quando NÃO está afundando.
+  let altoAndando = 0;
+  let compressaoMax = 0;
+  let opostos = 0;
+  let quadros = 0;
+  for (let i = 0; i < 400; i++) {
+    animador.atualizar(1 / 72, ctx(0.9));
+    if (i < 100) continue;
+    altoAndando = Math.max(altoAndando, animador.oscilacao);
+    compressaoMax = Math.max(compressaoMax, animador.compressao);
+    // No pico do pulo a compressão tem de estar perto de zero, e vice-versa.
+    if (animador.oscilacao > 0.025 && animador.compressao < 0.15) opostos++;
+    quadros++;
+  }
+  checar(altoAndando > 0.02, `andando, o corpo não subiu (${altoAndando.toFixed(3)})`);
+  checar(compressaoMax > 0.3, `andando, o corpo não afundou (${compressaoMax.toFixed(2)})`);
+  checar(
+    opostos > quadros * 0.1,
+    `o pulo e o afundar andam juntos em vez de alternados (${opostos}/${quadros})`,
+  );
+
+  // E a passada mexe MAIS que o ócio: quem anda salta, quem espera respira.
+  checar(
+    altoAndando > parado * 2,
+    `andar (${altoAndando.toFixed(3)}) não se distingue de ficar parado (${parado.toFixed(3)})`,
+  );
+
+  console.log(
+    `   sem osso: parado varia ${(parado * 100).toFixed(1)}% da altura · andando sobe ` +
+      `${(altoAndando * 100).toFixed(1)}% e afunda até ${compressaoMax.toFixed(2)}`,
+  );
+}
+
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);
