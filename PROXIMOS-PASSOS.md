@@ -424,7 +424,7 @@ menos a mão fecha.
 - **Como saber que funcionou:** gire o pulso com a bola na mão. A faixa
   acompanha, e os dedos tocam a superfície em vez de atravessá-la.
 
-### 4.3 O punho fechado da mão nua decide rápido demais
+### 4.3 ✅ O punho fechado da mão nua decide rápido demais (feito em 19/09)
 
 `lerPunhoFechado` decide com um limiar único e cada borda dispara a cascata
 inteira do GRIP. Falta um **latch**: guardar o estado candidato e confirmar uns
@@ -434,9 +434,31 @@ E a régua tem um caminho alternativo que muda o significado do limiar conforme 
 runtime entregue o metacarpo ou a falange, o que quer dizer que o mesmo gesto
 tem sensibilidades diferentes em dois headsets.
 
-- **Esforço:** médio. É o coração do modo de mão nua.
+**Feito** — e eram TRÊS defeitos, não um. O pior deles era o que a nota
+chamava de detalhe.
+
+**A régua trocava de escala.** A medida comparava a distância da ponta ao punho
+com a distância do punho ao metacarpo do dedo médio, e caía na falange proximal
+quando o metacarpo faltava. As duas estão a uns 3 e uns 9 cm do punho: trocar
+uma pela outra multiplica a régua por três, e **com o plano B ligado qualquer
+mão contava como fechada**. O mesmo jogo, em dois headsets, com sensibilidades
+incomparáveis e nada que denunciasse.
+
+Agora é `razaoDoPunho`: a distância em linha reta da ponta ao punho dividida
+pelo comprimento da cadeia esticada. Adimensional, e faltando uma junta o
+número quase não se move — o teste afirma isso nas três poses.
+
+**Histerese**, dois limiares (0,62 e 0,72) em vez de um: com um só, a mão parada
+na fronteira alterna entre pegar e soltar a cada quadro de ruído.
+
+**Latch assimétrico**, e a assimetria é o ponto: fechar confirma em 90 ms (você
+está levando a mão até a coisa, e o atraso some no movimento), abrir em 45. Soltar
+a mão é o gesto do ARREMESSO e a velocidade da bola sai da janela dos últimos 90
+ms do braço — atrasar o "abriu" faria a bola sair depois do movimento, com a
+força de quem já estava parando.
+
 - **Como saber que funcionou:** de mão nua, fechar o punho devagar pega a bola
-  uma vez, e não três.
+  uma vez, e não três. E o arremesso continua saindo com a força do braço.
 
 ### 4.4 Histerese na escolha do slot do cinto
 

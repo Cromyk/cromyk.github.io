@@ -7,6 +7,14 @@ import {
   PULSO_DE_TOQUE_MS,
   pulsoDeToque,
 } from './toque';
+import {
+  CADEIA_DO_MEDIO,
+  LATCH_ABRIR_MS,
+  LATCH_FECHAR_MS,
+  PUNHO_ABRE,
+  PUNHO_FECHA,
+  razaoDoPunho,
+} from './pulso';
 
 interface Amostra {
   posicao: THREE.Vector3;
@@ -82,6 +90,11 @@ export class Mao {
   private bordas: boolean[] = [];
   /** Punho fechado na mão rastreada, para fazer as vezes do GRIP. */
   private punhoFechado = false;
+  /** O estado que está tentando valer, e desde quando. Ver `lerPunhoFechado`. */
+  private candidatoDoPunho: boolean | null = null;
+  private candidatoDesde = 0;
+  /** Os pontos das juntas do dedo médio, reaproveitados por quadro. */
+  private cadeia: THREE.Vector3[] = CADEIA_DO_MEDIO.map(() => new THREE.Vector3());
   /** A força de toque escrita neste quadro. Ver `rocar`. */
   private toque = 0;
   /** Quando o próximo pulso de textura pode sair, em ms de `performance.now`. */
@@ -111,6 +124,7 @@ export class Mao {
       // está fechada: a borda de `lerPunhoFechado` nunca vem, e aquela mão
       // passa o resto da sessão sem conseguir agarrar nada.
       this.punhoFechado = false;
+      this.candidatoDoPunho = null;
     });
   }
 
@@ -275,19 +289,42 @@ export class Mao {
   lerPunhoFechado(): 'fechou' | 'abriu' | null {
     const juntas = (this.rastreada as unknown as { joints?: Record<string, THREE.Object3D> }).joints;
     if (!juntas) return null;
-    const palma = juntas['wrist'];
-    const ponta = juntas['middle-finger-tip'];
-    const base = juntas['middle-finger-metacarpal'] ?? juntas['middle-finger-phalanx-proximal'];
-    if (!palma || !ponta || !base) return null;
 
-    // Comparar com o tamanho da própria mão, e não com uma distância fixa em
-    // centímetros, é o que faz isto valer para a mão de uma criança e para a de
-    // um adulto sem calibração nenhuma.
-    const alcance = palma.position.distanceTo(base.position) + 0.001;
-    const fechado = ponta.position.distanceTo(palma.position) < alcance * 1.9;
-    if (fechado === this.punhoFechado) return null;
-    this.punhoFechado = fechado;
-    return fechado ? 'fechou' : 'abriu';
+    // A cadeia inteira do dedo médio, e não duas pontas: ver `razaoDoPunho`.
+    // Faltando alguma junta, o que sobra ainda serve — o que não servia era a
+    // régua antiga, que trocava de escala conforme a junta que faltasse.
+    let quantas = 0;
+    for (const nome of CADEIA_DO_MEDIO) {
+      const junta = juntas[nome];
+      if (!junta) continue;
+      junta.getWorldPosition(this.cadeia[quantas]);
+      quantas++;
+    }
+    const razao = razaoDoPunho(this.cadeia.slice(0, quantas));
+    if (razao === null) return null;
+
+    // Histerese: entre os dois limiares nada muda, e é isso que impede a mão
+    // parada na fronteira de alternar a cada quadro de ruído.
+    const querido = razao < PUNHO_FECHA ? true : razao > PUNHO_ABRE ? false : this.punhoFechado;
+    if (querido === this.punhoFechado) {
+      this.candidatoDoPunho = null;
+      return null;
+    }
+
+    // E o latch: o estado novo precisa se MANTER para valer. Assimétrico de
+    // propósito — ver LATCH_ABRIR_MS.
+    const agora = performance.now();
+    if (this.candidatoDoPunho !== querido) {
+      this.candidatoDoPunho = querido;
+      this.candidatoDesde = agora;
+      return null;
+    }
+    const espera = querido ? LATCH_FECHAR_MS : LATCH_ABRIR_MS;
+    if (agora - this.candidatoDesde < espera) return null;
+
+    this.punhoFechado = querido;
+    this.candidatoDoPunho = null;
+    return querido ? 'fechou' : 'abriu';
   }
 
   /** Posição do punho no mundo. */

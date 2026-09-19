@@ -115,3 +115,86 @@ export const JUNTAS_DO_PULSO = [
   'index-finger-metacarpal',
   'pinky-finger-metacarpal',
 ] as const;
+
+// ----------------------------------------------------------- o punho fechado
+
+/**
+ * As juntas do dedo médio, do punho à ponta.
+ *
+ * É a cadeia inteira, e não só duas pontas: ver `razaoDoPunho`.
+ */
+export const CADEIA_DO_MEDIO = [
+  'wrist',
+  'middle-finger-metacarpal',
+  'middle-finger-phalanx-proximal',
+  'middle-finger-phalanx-intermediate',
+  'middle-finger-phalanx-distal',
+  'middle-finger-tip',
+] as const;
+
+/**
+ * Quão esticado o dedo médio está, de 0 a 1.
+ *
+ * ## A régua que estava errada
+ *
+ * A medida antiga comparava a distância da ponta ao punho com a distância do
+ * punho ao METACARPO do dedo médio, vezes 1,9. E o metacarpo tinha um plano B:
+ * se o runtime não o entregasse, valia a falange proximal.
+ *
+ * Só que essas duas juntas estão a distâncias MUITO diferentes do punho — uns
+ * três centímetros contra uns nove. Trocar uma pela outra multiplica a régua
+ * por três, e o mesmo gesto passa a significar coisas opostas: com o plano B
+ * ligado, qualquer mão conta como fechada. O mesmo jogo, em dois headsets, com
+ * sensibilidades incomparáveis — e sem nada que denunciasse isso.
+ *
+ * ## A régua nova
+ *
+ * A distância em LINHA RETA da ponta ao punho, dividida pelo comprimento da
+ * cadeia esticada (a soma dos ossos). Um dedo esticado dá quase 1; um dedo
+ * enrolado na palma dá perto de 0,45, porque a linha reta encurta enquanto a
+ * soma dos ossos não muda.
+ *
+ * Isso é adimensional e não depende de qual junta existe: some uma e a soma
+ * cai junto com a linha reta, o que muda o número muito menos do que trocar a
+ * régua inteira. E continua valendo para a mão de uma criança e para a de um
+ * adulto sem calibração, que era a boa intenção da medida antiga.
+ */
+export function razaoDoPunho(pontos: readonly THREE.Vector3[]): number | null {
+  if (pontos.length < 3) return null;
+  let cadeia = 0;
+  for (let i = 1; i < pontos.length; i++) cadeia += pontos[i].distanceTo(pontos[i - 1]);
+  if (cadeia < 1e-6) return null;
+  const reta = pontos[pontos.length - 1].distanceTo(pontos[0]);
+  return reta / cadeia;
+}
+
+/**
+ * Onde a mão passa a contar como fechada, e onde ela volta a contar como
+ * aberta.
+ *
+ * DOIS números, e não um: com um limiar só, uma mão parada na fronteira
+ * alterna entre pegar e soltar a cada quadro de ruído do rastreamento. A faixa
+ * entre eles é a zona em que nada muda — o estado anterior continua valendo.
+ */
+export const PUNHO_FECHA = 0.62;
+export const PUNHO_ABRE = 0.72;
+
+/**
+ * Quanto tempo o estado novo precisa se manter para valer, em milissegundos.
+ *
+ * ## Por que confirmar, e por que ASSIMÉTRICO
+ *
+ * Cada borda dispara a cascata inteira do GRIP — pegar a bola, abraçar,
+ * recolher do chão. Um tremor de dois quadros no rastreamento vira pegar e
+ * soltar, e o que se vê é a bola pulando da mão.
+ *
+ * Fechar pode esperar quase um décimo de segundo: você está levando a mão até a
+ * coisa, e o atraso some dentro do movimento.
+ *
+ * ABRIR não pode. Soltar a mão é o gesto do ARREMESSO, e a velocidade da bola é
+ * medida na janela dos últimos 90 ms do braço — atrasar o "abriu" em 120 ms faz
+ * a bola sair depois do movimento ter acabado, com a força de quem já estava
+ * parando. É a diferença entre arremessar e deixar cair.
+ */
+export const LATCH_FECHAR_MS = 90;
+export const LATCH_ABRIR_MS = 45;

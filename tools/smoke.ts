@@ -79,7 +79,14 @@ import {
 } from '../src/colo';
 import { Tablet, ALCANCE_TABLET } from '../src/tablet';
 import { FOGO_POR_ESPECIE, temFogo } from '../src/fogo';
-import { poseDoPulso } from '../src/pulso';
+import {
+  LATCH_ABRIR_MS,
+  LATCH_FECHAR_MS,
+  PUNHO_ABRE,
+  PUNHO_FECHA,
+  poseDoPulso,
+  razaoDoPunho,
+} from '../src/pulso';
 import { Fotografo, LADO_DA_FOTO, MAX_FOTOS, nomeDaFoto } from '../src/foto';
 import { olhandoORelogio } from '../src/gesto';
 import { forcaDeToque, pulsoDeToque } from '../src/toque';
@@ -3896,6 +3903,91 @@ console.log('\n42. a pokébola na mão');
   console.log(
     `   bola na mão: centro a ${(centro * 100).toFixed(1)} cm do punho (raio ${(RAIO_DA_BOLA * 100).toFixed(1)}), ` +
       `dedos a ${(fechamentos.bola * 100).toFixed(0)}% do fecho`,
+  );
+}
+
+
+// --- 43. o punho fechado da mão nua ---
+//
+// Sem controle, fechar o punho faz as vezes do GRIP — e cada borda dispara a
+// cascata inteira: pegar a bola, abraçar, catar do chão. Três coisas estavam
+// erradas ao mesmo tempo, e as três são silenciosas.
+console.log('\n43. o punho fechado da mão nua');
+{
+  /** A cadeia do dedo médio numa pose dada, do punho à ponta. */
+  const dedo = (curvatura: number) => {
+    // Cinco ossos de comprimentos plausíveis, dobrando progressivamente: é
+    // assim que um dedo fecha — a falange de fora dobra mais que a de dentro.
+    const ossos = [0.03, 0.05, 0.03, 0.02];
+    const pontos = [new THREE.Vector3(0, 0, 0)];
+    let angulo = 0;
+    for (let i = 0; i < ossos.length; i++) {
+      angulo += curvatura * (0.4 + i * 0.35);
+      const anterior = pontos[pontos.length - 1];
+      pontos.push(
+        new THREE.Vector3(
+          anterior.x,
+          anterior.y + Math.cos(angulo) * ossos[i],
+          anterior.z - Math.sin(angulo) * ossos[i],
+        ),
+      );
+    }
+    return pontos;
+  };
+
+  const aberta = razaoDoPunho(dedo(0))!;
+  const fechada = razaoDoPunho(dedo(1.15))!;
+
+  checar(aberta > PUNHO_ABRE, `a mão ABERTA deu razão ${aberta.toFixed(2)}, abaixo do limiar de abrir`);
+  checar(fechada < PUNHO_FECHA, `o punho FECHADO deu razão ${fechada.toFixed(2)}, acima do limiar de fechar`);
+
+  // A razão cai monotonicamente conforme o dedo enrola: se ela subisse em
+  // algum ponto, haveria uma curvatura em que fechar mais abriria a mão.
+  let anterior = Infinity;
+  for (let c = 0; c <= 1.2; c += 0.05) {
+    const r = razaoDoPunho(dedo(c))!;
+    checar(r <= anterior + 1e-9, `a razão SUBIU ao fechar mais o dedo, em curvatura ${c.toFixed(2)}`);
+    anterior = r;
+  }
+
+  // A HISTERESE existe e é folgada o bastante para o ruído do rastreamento.
+  checar(PUNHO_ABRE > PUNHO_FECHA, 'os dois limiares estão invertidos');
+  checar(
+    PUNHO_ABRE - PUNHO_FECHA >= 0.08,
+    `a faixa morta tem ${(PUNHO_ABRE - PUNHO_FECHA).toFixed(2)}, estreita demais para o tremor da mão`,
+  );
+
+  // A régua NÃO depende de qual junta o runtime entrega. Era o pior dos três
+  // defeitos: a medida antiga usava o metacarpo e caía na falange proximal
+  // quando ele faltava — e as duas estão a distâncias três vezes diferentes do
+  // punho, o que fazia o mesmo gesto significar coisas opostas em dois
+  // headsets. Aqui, tirar uma junta do meio quase não move o número.
+  for (const curvatura of [0, 0.6, 1.15]) {
+    const todas = razaoDoPunho(dedo(curvatura))!;
+    const semUma = razaoDoPunho(dedo(curvatura).filter((_, i) => i !== 2))!;
+    checar(
+      Math.abs(todas - semUma) < 0.12,
+      `faltando uma junta a razão muda de ${todas.toFixed(2)} para ${semUma.toFixed(2)} — a régua trocou de escala`,
+    );
+  }
+
+  // O LATCH é assimétrico, e a ordem importa: fechar pode esperar, ABRIR não.
+  // Soltar a mão é o gesto do arremesso, e a velocidade da bola sai da janela
+  // dos últimos 90 ms do braço — atrasar o "abriu" faz a bola sair depois do
+  // movimento, com a força de quem já estava parando.
+  checar(LATCH_ABRIR_MS < LATCH_FECHAR_MS, 'abrir a mão demora mais que fechar — o arremesso sai fraco');
+  checar(LATCH_ABRIR_MS < 90, `abrir espera ${LATCH_ABRIR_MS} ms, o tamanho da janela do arremesso`);
+  checar(LATCH_FECHAR_MS >= 60, `fechar confirma em ${LATCH_FECHAR_MS} ms, que é menos que dois quadros de tremor`);
+
+  checar(razaoDoPunho([new THREE.Vector3()]) === null, 'uma cadeia de um ponto devolveu razão');
+  checar(
+    razaoDoPunho([new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]) === null,
+    'uma cadeia de comprimento zero devolveu razão em vez de null',
+  );
+
+  console.log(
+    `   punho: aberta ${aberta.toFixed(2)} · fechada ${fechada.toFixed(2)} · ` +
+      `faixa morta ${PUNHO_FECHA}–${PUNHO_ABRE} · latch ${LATCH_FECHAR_MS}/${LATCH_ABRIR_MS} ms`,
   );
 }
 
