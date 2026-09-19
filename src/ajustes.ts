@@ -90,9 +90,9 @@ export const INTERRUPTORES: readonly Interruptor[] = [
   },
   {
     id: 'vozDoNome',
-    nome: 'Ele fala o nome',
-    ligadoDiz: 'Char! Charmander!',
-    desligadoDiz: 'o grito dos jogos',
+    nome: 'Ele diz o nome ao se apresentar',
+    ligadoDiz: 'na captura, na evolução e na escolha',
+    desligadoDiz: 'só o grito dos jogos, sempre',
   },
   {
     id: 'musicaDeBatalha',

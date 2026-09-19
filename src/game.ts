@@ -532,7 +532,9 @@ export class Jogo {
     const onde = new THREE.Vector3(0, this.sala.pisoY, -1.4);
     const bicho = this.porEmCampo(especie, corpo, exemplar, onde, this.sala.pisoY);
     bicho.raiz.rotation.y = Math.PI;
-    audio.grito(especie.id, exemplar.shiny, especie.num);
+    // `apresentar`: é o primeiro Pokémon que você vê no jogo inteiro, e a
+    // vitrine existe para você conhecê-lo pelo nome. Ver `Audio.apresentar`.
+    audio.apresentar(especie.id, exemplar.shiny, especie.num);
   }
 
   // ------------------------------------------------------------ tamanho
@@ -976,7 +978,7 @@ export class Jogo {
     mao.limparAmostras();
     mao.sentir('acertou');
     audio.carinho();
-    audio.grito(c.especie.id, c.shiny, c.especie.num);
+    this.vozDoBicho(c);
     this.avisarColo(c, 1);
     return true;
   }
@@ -1112,7 +1114,7 @@ export class Jogo {
     mao.sentir('acertou');
     outra!.sentir('acertou');
     audio.carinho();
-    audio.grito(c.especie.id, c.shiny, c.especie.num);
+    this.vozDoBicho(c);
     this.avisarColo(c, 2);
     return true;
   }
@@ -1189,6 +1191,30 @@ export class Jogo {
    * leitura honesta do que aconteceu, e é reversível — a bola volta à cinta
    * sem ser gasta, exatamente como quando você desiste no painel.
    */
+  /**
+   * A voz dele, vindo de ONDE ELE ESTÁ.
+   *
+   * O desvio posicional existe desde sempre (`audio.de`), e o cabeçalho de
+   * src/audio.ts diz por que: *"num jogo onde o bicho está atrás do sofá à sua
+   * esquerda, o grito dele vindo de lugar nenhum desperdiça a única pista que a
+   * realidade misturada dá de graça"*.
+   *
+   * E era exatamente o que acontecia com a voz. Dezoito pontos do jogo pedem o
+   * grito; **um** deles passava pelo desvio. Nos outros dezessete o bicho
+   * gritava do meio da sua cabeça: atacando, apanhando, recebendo carinho,
+   * saindo da bola. O som mais importante do jogo era o único que não sabia
+   * onde estava.
+   *
+   * Pelo CENTRO do corpo e não pela raiz: a raiz é o chão sob os pés, e um
+   * Onix de oito metros gritando pelos pés soa vindo de baixo.
+   */
+  private vozDoBicho(bicho: Pokemon, forcar = false) {
+    const onde = bicho.centro;
+    audio.de(onde.x, onde.y, onde.z, () =>
+      audio.grito(bicho.especie.id, bicho.shiny, bicho.especie.num, forcar),
+    );
+  }
+
   private atualizarMaosPerdidas() {
     for (const mao of this.maos) {
       if (mao.conectada) continue;
@@ -2069,7 +2095,7 @@ export class Jogo {
     }
 
     audio.chamado();
-    audio.grito(alvo.especie.id, alvo.shiny, alvo.especie.num);
+    this.vozDoBicho(alvo);
     mao.sentir('acertou');
 
     const brilho = new Impacto(alvo.centro, tipo.cor);
@@ -2552,7 +2578,8 @@ export class Jogo {
     }
 
     if (!temNarracao(especie.id)) {
-      audio.grito(especie.id, false, especie.num);
+      // Sem ficha gravada, o que a Pokédex tem para dizer é o nome dele.
+      audio.apresentar(especie.id, false, especie.num);
       this.aviso.mostrar(
         [
           { texto: especie.nome, tamanho: 40, cor: corHexDe(especie) },
@@ -3147,7 +3174,7 @@ export class Jogo {
     this.efeitos.push(efeito);
     this.talvezAssinatura(companheiro, golpe, ponto);
     audio.golpe(golpe.tipo);
-    audio.grito(companheiro.especie.id, companheiro.shiny, companheiro.especie.num);
+    this.vozDoBicho(companheiro);
 
     window.setTimeout(() => {
       const impacto = new Impacto(ponto, TIPOS[golpe.tipo].cor);
@@ -3182,7 +3209,7 @@ export class Jogo {
     const boca = atacante.boca;
     audio.de(boca.x, boca.y, boca.z, () => {
       audio.golpe(golpe.tipo);
-      audio.grito(atacante.especie.id, atacante.shiny, atacante.especie.num);
+      this.vozDoBicho(atacante);
     });
 
     // O dano cai junto com o impacto do efeito, não no instante do comando.
@@ -3321,7 +3348,7 @@ export class Jogo {
 
     if (defensor.desmaiado) {
       audio.desmaiou();
-      audio.grito(defensor.especie.id, defensor.shiny, defensor.especie.num);
+      this.vozDoBicho(defensor);
       if (defensor.papel === 'selvagem') {
         // Derrubar rende experiência, mas menos do que capturar.
         this.premiarXp(defensor, false);
@@ -3741,9 +3768,10 @@ export class Jogo {
     this.evolucaoEmCurso = null;
     this.companheiro?.comemorar();
     audio.sucesso();
-    // `forcar`: a primeira voz da forma nova. Este grito É a evolução — engoli-lo
-    // por causa do intervalo tiraria o som do único quadro que o justifica.
-    audio.grito(curso.para.id, curso.exemplar.shiny, curso.para.num, true);
+    // A primeira voz da forma NOVA, e é o nome dela que é a notícia: você
+    // acabou de ver um bicho virar outro, e ouvir qual é fecha o momento.
+    // `apresentar` já força — ver `Audio.apresentar`.
+    audio.apresentar(curso.para.id, curso.exemplar.shiny, curso.para.num);
 
     this.aviso.mostrar(
       [
@@ -4494,7 +4522,7 @@ export class Jogo {
     this.recargaCarinho = 4;
     tocando.sentir('pegou');
     audio.carinho();
-    audio.grito(c.especie.id, c.shiny, c.especie.num);
+    this.vozDoBicho(c);
     c.curar(Math.max(1, Math.ceil(c.hpMax * 0.04)));
     if (this.exemplarEmCampo) {
       this.dex.definirHp(this.exemplarEmCampo, c.hp);
@@ -4645,7 +4673,7 @@ export class Jogo {
     this.impactos.push(brilho);
 
     mao.sentir('acertou');
-    audio.grito(c.especie.id, c.shiny, c.especie.num);
+    this.vozDoBicho(c);
     this.recolherCompanheiro();
   }
 
@@ -4684,7 +4712,7 @@ export class Jogo {
     c.chamarPara(this.posicaoJogador);
     c.acenar();
     audio.comando();
-    audio.grito(c.especie.id, c.shiny, c.especie.num);
+    this.vozDoBicho(c);
     mao.sentir('pegou');
     this.aviso.mostrar(
       [{ texto: `${c.especie.nome} está vindo`, tamanho: 34, cor: '#cfe6ff' }],
@@ -5852,8 +5880,9 @@ export class Jogo {
     // Uma captura ao lado dele aproxima os dois — menos que o carinho, e sem
     // pedir nada: é o afeto que nasce de fazer as coisas juntos.
     if (this.exemplarEmCampo) this.dex.ganharAfeto(this.exemplarEmCampo, AFETO.porVitoria);
-    // `forcar`: o bicho acabou de virar seu, e é ele quem assina o momento.
-    audio.grito(presa.especie.id, presa.shiny, presa.especie.num, true);
+    // O bicho acabou de virar seu, e é ele quem assina o momento — dizendo o
+    // nome, que é o que faz a captura parecer uma apresentação e não um placar.
+    audio.apresentar(presa.especie.id, presa.shiny, presa.especie.num);
 
     const primeiraVez = (this.dex.de(presa.especie.id)?.capturados ?? 0) === 1;
     const cheio = novo === null;
@@ -5976,9 +6005,11 @@ export class Jogo {
     const pokemon = this.porEmCampo(especie, corpo, exemplar, bola.posicao, piso);
     bola.soltar(pokemon);
     audio.invocar();
-    // A voz dele logo depois do clarao: e o quadro em que o bicho vira seu.
-    // `forcar`: a entrada em campo. Sem voz, o clarão fica mudo.
-    window.setTimeout(() => audio.grito(especie.id, exemplar.shiny, especie.num, true), 260);
+    // A voz dele logo depois do clarão: é o quadro em que o bicho vira seu.
+    // `forcar`: a entrada em campo. Sem voz, o clarão fica mudo. E ela vem do
+    // CORPO dele, que já está na cena — sair da bola no canto da sala e gritar
+    // do meio da sua cabeça desfaz o efeito inteiro.
+    window.setTimeout(() => this.vozDoBicho(pokemon, true), 260);
 
     this.aviso.mostrar(
       [
@@ -6276,7 +6307,7 @@ export class Jogo {
         const brilho = new Impacto(c.centro, TIPOS[c.especie.tipo].cor);
         this.cena.add(brilho.pontos);
         this.impactos.push(brilho);
-        audio.grito(c.especie.id, c.shiny, c.especie.num);
+        this.vozDoBicho(c);
         this.recolherCompanheiro();
         return;
       }
@@ -6298,11 +6329,7 @@ export class Jogo {
       case 'acenar':
         if (this.temCompanheiroEmCampo) {
           this.companheiro!.acenar();
-          audio.grito(
-            this.companheiro!.especie.id,
-            this.companheiro!.shiny,
-            this.companheiro!.especie.num,
-          );
+          this.vozDoBicho(this.companheiro!);
         }
         return;
 
@@ -6313,7 +6340,7 @@ export class Jogo {
         if (this.recargaCarinho <= 0) {
           this.recargaCarinho = 4;
           audio.carinho();
-          audio.grito(c.especie.id, c.shiny, c.especie.num);
+          this.vozDoBicho(c);
           c.curar(Math.max(1, Math.ceil(c.hpMax * 0.04)));
           const coracoes = new Impacto(c.pontoDaCabeca(), 0xff9ec4);
           this.cena.add(coracoes.pontos);

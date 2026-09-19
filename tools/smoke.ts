@@ -5264,5 +5264,89 @@ console.log('\n55. a mão que sumiu não leva nada junto');
     `   mão perdida: bola, item e Pokédex voltam · estoque ${antes} → ${antes} depois de sacar e devolver`,
   );
 }
+
+// --- 56. a voz dele é o grito dele ---
+//
+// Os 151 gritos oficiais dos jogos estão baixados em public/gritos desde
+// sempre — e nunca tocavam. A cadeia punha a fala do nome na frente, e o
+// ajuste que a liga vem ligado: o som que a pessoa reconhece como AQUELE
+// Pokémon ficava atrás de uma locutora lendo o nome em português com a
+// velocidade esticada.
+//
+// E a voz era o único som do jogo que não sabia onde estava: dezoito pontos
+// pedem o grito, UM passava pelo desvio posicional. Nos outros dezessete o
+// bicho gritava do meio da sua cabeça — atacando, apanhando, saindo da bola.
+console.log('\n56. a voz dele é o grito dele');
+{
+  const som = readFileSync('src/audio.ts', 'utf8');
+  const corpoDe = (nome: string, arquivo: string): string => {
+    const cabeca = arquivo.indexOf(nome);
+    if (cabeca < 0) return '';
+    const i = arquivo.indexOf('{', cabeca);
+    let nivel = 0;
+    for (let j = i; j < arquivo.length; j++) {
+      if (arquivo[j] === '{') nivel++;
+      else if (arquivo[j] === '}') {
+        nivel--;
+        if (nivel === 0) return arquivo.slice(i, j + 1);
+      }
+    }
+    return '';
+  };
+
+  // (1) O GRITO É O GRITO. Nada de fala na frente dele.
+  const grito = corpoDe('  grito(id: string', som);
+  checar(grito.length > 100, 'não achei grito() — o teste não vale nada');
+  checar(grito.includes('tocarGritoGravado'), 'o grito deixou de tocar o arquivo oficial');
+  checar(!grito.includes('tocarVozDoNome'), 'a fala do nome voltou para a frente do grito');
+  checar(!grito.includes('tocarDublagem'), 'a dublagem voltou para a frente do grito');
+
+  // (2) A FALA EXISTE, num lugar só, e cai no grito quando não há arquivo.
+  const apresentar = corpoDe('  apresentar(id: string', som);
+  checar(apresentar.length > 50, 'não existe apresentar() — a fala do nome sumiu do jogo');
+  checar(apresentar.includes('tocarVozDoNome'), 'apresentar não fala o nome');
+  checar(
+    apresentar.includes('this.grito('),
+    'sem TTS daquela espécie, a apresentação fica muda em vez de cair no grito',
+  );
+
+  // (3) TODA VOZ SAI PELA `saida`, que é o desvio posicional. Ligar no `master`
+  //     é o que fazia o bicho gritar do meio da cabeça.
+  for (const quem of ['tocarGritoGravado', 'tocarVozDoNome', 'tocarDublagem']) {
+    const corpo = corpoDe(`  private ${quem}(`, som);
+    checar(corpo.length > 100, `não achei ${quem}`);
+    checar(!/connect\(master\)/.test(corpo), `${quem} liga no master — o som sai do meio da cabeça`);
+    checar(/connect\(saida\)/.test(corpo), `${quem} não passa pelo desvio posicional`);
+  }
+
+  // (4) O grito não é idêntico toda vez: um arquivo sempre no mesmo tom soa
+  //     como botão apertado.
+  checar(
+    /playbackRate[\s\S]{0,80}respiro/.test(corpoDe('  private tocarGritoGravado(', som)),
+    'o grito voltou a tocar sempre no mesmo tom',
+  );
+
+  // (5) NO JOGO: os quatro momentos de apresentação, e nenhuma voz de bicho
+  //     fora do caminho posicional.
+  const jogo = readFileSync('src/game.ts', 'utf8');
+  checar(
+    (jogo.match(/audio\.apresentar\(/g) ?? []).length === 4,
+    `são ${(jogo.match(/audio\.apresentar\(/g) ?? []).length} apresentações, e os momentos são quatro`,
+  );
+  checar(jogo.includes('private vozDoBicho('), 'não existe o caminho posicional da voz');
+  // Nenhuma chamada crua de `audio.grito` com um corpo à mão: o padrão
+  // `X.especie.id, X.shiny, X.especie.num` é o que denuncia uma que escapou.
+  //
+  // Fora do próprio `vozDoBicho`, claro — é ele quem faz a chamada certa, e
+  // contá-la como erro seria o teste acusando a correção.
+  const semHelper = jogo.replace(corpoDe('  private vozDoBicho(', jogo), '');
+  const cruas = semHelper.match(/audio\.grito\((\w+)\.especie\.id, \1\.shiny/g) ?? [];
+  checar(
+    cruas.length === 0,
+    `${cruas.length} vozes de bicho ainda saem do meio da cabeça`,
+  );
+
+  console.log('   voz: o grito oficial na frente, a fala em quatro momentos, e tudo vindo de onde o bicho está');
+}
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

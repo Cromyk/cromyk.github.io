@@ -667,12 +667,41 @@ export class Audio {
       this.proximoGrito.set(id, agora + 7000 + Math.random() * 8000);
     }
 
-    // A dublagem vem antes de todas: onde ela existe, é a voz de verdade — o
-    // TTS e o grito dos jogos são as reservas de quem ainda não tem uma.
-    if (this.vozDoNome && this.tocarDublagem(id, agudo)) return;
-    if (num !== undefined && this.vozDoNome && this.tocarVozDoNome(num, agudo)) return;
+    // O GRITO OFICIAL, e nada na frente dele.
+    //
+    // Por um tempo a fala do nome vinha primeiro, e o efeito disso era que o
+    // grito dos jogos — que está baixado, são 151 arquivos da PokeAPI — nunca
+    // tocava. O som que a pessoa reconhece como AQUELE Pokémon estava no
+    // disco, atrás de uma locutora lendo o nome em português com a velocidade
+    // esticada. Ver `apresentar` para onde a fala foi parar.
     if (num !== undefined && this.tocarGritoGravado(num, agudo)) return;
     this.gritoSintetizado(id, agudo);
+  }
+
+  /**
+   * Ele se APRESENTA: diz o próprio nome.
+   *
+   * ## Por que isto é uma função separada do grito
+   *
+   * Porque são dois sons com dois trabalhos, e misturá-los estragava os dois.
+   *
+   * O **grito** é a voz do dia a dia: atacar, apanhar, receber carinho, sair
+   * da bola, aparecer atrás do sofá. Acontece dezesseis vezes por sessão e
+   * precisa ser reconhecível em meio segundo — é o som que diz *aquele ali é
+   * um Charmander* sem nenhuma palavra.
+   *
+   * A **fala do nome** é uma apresentação, e apresentação só faz sentido
+   * quando há o que apresentar: ele foi capturado, ele evoluiu, você acabou de
+   * escolher o seu primeiro. São quatro momentos na sessão inteira, e é aí que
+   * ouvir o nome vale — dito a cada carinho, ele vira um papagaio.
+   *
+   * A reserva é o próprio grito, forçado: um momento de apresentação não pode
+   * ficar mudo porque o TTS daquela espécie não foi gerado.
+   */
+  apresentar(id: string, agudo = false, num?: number) {
+    if (this.vozDoNome && this.tocarDublagem(id, agudo)) return;
+    if (num !== undefined && this.vozDoNome && this.tocarVozDoNome(num, agudo)) return;
+    this.grito(id, agudo, num, true);
   }
 
   /**
@@ -691,8 +720,10 @@ export class Audio {
    */
   private tocarVozDoNome(num: number, agudo: boolean): boolean {
     const ctx = this.ctx;
-    const master = this.master;
-    if (!ctx || !master) return false;
+    // Pela `saida`, como o grito: quem fala é o bicho que está ali, e não o
+    // jogo falando sobre ele.
+    const saida = this.saida;
+    if (!ctx || !saida) return false;
 
     const pronto = this.vozes.get(num);
     if (pronto === undefined) {
@@ -706,7 +737,7 @@ export class Audio {
     fonte.playbackRate.value = this.tomDe(num) * (agudo ? 1.1 : 1);
     const ganho = ctx.createGain();
     ganho.gain.value = 0.72;
-    fonte.connect(ganho).connect(master);
+    fonte.connect(ganho).connect(saida);
     fonte.start();
     return true;
   }
@@ -767,11 +798,30 @@ export class Audio {
     }
   }
 
-  /** Devolve false quando o arquivo ainda não chegou — aí o sintetizado entra. */
+  /**
+   * O grito oficial daquela espécie. Devolve false quando o arquivo ainda não
+   * chegou — aí o sintetizado entra.
+   *
+   * ## Duas coisas que o faziam soar a menos do que ele é
+   *
+   * **Ele saía do meio da cabeça.** Esta função ligava no `master`, e não na
+   * `saida` — o desvio posicional que existe justamente para o grito do bicho
+   * vir da direção dele (ver `de`). Em realidade misturada isso é a diferença
+   * entre um bicho atrás do sofá e um efeito de interface: o cabeçalho deste
+   * arquivo diz, por escrito, que o grito vindo de lugar nenhum desperdiça a
+   * única pista que a MR dá de graça, e era exatamente o que acontecia com a
+   * voz de verdade.
+   *
+   * **Ele era idêntico toda vez.** Um arquivo tocado sempre no mesmo tom soa
+   * como um botão sendo apertado; uma variação pequena a cada toque não muda
+   * a espécie e é o que separa uma voz de uma amostra. Dois e meio por cento
+   * é menos de meio semitom — o ouvido registra que não é igual sem conseguir
+   * dizer o que mudou.
+   */
   private tocarGritoGravado(num: number, agudo: boolean): boolean {
     const ctx = this.ctx;
-    const master = this.master;
-    if (!ctx || !master) return false;
+    const saida = this.saida;
+    if (!ctx || !saida) return false;
 
     const pronto = this.gritos.get(num);
     if (pronto === undefined) {
@@ -784,10 +834,11 @@ export class Audio {
     fonte.buffer = pronto;
     // Brilhante e Pikachu tocam um tom acima: é o mesmo truque do sintetizado,
     // e é o que faz um brilhante soar diferente sem um segundo arquivo.
-    fonte.playbackRate.value = agudo ? 1.14 : 1;
+    const respiro = 1 + (Math.random() - 0.5) * 0.05;
+    fonte.playbackRate.value = (agudo ? 1.14 : 1) * respiro;
     const ganho = ctx.createGain();
     ganho.gain.value = 0.55;
-    fonte.connect(ganho).connect(master);
+    fonte.connect(ganho).connect(saida);
     fonte.start();
     return true;
   }
@@ -1028,8 +1079,8 @@ export class Audio {
    */
   private tocarDublagem(id: string, agudo: boolean): boolean {
     const ctx = this.ctx;
-    const master = this.master;
-    if (!ctx || !master) return false;
+    const saida = this.saida;
+    if (!ctx || !saida) return false;
 
     const quantas = DUBLAGEM[id];
     if (!quantas) return false;
@@ -1051,7 +1102,7 @@ export class Audio {
     fonte.playbackRate.value = agudo ? 1.08 : 1;
     const volume = ctx.createGain();
     volume.gain.value = 0.9;
-    fonte.connect(volume).connect(master);
+    fonte.connect(volume).connect(saida);
     fonte.start();
     return true;
   }
