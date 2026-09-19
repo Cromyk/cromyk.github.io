@@ -45,6 +45,24 @@ const PRETO = 0x1a1a1e;
  */
 const GUARDADA = new THREE.Vector3(0, -0.16, 0.22);
 
+/**
+ * E onde ela fica para quem está SENTADO: um coldre no quadril.
+ *
+ * Levar a mão às costas é um gesto de quem está de pé. Numa poltrona, numa
+ * cadeira de escritório ou numa cadeira de rodas, as suas costas estão
+ * encostadas em alguma coisa — e o gesto deixa de ser desconfortável para ser
+ * impossível. A Pokédex é a única coisa do jogo guardada num lugar do corpo que
+ * o encosto tapa.
+ *
+ * Sentado, então, ela desce para o lado do quadril, do lado da mão que aponta:
+ * 24 cm para fora, 42 abaixo dos olhos, e um pouco à frente do plano do corpo.
+ * É a mesma distância de braço — o que muda é que ela deixa de estar atrás de
+ * você.
+ *
+ * O X é preenchido na hora, porque depende de qual mão é a dominante.
+ */
+const GUARDADA_SENTADO = new THREE.Vector3(0.24, -0.42, 0.06);
+
 /** Quão perto a mão precisa chegar das costas para agarrar. */
 export const ALCANCE_TABLET = 0.22;
 
@@ -110,6 +128,8 @@ export class Tablet {
   private posicaoGuardada = new THREE.Vector3();
   private giroGuardado = new THREE.Quaternion();
   private aux = new THREE.Vector3();
+  /** Onde ela fica guardada neste quadro: costas ou quadril. */
+  private ondeFica = new THREE.Vector3();
   private auxGiro = new THREE.Euler();
 
   constructor() {
@@ -232,7 +252,17 @@ export class Tablet {
     return this.caida;
   }
 
-  atualizar(dt: number, camera: THREE.Camera, punho: THREE.Object3D | null, apoio?: Apoio) {
+  atualizar(
+    dt: number,
+    camera: THREE.Camera,
+    punho: THREE.Object3D | null,
+    apoio?: Apoio,
+    /**
+     * Onde ela fica guardada: nas costas (de pé) ou no quadril (sentado). Ver
+     * `GUARDADA_SENTADO`, e o item 1.5 do roteiro.
+     */
+    sentado: { ligado: boolean; lado: 'left' | 'right' } | null = null,
+  ) {
     // O ponto das costas é recalculado SEMPRE, inclusive com ela na mão.
     //
     // Este bloco ficava depois do `return` de quem está segurando, e isso
@@ -244,7 +274,13 @@ export class Tablet {
     camera.getWorldPosition(this.aux);
     this.auxGiro.setFromQuaternion(camera.quaternion, 'YXZ');
     this.giroGuardado.setFromEuler(new THREE.Euler(0, this.auxGiro.y, 0, 'YXZ'));
-    this.posicaoGuardada.copy(GUARDADA).applyQuaternion(this.giroGuardado).add(this.aux);
+    if (sentado?.ligado) {
+      this.ondeFica.copy(GUARDADA_SENTADO);
+      this.ondeFica.x = Math.abs(this.ondeFica.x) * (sentado.lado === 'left' ? -1 : 1);
+    } else {
+      this.ondeFica.copy(GUARDADA);
+    }
+    this.posicaoGuardada.copy(this.ondeFica).applyQuaternion(this.giroGuardado).add(this.aux);
 
     if (this.naMaoDe !== null) {
       // Na mão quem manda é a mão: o grupo é filho do punho e não se move aqui.

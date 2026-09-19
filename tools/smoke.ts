@@ -58,7 +58,15 @@ import { MARCOS, faltamPara, marcoDe } from '../src/marcos';
 import { fatorDoHorario, habitoDe, noturnidade } from '../src/hora';
 import { Aviso } from '../src/hud';
 import { ITENS } from '../src/itens';
-import { ABAIXO_DOS_OLHOS, DISTANCIA_DA_MOCHILA, Mochila, disporGrade } from '../src/mochila';
+import {
+  ABAIXO_DOS_OLHOS,
+  DISTANCIA_DA_MOCHILA,
+  DISTANCIA_SENTADO,
+  Mochila,
+  QUEDA_MAXIMA,
+  alturaDaMochila,
+  disporGrade,
+} from '../src/mochila';
 import { MEDIDAS_TIME, disporTime } from '../src/menu';
 import { classificarPelaAltura } from '../src/room';
 import {
@@ -3362,6 +3370,109 @@ console.log('\n36. canhoto: o gesto do relógio espelhado');
   );
 
   console.log('   canhoto: a mesma pose, espelhada, abre o painel do outro pulso');
+}
+
+
+// --- 37. braço no ar cansa: a grade desce, e a Pokédex sai das costas ---
+//
+// O Modo sentado encolhia as distâncias do MUNDO — onde o companheiro para,
+// onde os selvagens nascem — e deixava os painéis exigindo o braço levantado na
+// mesma altura de quem joga de pé. Duas correções, e as duas se afirmam aqui.
+console.log('\n37. o alcance de quem está sentado');
+{
+  const OLHOS = 1.6;
+
+  // (1) A GRADE DA MOCHILA DESCE ATÉ A MÃO QUE A ABRIU — e nunca sobe.
+  const semMao = alturaDaMochila(OLHOS, null, false);
+  checar(
+    Math.abs(semMao - (OLHOS - ABAIXO_DOS_OLHOS)) < 1e-9,
+    'sem saber da mão, a grade saiu da altura de sempre',
+  );
+
+  const maoNoColo = alturaDaMochila(OLHOS, 0.95, false);
+  checar(
+    maoNoColo < semMao,
+    `a grade não desceu para quem abriu com a mão no colo (${maoNoColo.toFixed(2)} contra ${semMao.toFixed(2)})`,
+  );
+  checar(
+    maoNoColo >= 0.95 && maoNoColo <= 0.95 + 0.12,
+    `a grade parou em ${maoNoColo.toFixed(2)} com a mão em 0,95 — ela devia ficar logo acima da mão`,
+  );
+
+  // Mão levantada NÃO puxa a grade para cima: quem abre com o braço esticado
+  // receberia o painel na cara.
+  const maoAlta = alturaDaMochila(OLHOS, 1.55, false);
+  checar(
+    Math.abs(maoAlta - semMao) < 1e-9,
+    `a mão levantada subiu a grade para ${maoAlta.toFixed(2)} — ela nunca deve subir`,
+  );
+
+  // Braço pendurado ao lado do corpo não põe a grade no chão: ali a mão não
+  // está pedindo nada, está parada.
+  const pendurado = alturaDaMochila(OLHOS, 0.75, false);
+  checar(
+    pendurado >= semMao - QUEDA_MAXIMA - 1e-9,
+    `a grade caiu para ${pendurado.toFixed(2)}, além do limite de queda`,
+  );
+
+  // Sentado, ela nasce mais baixa e mais perto.
+  checar(
+    alturaDaMochila(OLHOS, null, true) < alturaDaMochila(OLHOS, null, false),
+    'o modo sentado não abaixou a grade',
+  );
+  checar(DISTANCIA_SENTADO < DISTANCIA_DA_MOCHILA, 'o modo sentado não aproximou a grade');
+
+  // E a ordem nunca inverte, para qualquer altura de mão: sentado é sempre
+  // igual ou mais baixo do que de pé.
+  for (let h = 0.6; h <= 1.7; h += 0.05) {
+    checar(
+      alturaDaMochila(OLHOS, h, true) <= alturaDaMochila(OLHOS, h, false) + 1e-9,
+      `com a mão em ${h.toFixed(2)}, sentado ficou MAIS ALTO do que de pé`,
+    );
+  }
+
+  // (2) A POKÉDEX SAI DAS COSTAS. Numa poltrona, levar a mão atrás do corpo não
+  // é desconfortável: é impossível, porque o encosto está ali.
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, OLHOS, 0);
+  camera.quaternion.identity();
+  camera.updateMatrixWorld(true);
+  const chao = { alturaEm: () => 0 };
+
+  const emPe = new Tablet();
+  emPe.atualizar(1 / 72, camera, null, chao, { ligado: false, lado: 'right' });
+  const pontoEmPe = emPe.pontoGuardado(new THREE.Vector3());
+
+  const sentado = new Tablet();
+  sentado.atualizar(1 / 72, camera, null, chao, { ligado: true, lado: 'right' });
+  const pontoSentado = sentado.pontoGuardado(new THREE.Vector3());
+
+  checar(
+    pontoSentado.y < pontoEmPe.y,
+    'sentado, a Pokédex não desceu',
+  );
+  checar(
+    pontoSentado.z < pontoEmPe.z,
+    `sentado, a Pokédex continua tão atrás quanto de pé (z ${pontoSentado.z.toFixed(2)} contra ${pontoEmPe.z.toFixed(2)}) — o encosto da cadeira está exatamente ali`,
+  );
+  checar(
+    Math.abs(pontoSentado.x) > 0.15,
+    'sentado, a Pokédex ficou na linha do meio do corpo em vez de ao lado do quadril',
+  );
+
+  // E ela espelha para o canhoto, senão ele teria de cruzar o braço.
+  const canhoto = new Tablet();
+  canhoto.atualizar(1 / 72, camera, null, chao, { ligado: true, lado: 'left' });
+  const pontoCanhoto = canhoto.pontoGuardado(new THREE.Vector3());
+  checar(
+    Math.sign(pontoCanhoto.x) === -Math.sign(pontoSentado.x),
+    'o coldre da Pokédex não espelha para o canhoto',
+  );
+
+  console.log(
+    `   sentado: grade a ${(semMao - alturaDaMochila(OLHOS, null, true)).toFixed(2)} m mais baixa, ` +
+      `Pokédex do quadril em vez das costas`,
+  );
 }
 
   console.log(

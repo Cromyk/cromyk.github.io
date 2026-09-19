@@ -1485,13 +1485,21 @@ export class Jogo {
    * um capacete. Uma coisa que persegue o seu rosto não pode ser alcançada,
    * porque recua na mesma medida em que a sua mão avança.
    */
-  private alternarMochila() {
+  private alternarMochila(mao: Mao | null = null) {
     if (this.mochila.estaAberta) {
       this.mochila.fechar();
       audio.clique();
       return;
     }
-    this.mochila.abrir(this.camera, (id) => this.dex.item(id));
+    // A grade desce até a mão que a abriu, e nasce mais perto de quem está
+    // sentado. É o item 1.5 do roteiro: o modo sentado encolhia as distâncias
+    // do MUNDO e deixava os painéis exigindo o braço levantado na mesma altura.
+    this.mochila.abrir(
+      this.camera,
+      (id) => this.dex.item(id),
+      mao ? this.pontoDeAgarre(mao).clone() : null,
+      this.ajustes.modoSentado,
+    );
     audio.abrirPainel();
     this.aviso.mostrar(
       [
@@ -4229,7 +4237,7 @@ export class Jogo {
           this.pc.fechar();
           audio.clique();
         } else {
-          this.alternarMochila();
+          this.alternarMochila(mao);
         }
       }
       return;
@@ -5026,7 +5034,10 @@ export class Jogo {
       this.tablet.naMaoDe === null
         ? null
         : (this.maos.find((m) => m.indice === this.tablet.naMaoDe) ?? null);
-    this.tablet.atualizar(dt, this.camera, quemSegura?.pulso ?? null, this.sala);
+    this.tablet.atualizar(dt, this.camera, quemSegura?.pulso ?? null, this.sala, {
+      ligado: this.ajustes.modoSentado,
+      lado: this.ladoQueAponta,
+    });
 
     // A mão que vai às costas SENTE a Pokédex chegando.
     //

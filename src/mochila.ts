@@ -47,6 +47,14 @@ const PASSO_Y = 0.17;
 /** A que distância dos olhos a grade nasce. Perto o bastante para alcançar. */
 export const DISTANCIA_DA_MOCHILA = 0.52;
 /**
+ * E a que distância ela nasce de quem está SENTADO.
+ *
+ * Oito centímetros mais perto. Parece pouco e não é: sentado, o ombro perde a
+ * ajuda do tronco e o braço trabalha sozinho — cada centímetro à frente é
+ * torque no ombro, mantido pelo tempo que a mochila ficar aberta.
+ */
+export const DISTANCIA_SENTADO = 0.44;
+/**
  * Quanto abaixo dos OLHOS a grade nasce, e não a que altura do chão.
  *
  * Uma altura fixa de peito só serve para quem joga de pé. Sentado no sofá, os
@@ -56,6 +64,52 @@ export const DISTANCIA_DA_MOCHILA = 0.52;
  * aí a mochila cai na altura do peito de quem quer que a tenha aberto.
  */
 export const ABAIXO_DOS_OLHOS = 0.28;
+/** E quanto abaixo, sentado: dez centímetros a mais, na altura do colo. */
+export const ABAIXO_SENTADO = 0.38;
+/**
+ * O quanto a grade pode descer atrás da mão que a abriu.
+ *
+ * Ver `alturaDaMochila`. O limite existe para a grade não acabar no chão
+ * quando alguém abre a mochila com o braço pendurado ao lado do corpo — ali a
+ * mão não está pedindo nada, ela só está parada.
+ */
+export const QUEDA_MAXIMA = 0.45;
+
+/**
+ * Em que altura a grade nasce.
+ *
+ * ## Por que a mão entra na conta
+ *
+ * A altura saía SÓ da cabeça, e o motivo era bom: a cabeça é a única medida que
+ * o headset conhece com certeza, e uma altura fixa de peito só serve para quem
+ * joga de pé. Só que isso deixou de ser verdade — as mãos são rastreadas, e
+ * desde 18/09 o punho é conhecido nos dois modos (ver src/pulso.ts).
+ *
+ * E a mão diz uma coisa que a cabeça não sabe: **onde o seu braço está
+ * descansando**. Quem abre a mochila com o cotovelo apoiado no colo recebia a
+ * grade na altura do peito e tinha de levantar o braço para alcançar cada item
+ * — num painel que fica aberto enquanto você escolhe, e que é justamente o que
+ * o item 1.5 do roteiro chama de "braço no ar cansa".
+ *
+ * A regra: a grade nasce na altura de sempre, e **desce até a mão** se a mão
+ * estiver mais baixa. Nunca sobe — mão levantada não puxa o painel para cima,
+ * porque aí quem abrisse com o braço esticado receberia a grade na cara.
+ *
+ * O limite de queda impede o caso do braço pendurado: ali a mão não está
+ * pedindo nada, está só parada.
+ */
+export function alturaDaMochila(
+  alturaDosOlhos: number,
+  alturaDaMao: number | null,
+  sentado: boolean,
+): number {
+  const padrao = alturaDosOlhos - (sentado ? ABAIXO_SENTADO : ABAIXO_DOS_OLHOS);
+  if (alturaDaMao === null) return padrao;
+  const piso = padrao - QUEDA_MAXIMA;
+  // Um palmo acima da mão: a grade fica onde a mão a alcança sem subir, e não
+  // em cima dela.
+  return Math.max(piso, Math.min(padrao, alturaDaMao + 0.08));
+}
 
 /**
  * Onde cada item fica na grade, em coordenadas do painel.
@@ -151,7 +205,13 @@ export class Mochila {
    * poção foi usada — e uma grade viva teria de reagir a cada evento do jogo
    * para dizer a mesma coisa que esta diz sendo construída na hora.
    */
-  abrir(camera: THREE.Camera, quanto: (id: string) => number) {
+  abrir(
+    camera: THREE.Camera,
+    quanto: (id: string) => number,
+    /** Onde está a mão que abriu — a grade desce até ela. Ver `alturaDaMochila`. */
+    maoQueAbriu: THREE.Vector3 | null = null,
+    sentado = false,
+  ) {
     this.desmontar();
 
     const visiveis = ITENS.filter((t) => !t.guardado || quanto(t.id) > 0);
@@ -184,8 +244,10 @@ export class Mochila {
     if (direcao.lengthSq() < 1e-6) direcao.set(0, 0, -1);
     direcao.normalize();
 
-    const altura = posicao.y - ABAIXO_DOS_OLHOS;
-    this.grupo.position.copy(posicao).addScaledVector(direcao, DISTANCIA_DA_MOCHILA);
+    const altura = alturaDaMochila(posicao.y, maoQueAbriu?.y ?? null, sentado);
+    this.grupo.position
+      .copy(posicao)
+      .addScaledVector(direcao, sentado ? DISTANCIA_SENTADO : DISTANCIA_DA_MOCHILA);
     this.grupo.position.y = altura;
     // Encara a cabeça na horizontal: inclinar o painel para cima faria a
     // fileira de baixo apontar para o teto quando alguém o abrisse agachado.

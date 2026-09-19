@@ -181,7 +181,7 @@ não abrir o do lado errado.
 - **Como saber que funcionou:** ligue Canhoto na engrenagem. O painel passa a
   abrir girando o pulso DIREITO, e o raio de mira sai da esquerda.
 
-### 1.5 Braço no ar cansa (e o jogo não sabe disso)
+### 1.5 ✅ Braço no ar cansa (e o jogo não sabia disso) — feito em 19/09
 
 Tudo acontece com o braço estendido. O **Modo sentado** encolhe distâncias do
 mundo, mas os painéis, o cinto e a mochila continuam exigindo o braço levantado
@@ -191,8 +191,32 @@ Duas medidas baratas: a mochila e o painel nascerem um pouco mais BAIXOS quando
 o modo sentado está ligado, e o cinto poder ficar na altura do antebraço
 apoiado no colo.
 
-- **Esforço:** baixo. São offsets que já saem da cabeça.
-- **Como saber que funcionou:** dá para jogar meia hora com o cotovelo apoiado.
+**Feito, e com uma correção maior do que a prevista.**
+
+A grade da mochila **desce até a mão que a abriu**. A altura saía só da cabeça,
+e o motivo era bom na época — a cabeça era a única medida confiável. Deixou de
+ser: as mãos são rastreadas, e desde hoje o punho é conhecido nos dois modos. E
+a mão diz uma coisa que a cabeça não sabe: onde o seu braço está DESCANSANDO.
+Ela nunca sobe (quem abre com o braço esticado receberia a grade na cara) e tem
+um limite de queda (braço pendurado ao lado do corpo não está pedindo nada).
+Sentado, ela nasce 10 cm mais baixa e 8 cm mais perto — cada centímetro à frente
+é torque no ombro, mantido pelo tempo que a mochila ficar aberta.
+
+**E a Pokédex saiu das costas no modo sentado.** Isto não estava no item e é o
+pior caso de todos: levar a mão atrás do corpo é um gesto de quem está de pé.
+Numa poltrona, numa cadeira de escritório ou numa cadeira de rodas, o encosto
+está exatamente ali — o gesto deixa de ser desconfortável para ser impossível, e
+a Pokédex era a única coisa do jogo guardada num lugar que o encosto tapa.
+Sentado, ela vira um coldre no quadril, do lado da mão que aponta (e espelhado
+para o canhoto). `maoNasCostas` mede contra o ponto guardado, então o gesto se
+adaptou sozinho.
+
+O cinto não precisou de nada: ele já mora no antebraço, então já acompanha o
+braço apoiado no colo. O painel do pulso idem — ele nasce do punho.
+
+- **Como saber que funcionou:** ligue o Modo sentado numa poltrona. Abra a
+  mochila com a mão no colo: a grade nasce ali, e não na altura do peito. E a
+  Pokédex passa a ser pega ao lado do quadril.
 
 ---
 
