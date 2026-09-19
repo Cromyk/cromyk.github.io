@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
+import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { Luva, PISO_DO_FLASH_MS, RESPIRO_DE_PULSO_MS, filaDePiscadas } from '../src/glove';
 import { TATO } from '../src/hands';
 import { NA_MAO, Pokebola, corrigirRumo } from '../src/orb';
@@ -4430,6 +4431,112 @@ console.log('\n47. nenhum comando existe só em botão');
   console.log(
     `   ${CAMINHOS.length} comandos de botão, ${CAMINHOS.length} caminhos sem botão ` +
       `· ${lendoBotao} leituras de A/B, todas em botoesDaMao`,
+  );
+}
+
+// --- 48. ficar sem ninguém de pé tem saída, e ela está escrita ---
+//
+// O cartaz de desmaio dizia "escolha outro no painel" sem olhar se havia
+// outro. Com o time inteiro caído, seguir a instrução levava ao segundo
+// cartaz — "está desmaiado, ele se recupera com o tempo" —, que é verdade e
+// não é uma saída: não diz quanto tempo, não diz onde, e não menciona nenhuma
+// das DUAS curas que o jogo tem.
+//
+// O jogo não travava: a regeneração devolve 1 de HP a cada 2,5 s. Mas parecia
+// travado, e num jogo em que tudo o mais responde ao gesto, parecer travado
+// basta para a pessoa tirar o headset.
+console.log('\n48. ficar sem ninguém de pé tem saída, e ela está escrita');
+{
+  // Um time vazio NÃO está caído: antes de escolher o inicial isso é outra
+  // tela, com outro texto, e confundir as duas daria a saída errada.
+  checar(timeCaido([]) === false, 'time vazio contou como caído');
+  checar(timeCaido([0]) === true, 'um único bicho desmaiado não contou como time caído');
+  checar(timeCaido([0, 0, 0]) === true, 'três desmaiados não contaram como time caído');
+  checar(timeCaido([0, 1, 0]) === false, 'um de pé no meio de dois caídos contou como time caído');
+  checar(timeCaido([12, 30]) === false, 'time inteiro contou como caído');
+  // HP negativo existe: o golpe que derruba passa do zero.
+  checar(timeCaido([-7]) === true, 'HP negativo não contou como caído');
+
+  // A saída depende de haver um Centro plantado — e há quarto que o headset
+  // não mapeia, e há quem jogue sentado e nunca chegue ao móvel.
+  checar(saidaDoTimeCaido(true) === 'centro', 'com Centro plantado, a saída não foi o Centro');
+  checar(saidaDoTimeCaido(false) === 'pc', 'sem Centro, a saída não foi o PC');
+
+  // E os dois cartazes de desmaio passaram a perguntar antes de mandar.
+  const fonte = readFileSync('src/game.ts', 'utf8');
+  const corpoDe = (nome: string): string => {
+    const cabeca = fonte.indexOf(`private ${nome}(`);
+    if (cabeca < 0) return '';
+    const i = fonte.indexOf('{', cabeca);
+    let nivel = 0;
+    for (let j = i; j < fonte.length; j++) {
+      if (fonte[j] === '{') nivel++;
+      else if (fonte[j] === '}') {
+        nivel--;
+        if (nivel === 0) return fonte.slice(i, j + 1);
+      }
+    }
+    return '';
+  };
+
+  const escolher = corpoDe('escolherDoTime');
+  checar(escolher.length > 200, 'não achei escolherDoTime — o teste não vale nada');
+  checar(
+    escolher.includes('this.timeTodoCaido'),
+    'escolher um desmaiado voltou a não olhar se há outro para escolher',
+  );
+  checar(
+    (fonte.match(/this\.contarSaidaDoTimeCaido\(/g) ?? []).length >= 2,
+    'a saída só é contada em um lugar — o outro cartaz de desmaio ficou mudo',
+  );
+  checar(
+    corpoDe('atualizarTimeCaido').includes('this.centro.chamar('),
+    'o Centro deixou de chamar enquanto o time está caído',
+  );
+
+  // --- e nenhum cartaz manda apertar um botão que a mão pode não ter ---
+  //
+  // Segue o item 5.1: uma fonte de hand tracking não tem gamepad, e um cartaz
+  // que manda apertar A é, para quem largou os controles, uma instrução
+  // impossível — pior do que instrução nenhuma.
+  //
+  // Duas maneiras de um texto desses ser legítimo, e só duas:
+  //
+  // - ele mora num caminho que SÓ existe por botão (`recolherApontando` é
+  //   alcançável apertando A e mais nada: quem o lê tem controle, por
+  //   construção);
+  // - ou ele está atrás de uma guarda `comBotao`, que é o jogo perguntando se
+  //   há controle antes de falar de botão.
+  //
+  // A segunda é verificada pela GUARDA, e não pelo método: pôr o método numa
+  // lista de exceções deixaria a linha voltar a ser incondicional sem ninguém
+  // notar, que é exatamente como ela chegou até aqui.
+  const COM_BOTAO_NA_MAO = ['recolherApontando'];
+  const permitidos = COM_BOTAO_NA_MAO.map(corpoDe);
+  const impossivel = /texto: '[^']*(aperte [AB]\b|\b[AB] abre|bot[ãa]o [AB]\b)/g;
+  const achadas: string[] = [];
+  let comGuarda = 0;
+  for (const m of fonte.matchAll(impossivel)) {
+    const trecho = m[0];
+    if (permitidos.some((corpo) => corpo.includes(trecho))) continue;
+    // A guarda tem de estar perto: no ternário logo acima, não a trezentas
+    // linhas de distância em outro método.
+    if (fonte.slice(Math.max(0, (m.index ?? 0) - 300), m.index).includes('comBotao')) {
+      comGuarda++;
+      continue;
+    }
+    achadas.push(trecho.replace("texto: '", ''));
+  }
+  checar(
+    achadas.length === 0,
+    `cartaz mandando apertar botão que a mão nua não tem: ${achadas.join(' · ')}`,
+  );
+  checar(comGuarda > 0, 'nenhum cartaz de botão está atrás de uma guarda — o teste ficou vazio');
+
+  console.log(
+    `   time caído: saída pelo ${saidaDoTimeCaido(true)} quando há Centro, pelo ` +
+      `${saidaDoTimeCaido(false)} quando não há · ${comGuarda} cartaz de botão atrás de guarda, ` +
+      `${COM_BOTAO_NA_MAO.length} num caminho que só o botão abre`,
   );
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);

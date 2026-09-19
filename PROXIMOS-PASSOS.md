@@ -626,10 +626,60 @@ número do item 3.3 é escolher no escuro o que a sua medição decide.
 - **Esforço:** médio.
 - **Depende de:** 3.3.
 
+### 5.3 ✅ Ficar sem ninguém de pé não tinha saída dita (feito em 19/09)
+
+Quando o seu Pokémon desmaiava, o cartaz dizia **"escolha outro no painel"** —
+e não olhava se havia outro. Com o time inteiro caído, seguir a instrução
+levava ao segundo cartaz, *"está desmaiado, ele se recupera com o tempo"*, que
+é verdade e não é uma saída: não diz quanto tempo, não diz onde, e não menciona
+nenhuma das DUAS curas que o jogo tem.
+
+O jogo não travava — a regeneração devolve 1 de HP a cada 2,5 s. Mas PARECIA
+travado, e num jogo em que tudo o mais responde ao gesto, parecer travado basta
+para a pessoa tirar o headset.
+
+E havia a metade que ninguém tinha notado: **o Centro Pokémon é anunciado uma
+única vez**, no quadro em que é plantado num móvel, e depois disso é um disco de
+trinta centímetros no chão de uma mesa — atrás de você na maior parte do tempo.
+Quem não estava olhando naquele segundo nunca soube que ele existe. Um Centro
+que não se acha é o botão de menu que ele veio substituir: ele só tem peso
+porque tem LUGAR, e um lugar que você não encontra não é um lugar.
+
+Agora:
+
+- o jogo **detecta** o time inteiro caído e diz a saída certa — o Centro, se
+  houver um plantado; o PC, se o quarto não foi mapeado ou você joga sentado —
+  e lembra que eles também se recuperam sozinhos, devagar;
+- o Centro **chama**: pulsa mais rápido e sobe uma coluna de luz de um metro e
+  meio, acima de qualquer móvel, que se vê do outro lado do cômodo. Ela existe
+  só enquanto o time está caído — acesa o tempo todo viraria mobília, e um marco
+  que está sempre lá deixa de ser marco;
+- os dois cartazes de desmaio passaram a **perguntar antes de mandar**.
+
+Dois detalhes que a implementação obrigou:
+
+- **o bicho em campo é lido pelo corpo**, e não pelo exemplar: o HP dele só é
+  gravado no estado quando ele volta para a bola, o que no golpe que o derruba
+  acontece um quadro depois. Sem isso, o cartaz do golpe fatal ainda mandaria
+  "escolher outro" e o cartaz certo entraria por cima, um quadro atrasado.
+- **duas instruções impossíveis sobraram do item 5.1** e o teste as pegou: o
+  aviso de vida baixa mandava *"B abre a mochila"*, e o cartão de comandos
+  listava A, B, X e Y para todo mundo — inclusive para quem não tem nenhum
+  deles. Os dois passaram a olhar se há controle.
+
+- **Esforço:** médio.
+- **Como saber que funcionou:** deixe o time inteiro cair. O cartaz diz para
+  onde ir, e a coluna de luz rosa aparece em cima do móvel do Centro.
+- **Conferido em:** `npm test`, seção 48 — o time vazio não conta como caído, a
+  saída muda conforme haver Centro, os dois cartazes consultam o estado, e
+  nenhum texto do jogo manda apertar um botão sem uma guarda `comBotao` por
+  perto (a guarda, e não o método: uma lista de exceções deixaria a linha voltar
+  a ser incondicional sem ninguém notar, que foi como ela chegou até aqui).
+
 ## O que depende de você
 
 Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2, 4 e o 5.1, catorze itens.
+feito** — fases 1, 2, 4 e os itens 5.1 e 5.3, quinze itens.
 
 O que resta depende de você:
 

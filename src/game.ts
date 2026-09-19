@@ -80,7 +80,7 @@ import { ItemNaMao, RastroDeIsca } from './isca';
 import { Mochila } from './mochila';
 import { Medidor } from './medidor';
 import { ALCANCE_ACHADO, Achados } from './achados';
-import { Centro } from './centro';
+import { Centro, saidaDoTimeCaido, timeCaido } from './centro';
 import { CONDICOES, condicaoDoGolpe } from './condicao';
 import { pedindoAjuda } from './gesto';
 import { Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
@@ -252,6 +252,8 @@ export class Jogo {
   private achados = new Achados(this.cena);
   /** O Centro Pokémon, plantado num móvel do seu quarto. Ver src/centro.ts. */
   private centro = new Centro();
+  /** Se o time inteiro estava caído no quadro anterior. Ver `atualizarCentro`. */
+  private timeEstavaCaido = false;
   /** Há quanto tempo a cabeça está na altura de quem está sentado. Ver 4.2. */
   /** Segundos desde a última leitura de ameaça. Ver atualizarAmeacas. */
   private desdeAmeaca = 0;
@@ -2805,6 +2807,12 @@ export class Jogo {
     }
 
     if (exemplar.hp <= 0) {
+      // Com o time INTEIRO caído, "escolha outro" não tem outro para escolher:
+      // o cartaz que cabe aqui é o da saída, e não o que descreve o problema.
+      if (this.timeTodoCaido) {
+        this.contarSaidaDoTimeCaido(2.8);
+        return false;
+      }
       this.aviso.mostrar(
         [
           { texto: `${especie.nome} está desmaiado`, tamanho: 38, cor: '#ff9f9f' },
@@ -3193,7 +3201,16 @@ export class Jogo {
         this.aviso.mostrar(
           [
             { texto: `${defensor.especie.nome} está mal`, tamanho: 34, cor: '#ff9f9f' },
-            { texto: 'B abre a mochila · pegue a poção e encoste nele', tamanho: 22, cor: '#9ff0c4', peso: 600 },
+            // Nem "B" nem botão nenhum: de mão nua ele não existe, e mandar
+            // apertar o que a mão não tem é a instrução impossível que o item
+            // 5.1 foi feito para matar. A mochila está nas duas portas, e a
+            // que sempre existe é a carta do painel.
+            {
+              texto: 'abra a mochila no painel · pegue a poção e encoste nele',
+              tamanho: 22,
+              cor: '#9ff0c4',
+              peso: 600,
+            },
           ],
           3.4,
         );
@@ -3240,10 +3257,15 @@ export class Jogo {
           3,
         );
       } else {
+        // "Escolha outro" só se houver outro. Com o time inteiro caído, quem
+        // conta o que fazer é `atualizarTimeCaido`, no quadro seguinte — e este
+        // cartaz sairia por cima dele dizendo para fazer o impossível.
         this.aviso.mostrar(
           [
             { texto: `${defensor.especie.nome} desmaiou!`, tamanho: 38, cor: '#ff9f9f' },
-            { texto: 'escolha outro no painel', tamanho: 24, cor: '#9aa5b8', peso: 500 },
+            ...(this.timeTodoCaido
+              ? []
+              : [{ texto: 'escolha outro no painel', tamanho: 24, cor: '#9aa5b8', peso: 500 }]),
           ],
           3,
         );
@@ -4774,8 +4796,93 @@ export class Jogo {
    * sentado ou num quarto que o headset não mapeou seria trocar uma coisa boa
    * por uma barreira.
    */
+  /**
+   * O time inteiro está caído AGORA. Ver `timeCaido` em src/centro.ts.
+   *
+   * O bicho EM CAMPO é lido pelo corpo, e não pelo exemplar: o HP dele só é
+   * gravado no estado quando ele volta para a bola, o que no golpe que o
+   * derruba acontece só no quadro seguinte. Sem isto, o cartaz do golpe fatal
+   * ainda mandaria "escolher outro no painel" — e o cartaz certo entraria um
+   * quadro depois, por cima.
+   */
+  private get timeTodoCaido(): boolean {
+    const c = this.companheiro;
+    return timeCaido(
+      this.dex.timeVivo.map((e) => (c && c.viva && this.exemplarEmCampo === e ? c.hp : e.hp)),
+    );
+  }
+
+  /**
+   * Ficar sem ninguém de pé, e o que o jogo diz sobre isso.
+   *
+   * ## O que acontecia
+   *
+   * Nada. O cartaz de desmaio dizia "escolha outro no painel" sem olhar se
+   * havia outro; seguir a instrução levava ao segundo cartaz, "está desmaiado,
+   * ele se recupera com o tempo", que é verdade e não é uma saída — não diz
+   * quanto tempo, não diz onde, e não menciona nenhuma das duas curas que
+   * existem. O jogo não travava (a regeneração devolve 1 de HP a cada 2,5 s),
+   * mas PARECIA travado, e num jogo em que tudo o mais responde ao gesto,
+   * parecer travado basta para a pessoa tirar o headset.
+   *
+   * ## E o Centro, que ninguém achava
+   *
+   * Ele é anunciado uma vez, no quadro em que é plantado, e depois disso é um
+   * disco de trinta centímetros no chão de um móvel — atrás de você na maior
+   * parte do tempo. Quem não estava olhando naquele segundo nunca soube que
+   * ele existe.
+   *
+   * Agora, enquanto o time está caído, ele CHAMA: pulsa mais rápido e sobe uma
+   * coluna de luz de um metro e meio, que se vê do outro lado do cômodo. A luz
+   * responde ao estado, e some junto com ele.
+   */
+  private atualizarTimeCaido() {
+    const caido = this.timeTodoCaido;
+
+    // O chamado é amplitude de quadro, como o `rocar` da mão: escrito todo
+    // quadro enquanto o estado durar, consumido dentro do `atualizar`.
+    if (caido) this.centro.chamar(1);
+
+    if (caido === this.timeEstavaCaido) return;
+    this.timeEstavaCaido = caido;
+    if (!caido) return;
+
+    this.contarSaidaDoTimeCaido(3.2);
+  }
+
+  /**
+   * Diz a saída, em uma linha. Duas, porque há duas curas e elas não são
+   * intercambiáveis: o Centro é do jogo e é instantâneo; o PC é o caminho de
+   * quem joga sentado ou num quarto que o headset não mapeou.
+   */
+  private contarSaidaDoTimeCaido(segundos: number) {
+    const saida = saidaDoTimeCaido(this.centro.plantado);
+    this.aviso.mostrar(
+      [
+        { texto: 'todo o seu time está caído', tamanho: 36, cor: '#ff9f9f' },
+        saida === 'centro'
+          ? {
+              texto: 'o Centro acendeu — leve o time até lá',
+              tamanho: 23,
+              cor: '#ffd7de',
+              peso: 600,
+            }
+          : {
+              texto: 'abra o PC no painel do pulso e cure o time',
+              tamanho: 23,
+              cor: '#9ff0c4',
+              peso: 600,
+            },
+        { texto: 'eles também se recuperam sozinhos, devagar', tamanho: 20, cor: '#9aa5b8', peso: 500 },
+      ],
+      segundos,
+    );
+  }
+
   private atualizarCentro(dt: number) {
     if (this.escaneando) return;
+
+    this.atualizarTimeCaido();
 
     if (this.centro.talvezColocar(this.sala, this.posicaoJogador)) {
       this.aviso.mostrar(
@@ -6180,14 +6287,27 @@ export class Jogo {
    * A última linha é a que faz o resto valer: ela ensina a trazer o cartão de
    * volta. Uma ajuda que não diz como ser reencontrada é uma ajuda de uma vez
    * só, que é exatamente o que havia antes.
+   *
+   * A linha dos botões depende de haver botões. Ela listava A, B, X e Y para
+   * todo mundo — e para quem larga os controles isso é a única ajuda do jogo
+   * ensinando quatro comandos que a mão dele não tem. Com as mãos nuas, ela
+   * vira o caminho que existe: as mesmas quatro coisas, no painel do pulso.
    */
   private mostrarComandos(titulo = 'os comandos', segundos = 7) {
+    const comBotao = this.maos.some((m) => m.conectada && !m.semControle);
     this.aviso.mostrar(
       [
         { texto: titulo, tamanho: 42, cor: '#cfe6ff' },
         { texto: 'GRIP segura a pokébola · solte no movimento para arremessar', tamanho: 21, cor: '#9aa5b8', peso: 500 },
         { texto: 'GATILHO toca para atacar · segure para marcar no chão até onde ele vai', tamanho: 21, cor: '#9aa5b8', peso: 500 },
-        { texto: 'A recolhe · B abre a mochila · X chama · Y liga o PC', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        comBotao
+          ? { texto: 'A recolhe · B abre a mochila · X chama · Y liga o PC', tamanho: 21, cor: '#9aa5b8', peso: 500 }
+          : {
+              texto: 'no painel do pulso: mochila · vem cá · PC · ajustes',
+              tamanho: 21,
+              cor: '#9aa5b8',
+              peso: 500,
+            },
         { texto: 'gire os pulsos: time e Pokédex · mão às costas: a Pokédex de mão', tamanho: 21, cor: '#9aa5b8', peso: 500 },
         { texto: 'as duas palmas para cima trazem este cartão de volta', tamanho: 21, cor: '#ffd78a', peso: 600, espaco: 4 },
       ],
