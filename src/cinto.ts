@@ -94,6 +94,75 @@ export const INICIO_SLOT = 0.075;
  */
 export const ALCANCE_SLOT = 0.075;
 
+/**
+ * O quanto o slot já escolhido desconta da própria distância para continuar
+ * sendo o escolhido.
+ *
+ * ## O número saiu de uma conta, e não do primeiro palpite
+ *
+ * A auditoria pedia "uns 15%". Com os slots a 6,6 cm um do outro, a conta
+ * dessa vantagem é
+ *
+ *     imunidade = (passo / 2) · (1 − v) / (1 + v)
+ *
+ * e 15% (v = 0,85) dá **2,7 milímetros** — menos do que um braço estendido
+ * treme. Ou seja: o remédio existiria no código e a bola continuaria trocando
+ * sozinha, que é a pior categoria de conserto.
+ *
+ * Trinta por cento (v = 0,70) dá 5,8 mm de imunidade, e a troca passa a
+ * acontecer a 5,8 mm da metade num passo de 66 — dezoito por cento do caminho
+ * fica "grudado" no slot atual, e os outros 82% continuam trocando como antes.
+ *
+ * Acima disso a conta vira o defeito oposto: com v = 0,6 seriam 8,3 mm, e a
+ * mão que se move devagar de um slot para o vizinho passaria por uma zona
+ * grande em que nada acende.
+ */
+export const VANTAGEM_DO_ESCOLHIDO = 0.7;
+
+/**
+ * Qual slot a mão está escolhendo.
+ *
+ * ## Por que não é só "o mais perto"
+ *
+ * Os quatro slots dividem o mesmo X e o mesmo Y e estão a 6,6 cm um do outro ao
+ * longo do antebraço, então a fronteira entre dois vizinhos fica a 3,3 cm de
+ * cada um. Com a mão parada em cima dessa fronteira, um milímetro de ruído do
+ * rastreamento troca o escolhido — e a bola destacada pisca entre duas.
+ *
+ * Isso sempre existiu e era invisível: o destaque era um booleano que ligava e
+ * desligava num objeto pequeno. Depois que a rampa do toque entrou, a bola
+ * CRESCE e a mão VIBRA conforme o braço chega — e a troca sozinha passou a ser
+ * vista e sentida.
+ *
+ * ## A regra
+ *
+ * Quem já estava escolhido no quadro anterior compara com 85% da própria
+ * distância. Para perder o posto, o vizinho precisa estar claramente mais
+ * perto, e não empatado.
+ *
+ * O alcance é testado ANTES da vantagem, de propósito: a vantagem desempata
+ * entre slots que a mão alcança, e não estica o braço de ninguém.
+ */
+export function escolherSlot(
+  distancias: readonly number[],
+  anterior: number,
+  alcance: number,
+  vantagem = VANTAGEM_DO_ESCOLHIDO,
+): number {
+  let melhor = -1;
+  let menor = Infinity;
+  for (let i = 0; i < distancias.length; i++) {
+    const d = distancias[i];
+    if (!(d <= alcance)) continue;
+    const peso = i === anterior ? d * vantagem : d;
+    if (peso < menor) {
+      menor = peso;
+      melhor = i;
+    }
+  }
+  return melhor;
+}
+
 interface Slot {
   tipo: TipoBola;
   /** O lugar dele no antebraço. Fica onde está mesmo com a bola na sua mão. */
@@ -105,6 +174,9 @@ interface Slot {
   aberto: boolean;
   fase: number;
 }
+
+/** Reaproveitado nas medições por quadro, para não alocar por slot. */
+const _centro = new THREE.Vector3();
 
 export class Cinto {
   readonly grupo = new THREE.Group();
@@ -185,18 +257,23 @@ export class Cinto {
    * realmente em cima.
    */
   slotSob(ponto: THREE.Vector3, alcance = ALCANCE_SLOT): TipoBola | null {
-    let melhor: Slot | null = null;
-    let menor = alcance * alcance;
-    const centro = new THREE.Vector3();
+    // A MESMA escolha do destaque, com a mesma vantagem: o que o GRIP pega tem
+    // de ser o que acendeu, sempre. Duas regras parecidas em dois lugares dão
+    // exatamente o bug que a rampa do toque tornou visível — acende um, pega o
+    // outro.
+    const i = escolherSlot(this.distancias(ponto), this.destacado, alcance);
+    return i < 0 ? null : this.slots[i].tipo;
+  }
+
+  /** A distância da mão a cada slot, reaproveitando o vetor de medição. */
+  private distancias(ponto: THREE.Vector3): number[] {
+    const centro = _centro;
+    const saida: number[] = [];
     for (const slot of this.slots) {
       slot.base.getWorldPosition(centro);
-      const d = centro.distanceToSquared(ponto);
-      if (d < menor) {
-        menor = d;
-        melhor = slot;
-      }
+      saida.push(centro.distanceTo(ponto));
     }
-    return melhor?.tipo ?? null;
+    return saida;
   }
 
   /**
@@ -213,23 +290,31 @@ export class Cinto {
    * liga e desliga lê como "apareceu"; este lê como "estou chegando".
    */
   destacar(agarre: THREE.Vector3 | null, dedo: THREE.Vector3 | null = null): number {
+    // O anterior é lido ANTES de qualquer coisa: é ele que tem a vantagem, e
+    // zerar primeiro faria a histerese não existir — o bug que este próprio
+    // item veio consertar, escrito de novo uma linha acima.
+    const anterior = this.destacado;
     this.destacado = -1;
     if (!agarre && !dedo) return 0;
 
-    const centro = new THREE.Vector3();
-    let menor = Infinity;
-    for (let i = 0; i < this.slots.length; i++) {
-      this.slots[i].base.getWorldPosition(centro);
-      const d = Math.min(
-        agarre ? centro.distanceTo(agarre) : Infinity,
-        dedo ? centro.distanceTo(dedo) : Infinity,
+    // A menor das duas distâncias por slot — palma e ponta do dedo —, e a
+    // escolha com a vantagem de quem já estava aceso. Ver `escolherSlot`.
+    const centro = _centro;
+    const distancias: number[] = [];
+    for (const slot of this.slots) {
+      slot.base.getWorldPosition(centro);
+      distancias.push(
+        Math.min(
+          agarre ? centro.distanceTo(agarre) : Infinity,
+          dedo ? centro.distanceTo(dedo) : Infinity,
+        ),
       );
-      if (d < menor) {
-        menor = d;
-        this.destacado = i;
-      }
     }
+    // O alcance de AVISO, e não o de agarre: quem acende é a banda inteira da
+    // rampa, e é dentro dela que a troca sozinha aparecia.
+    this.destacado = escolherSlot(distancias, anterior, AVISO.slot);
     if (this.destacado < 0) return 0;
+    const menor = distancias[this.destacado];
 
     const slot = this.slots[this.destacado];
     // Slot vazio ou com a bola na sua mão não vibra e não acende: o lugar dela

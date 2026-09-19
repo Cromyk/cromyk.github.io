@@ -460,7 +460,7 @@ força de quem já estava parando.
 - **Como saber que funcionou:** de mão nua, fechar o punho devagar pega a bola
   uma vez, e não três. E o arremesso continua saindo com a força do braço.
 
-### 4.4 Histerese na escolha do slot do cinto
+### 4.4 ✅ Histerese na escolha do slot do cinto (feito em 19/09)
 
 Os quatro slots compartilham X e Y e estão a 6,6 cm um do outro, então a
 fronteira entre dois vizinhos fica a 3,3 cm — e a bola destacada troca sozinha
@@ -471,7 +471,21 @@ Só valia depois que a rampa do toque existisse, porque antes dela a troca era
 invisível. Agora ela existe: a bola cresce e a mão vibra, então a troca sozinha
 passou a ser **visível e sentida**.
 
-- **Esforço:** baixo.
+**Feito**, e o número da auditoria não sobreviveu à conta.
+
+A vantagem virou `escolherSlot`, uma função pura que o DESTAQUE e o GRIP usam —
+os dois, e essa é metade do conserto: duas regras parecidas em dois lugares dão
+exatamente o bug de acender um slot e pegar o outro.
+
+Os "uns 15%" que a auditoria sugeria dão **2,7 mm** de imunidade, pela conta
+`(passo/2)·(1−v)/(1+v)` com o passo de 6,6 cm. É menos do que um braço
+estendido treme — o remédio estaria escrito no código e a bola continuaria
+trocando sozinha, que é a pior categoria de conserto. Trinta por cento dá 5,8
+mm, e deixa 18% do caminho entre dois slots "grudado" no atual.
+
+O smoke afirma a conta, e não só o efeito: se alguém mexer na vantagem ou no
+passo, o teste diz quantos milímetros de imunidade sobraram.
+
 - **Como saber que funcionou:** aproxime a mão do cinto e pare. A bola acesa
   não pisca entre duas.
 

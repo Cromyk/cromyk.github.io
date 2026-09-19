@@ -51,7 +51,13 @@ import { MEDIDAS } from '../src/modelos.gen';
 import { caixaDaPose, type Corpo } from '../src/modelos';
 import { BOLAS } from '../src/balls';
 import { PEDRAS, EVOLUI_SO_COM_PEDRA } from '../src/pedras';
-import { ALCANCE_SLOT, INICIO_SLOT, PASSO_SLOT } from '../src/cinto';
+import {
+  ALCANCE_SLOT,
+  INICIO_SLOT,
+  PASSO_SLOT,
+  VANTAGEM_DO_ESCOLHIDO,
+  escolherSlot,
+} from '../src/cinto';
 import { bonusDeCaptura } from '../src/condicao';
 import { Rastro, aVista, rumoDoRastro } from '../src/rastro';
 import { MARCOS, faltamPara, marcoDe } from '../src/marcos';
@@ -3988,6 +3994,80 @@ console.log('\n43. o punho fechado da mão nua');
   console.log(
     `   punho: aberta ${aberta.toFixed(2)} · fechada ${fechada.toFixed(2)} · ` +
       `faixa morta ${PUNHO_FECHA}–${PUNHO_ABRE} · latch ${LATCH_FECHAR_MS}/${LATCH_ABRIR_MS} ms`,
+  );
+}
+
+
+// --- 44. a bola do cinto para de trocar sozinha ---
+//
+// Os quatro slots dividem o mesmo X e o mesmo Y e estão a 6,6 cm um do outro ao
+// longo do antebraço: a fronteira entre dois vizinhos fica a 3,3 cm de cada um.
+// Com a mão parada ali, um milímetro de ruído trocava o slot escolhido.
+//
+// Isso sempre existiu e era invisível — o destaque era um booleano num objeto
+// pequeno. Depois da rampa do toque a bola CRESCE e a mão VIBRA conforme o
+// braço chega, e a troca sozinha passou a ser vista e sentida.
+console.log('\n44. a bola do cinto para de trocar sozinha');
+{
+  // Quatro slots em fila, como no antebraço.
+  const emFila = (mao: number) => [0, 1, 2, 3].map((i) => Math.abs(INICIO_SLOT + i * PASSO_SLOT - mao));
+
+  const fronteira = INICIO_SLOT + PASSO_SLOT / 2;
+  const alcance = ALCANCE_SLOT * 2;
+
+  // SEM histerese (vantagem 1), o ruído troca: é o estado anterior do jogo.
+  const semA = escolherSlot(emFila(fronteira - 0.001), 0, alcance, 1);
+  const semB = escolherSlot(emFila(fronteira + 0.001), 0, alcance, 1);
+  checar(semA !== semB, 'a fronteira de mentira não separa dois slots — o teste não vale nada');
+
+  // COM histerese, dois milímetros de tremor não tiram o slot de quem o tinha.
+  for (const ruido of [-0.005, -0.003, -0.001, 0, 0.001, 0.003, 0.005]) {
+    checar(
+      escolherSlot(emFila(fronteira + ruido), 0, alcance) === 0,
+      `um tremor de ${(ruido * 1000).toFixed(0)} mm trocou o slot escolhido`,
+    );
+  }
+
+  // Mas a mão que se MOVE de verdade troca — senão o cinto teria um slot só.
+  const mexeu = escolherSlot(emFila(INICIO_SLOT + PASSO_SLOT * 0.75), 0, alcance);
+  checar(mexeu === 1, `movendo três quartos do caminho até o vizinho, o slot não trocou (deu ${mexeu})`);
+
+  // A troca acontece um pouco DEPOIS da metade: é exatamente o que a vantagem
+  // compra, e é bom saber quanto ela custa em milímetros.
+  let ondeTroca = 0;
+  for (let d = 0; d < PASSO_SLOT; d += 0.0005) {
+    if (escolherSlot(emFila(INICIO_SLOT + d), 0, alcance) !== 0) {
+      ondeTroca = d;
+      break;
+    }
+  }
+  const depoisDaMetade = ondeTroca - PASSO_SLOT / 2;
+  // A conta que justifica a constante: imunidade = (passo/2)·(1−v)/(1+v).
+  // Abaixo de 5 mm o remédio não cobre o tremor do braço e a bola continua
+  // trocando sozinha — com o conserto escrito no código, que é pior do que não
+  // ter conserto. Acima de 12 a mão que anda devagar atravessa uma zona grande
+  // em que nada acende.
+  const previsto = (PASSO_SLOT / 2) * ((1 - VANTAGEM_DO_ESCOLHIDO) / (1 + VANTAGEM_DO_ESCOLHIDO));
+  checar(
+    Math.abs(depoisDaMetade - previsto) < 0.001,
+    `a troca sai a ${(depoisDaMetade * 1000).toFixed(1)} mm e a conta previa ${(previsto * 1000).toFixed(1)}`,
+  );
+  checar(
+    depoisDaMetade > 0.005 && depoisDaMetade < 0.012,
+    `a imunidade é de ${(depoisDaMetade * 1000).toFixed(1)} mm, fora do útil para um braço no ar`,
+  );
+
+  // O ALCANCE é testado antes da vantagem: ela desempata entre slots que a mão
+  // alcança, e não estica o braço de ninguém.
+  const longe = escolherSlot(emFila(INICIO_SLOT - 0.5), 0, ALCANCE_SLOT);
+  checar(longe === -1, 'a vantagem manteve escolhido um slot fora do alcance');
+
+  // E sem nenhum anterior, é só o mais perto.
+  checar(escolherSlot(emFila(fronteira - 0.001), -1, alcance) === 0, 'sem anterior, não pegou o mais perto');
+
+  console.log(
+    `   cinto: a troca sai ${(depoisDaMetade * 1000).toFixed(0)} mm depois da metade ` +
+      `(passo ${(PASSO_SLOT * 100).toFixed(1)} cm, vantagem ${VANTAGEM_DO_ESCOLHIDO})`,
   );
 }
 
