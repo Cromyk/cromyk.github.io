@@ -192,6 +192,8 @@ const COSSENO_DA_CHAMADA = Math.cos(Math.PI * 0.05);
  * Quantas bolas podem ficar no carpete ao mesmo tempo. Ver `limparBolasDemais`.
  */
 const MAX_BOLAS_NO_CHAO = 6;
+/** Até onde a Pokédex lê um bicho apontado. Ver `escanearComADex`. */
+const ALCANCE_DO_ESCANEAMENTO = 9;
 /** Reaproveitado por `bolaApontadaPor`, uma vez por bola por quadro. */
 const _paraABola = new THREE.Vector3();
 
@@ -2717,6 +2719,95 @@ export class Jogo {
   }
 
   /**
+   * Aponte a Pokédex para um bicho da sala e puxe o gatilho: ela lê AQUELE.
+   *
+   * ## O pedido
+   *
+   * *"A Pokédex precisa ser rolável para encontrar os Pokémon, ou então apontar
+   * para o Pokémon e apertar o gatilho e registrar e trazer informações sobre
+   * o Pokémon"* — playtest de 19/09. As duas metades foram feitas: a grade
+   * ganhou setas (ver src/dexpanel.ts) e o gatilho ganhou isto.
+   *
+   * E esta é a metade que vale mais, porque é a única que só existe em
+   * realidade misturada: procurar um bicho numa lista de 151 é trabalho de
+   * menu; apontar o aparelho para o bicho que está no seu tapete e ele
+   * responder é a Pokédex fazendo o que ela faz no desenho.
+   *
+   * ## O que ele faz
+   *
+   * Registra como VISTO (um selvagem que passou longe e você só apontou já
+   * entra na coleção), pula a grade para a página dele e deixa a ficha aberta
+   * naquela espécie — e então lê em voz alta, que é o caminho que já existia.
+   *
+   * Devolve `false` quando não há bicho nenhum no eixo do braço, e aí quem
+   * assume é o obturador.
+   */
+  private escanearComADex(mao: Mao): boolean {
+    const { origem, direcao } = mao.mira();
+    let melhor: Pokemon | null = null;
+    let menorDesvio = Infinity;
+
+    const candidatos: Pokemon[] = this.selvagens.map((s) => s.pokemon);
+    if (this.companheiro) candidatos.push(this.companheiro);
+
+    for (const alvo of candidatos) {
+      const paraEle = _paraABola.copy(alvo.centro).sub(origem);
+      const aoLongo = paraEle.dot(direcao);
+      if (aoLongo <= 0 || aoLongo > ALCANCE_DO_ESCANEAMENTO) continue;
+      // Distância do centro dele à reta do braço, com a tolerância do tamanho
+      // do bicho: um Onix se acerta de qualquer jeito, um Diglett exige mira.
+      const desvio = paraEle.addScaledVector(direcao, -aoLongo).length();
+      if (desvio > alvo.raio + 0.3) continue;
+      if (desvio < menorDesvio) {
+        menorDesvio = desvio;
+        melhor = alvo;
+      }
+    }
+
+    if (!melhor) return false;
+
+    const especie = melhor.especie;
+    this.dex.registrarEncontro(especie.id, melhor.shiny);
+    this.painelDex.fixar(especie.id);
+    mao.sentir('pegou');
+    audio.abrirPainel();
+
+    const registro = this.dex.de(especie.id);
+    this.aviso.mostrar(
+      [
+        { texto: especie.nome, tamanho: 38, cor: corHexDe(especie) },
+        {
+          texto: `nº ${`${especie.num}`.padStart(3, '0')} · ${textoTipos(especie)} · nível ${melhor.nivel}`,
+          tamanho: 22,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+        {
+          texto: `${especie.alturaReal.toFixed(1).replace('.', ',')} m · ${especie.peso} kg`,
+          tamanho: 21,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+        {
+          texto: (registro?.capturados ?? 0) > 0 ? especie.descricao : 'capture para ler a ficha completa',
+          tamanho: 20,
+          cor: '#c3ccda',
+          peso: 500,
+        },
+      ],
+      3.2,
+    );
+
+    // A voz, quando ela existe e está ligada. Sem ficha gravada, o bicho se
+    // apresenta — o mesmo caminho da ficha apontada na grade.
+    if (this.ajustes.vozDaDex) {
+      if (temNarracao(especie.id)) void falar(especie.id);
+      else audio.apresentar(especie.id, melhor.shiny, especie.num);
+    }
+    return true;
+  }
+
+  /**
    * A Pokédex falando, em português.
    *
    * Só os quatro iniciais têm ficha gravada — são cerca de meio minuto de voz
@@ -2725,6 +2816,15 @@ export class Jogo {
    * bicho, que é uma resposta e não um silêncio.
    */
   private narrarDaDex(mao: Mao) {
+    // As setas primeiro: elas são botão, e botão resolve antes de qualquer
+    // leitura. Ver `PainelDex.setaSobAMira`.
+    if (this.painelDex.setaSobAMira !== 0) {
+      this.painelDex.virarPagina(this.painelDex.setaSobAMira);
+      mao.sentir('pegou');
+      audio.clique();
+      return;
+    }
+
     const especie = this.painelDex.selecionada;
 
     // SEM ficha sob a mira, o gatilho é o OBTURADOR.
@@ -2745,6 +2845,9 @@ export class Jogo {
       // mão nua um punho fechado tem o polegar encostado no indicador — que é
       // exatamente o que o runtime chama de pinça. Deixar o obturador nela
       // faria o gesto de PEGAR a Pokédex bater uma foto do chão.
+      // Antes da foto: apontou para um BICHO da sala? Então isto é um
+      // escaneamento, e não um retrato. Ver `escanearComADex`.
+      if (this.escanearComADex(mao)) return;
       if (mao.indice !== this.tablet.naMaoDe) this.baterFoto(mao);
       return;
     }

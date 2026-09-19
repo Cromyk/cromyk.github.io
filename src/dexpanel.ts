@@ -14,6 +14,13 @@ const COLUNAS = 6;
 const LINHAS = 6;
 const POR_PAGINA = COLUNAS * LINHAS;
 
+/** A tela da grade, em metros, e a faixa de rodapé que as setas ocupam. */
+const LARGURA_GRADE = 0.3;
+const ALTURA_GRADE = 0.26;
+const RODAPE = 0.03;
+/** O y do topo da grade, no espaço do grupo. A placa está centrada em 0,055. */
+const TOPO_DA_GRADE = 0.055 + ALTURA_GRADE / 2;
+
 /**
  * A Pokédex: as 151 espécies numa grade paginada, presa à mão direita.
  *
@@ -39,6 +46,10 @@ export class PainelDex {
   private resumoEstados = 0;
   private pagina = 0;
   private destacado = -1;
+  /** O destaque veio de `fixar` e não da mira. */
+  private fixado = false;
+  /** Qual seta está sob a mira: −1, +1, ou 0 para nenhuma. Ver `atualizar`. */
+  setaSobAMira: -1 | 0 | 1 = 0;
   private abertura = 0;
   private assinatura = '';
   private raycaster = new THREE.Raycaster();
@@ -55,19 +66,39 @@ export class PainelDex {
     this.descartaveis.push(geo, mat);
 
     // Um alvo invisível por célula, reposicionado a cada página.
-    const largura = 0.3 / COLUNAS;
-    const altura = 0.26 / LINHAS;
+    const largura = LARGURA_GRADE / COLUNAS;
+    const altura = (ALTURA_GRADE - RODAPE) / LINHAS;
+    const topo = TOPO_DA_GRADE;
     for (let i = 0; i < POR_PAGINA; i++) {
       const alvo = new THREE.Mesh(geo, mat);
       alvo.scale.set(largura * 0.96, altura * 0.94, 1);
       alvo.position.set(
-        -0.15 + largura * (0.5 + (i % COLUNAS)),
-        0.055 + 0.13 - altura * (0.5 + Math.floor(i / COLUNAS)),
+        -LARGURA_GRADE / 2 + largura * (0.5 + (i % COLUNAS)),
+        topo - altura * (0.5 + Math.floor(i / COLUNAS)),
         0.001,
       );
       alvo.userData.indice = i;
       this.grupo.add(alvo);
       this.alvos.push(alvo);
+    }
+
+    // As duas setas, no rodapé — uma faixa própria, abaixo das seis linhas.
+    // Índices negativos para não brigarem com as 36 células: −2 volta, −3
+    // avança. Ver `setaSobAMira`.
+    //
+    // A faixa existe porque antes não existia: o número da página era escrito
+    // POR CIMA da última linha de células, e uma seta ali seria um alvo em
+    // cima de outro.
+    for (const [indice, x] of [
+      [-2, -LARGURA_GRADE * 0.36],
+      [-3, LARGURA_GRADE * 0.36],
+    ] as Array<[number, number]>) {
+      const seta = new THREE.Mesh(geo, mat);
+      seta.scale.set(0.058, RODAPE * 0.9, 1);
+      seta.position.set(x, topo - (ALTURA_GRADE - RODAPE) - RODAPE / 2, 0.001);
+      seta.userData.indice = indice;
+      this.grupo.add(seta);
+      this.alvos.push(seta);
     }
   }
 
@@ -95,6 +126,26 @@ export class PainelDex {
     return ESPECIES[this.pagina * POR_PAGINA + this.destacado] ?? null;
   }
 
+  /**
+   * Abre a grade na página de uma espécie e deixa a ficha DELA aberta.
+   *
+   * É o que o escaneamento por mira usa (ver `Jogo.escanearComADex`): você
+   * aponta a Pokédex para o bicho no tapete e a tela vai até ele, em vez de
+   * você procurar o número dele numa lista de 151.
+   *
+   * O destaque fixado dura até a mira encostar em outra célula — quem está
+   * olhando a ficha que acabou de abrir não a perde porque o braço tremeu, e
+   * quem quiser trocar é só apontar.
+   */
+  fixar(id: string) {
+    const indice = ESPECIES.findIndex((e) => e.id === id);
+    if (indice < 0) return;
+    this.pagina = Math.floor(indice / POR_PAGINA);
+    this.destacado = indice % POR_PAGINA;
+    this.fixado = true;
+    this.assinatura = '';
+  }
+
   private estadoDe(especie: Especie): EstadoDex {
     return this.estados.get(especie.id) ?? { visto: false, capturado: false, viuShiny: false };
   }
@@ -104,7 +155,10 @@ export class PainelDex {
     this.grade.limpar('rgba(10,14,22,0.92)', 'rgba(255,255,255,0.16)', 22);
 
     const cw = canvas.width / COLUNAS;
-    const ch = canvas.height / LINHAS;
+    // A faixa do rodapé sai da conta das linhas: ver o bloco das setas no
+    // construtor. Em pixels ela é a mesma fração que em metros.
+    const rodapePx = canvas.height * (RODAPE / ALTURA_GRADE);
+    const ch = (canvas.height - rodapePx) / LINHAS;
     const inicio = this.pagina * POR_PAGINA;
 
     for (let i = 0; i < POR_PAGINA; i++) {
@@ -158,14 +212,28 @@ export class PainelDex {
       }
     }
 
+    const meioDoRodape = canvas.height - rodapePx / 2;
     ctx.textAlign = 'center';
-    ctx.font = '600 18px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 19px system-ui, -apple-system, "Segoe UI", sans-serif';
     ctx.fillStyle = '#7f8ba0';
-    ctx.fillText(
-      `página ${this.pagina + 1}/${this.totalPaginas} · analógico vira`,
-      canvas.width / 2,
-      canvas.height - 24,
-    );
+    ctx.fillText(`${this.pagina + 1}/${this.totalPaginas}`, canvas.width / 2, meioDoRodape);
+
+    // As setas, uma de cada lado do número da página. Elas existem porque o
+    // analógico não é caminho para quem joga de mão nua — e porque uma lista
+    // que só rola com o polegar de um controle não é uma lista rolável.
+    for (const lado of [-1, 1] as const) {
+      const x = canvas.width / 2 + lado * 0.36 * canvas.width;
+      const acesa = this.setaSobAMira === lado;
+      ctx.beginPath();
+      ctx.roundRect(x - 52, meioDoRodape - rodapePx * 0.42, 104, rodapePx * 0.84, 10);
+      ctx.fillStyle = acesa ? 'rgba(96, 148, 214, 0.55)' : 'rgba(255,255,255,0.07)';
+      ctx.fill();
+      ctx.font = '700 26px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = acesa ? '#f2f5fa' : '#8b97ac';
+      ctx.fillText(lado < 0 ? '‹' : '›', x, meioDoRodape - 1);
+    }
+    ctx.textBaseline = 'top';
 
     this.grade.marcarSujo();
   }
@@ -301,15 +369,29 @@ export class PainelDex {
     }
 
     const anterior = this.destacado;
-    this.destacado = -1;
+    let sobAMira = -1;
     if (mira && this.abertura > 0.6) {
       this.raycaster.set(mira.origem, mira.direcao);
       const acertos = this.raycaster.intersectObjects(this.alvos, false);
-      if (acertos.length > 0) this.destacado = acertos[0].object.userData.indice as number;
+      if (acertos.length > 0) sobAMira = acertos[0].object.userData.indice as number;
+    }
+
+    // As SETAS: apontar para elas e puxar o gatilho vira a página, para quem
+    // não quer (ou não pode) usar o analógico. Pedido do playtest de 19/09:
+    // *"a Pokédex precisa ser rolável para encontrar os Pokémon"*.
+    this.setaSobAMira = sobAMira === -2 ? -1 : sobAMira === -3 ? 1 : 0;
+
+    // Uma ficha fixada pelo escaneamento sobrevive até a mira achar OUTRA
+    // célula. Ver `fixar`.
+    if (sobAMira >= 0) {
+      this.destacado = sobAMira;
+      this.fixado = false;
+    } else if (!this.fixado) {
+      this.destacado = -1;
     }
     this.mudouDestaque = this.destacado !== -1 && this.destacado !== anterior;
 
-    const assinatura = `${this.pagina}|${this.destacado}|${this.resumoEstados}`;
+    const assinatura = `${this.pagina}|${this.destacado}|${this.setaSobAMira}|${this.resumoEstados}`;
     if (assinatura !== this.assinatura) {
       this.assinatura = assinatura;
       this.desenharGrade();

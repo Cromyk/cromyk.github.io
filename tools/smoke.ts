@@ -116,7 +116,7 @@ import {
 import { Fotografo, LADO_DA_FOTO, MAX_FOTOS, nomeDaFoto } from '../src/foto';
 import { olhandoORelogio } from '../src/gesto';
 import { AVISO, forcaDeToque, pulsoDeToque } from '../src/toque';
-import { Rig, type Chave } from '../src/rig';
+import { Rig, normalizar, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
 import { GOLPES_DEX } from '../src/golpes.gen';
 import { Dex, TAMANHO_TIME } from '../src/state';
@@ -5421,12 +5421,16 @@ console.log('\n56. a voz dele é o grito dele');
     'o grito voltou a tocar sempre no mesmo tom',
   );
 
-  // (5) NO JOGO: os quatro momentos de apresentação, e nenhuma voz de bicho
+  // (5) NO JOGO: os cinco momentos de apresentação, e nenhuma voz de bicho
   //     fora do caminho posicional.
+  //
+  // O quinto entrou em 19/09 com o escaneamento pela mira (ver
+  // `escanearComADex`): apontar a Pokédex para um bicho sem ficha gravada faz
+  // ele se apresentar, que é o mesmo caminho da ficha apontada na grade.
   const jogo = readFileSync('src/game.ts', 'utf8');
   checar(
-    (jogo.match(/audio\.apresentar\(/g) ?? []).length === 4,
-    `são ${(jogo.match(/audio\.apresentar\(/g) ?? []).length} apresentações, e os momentos são quatro`,
+    (jogo.match(/audio\.apresentar\(/g) ?? []).length === 5,
+    `são ${(jogo.match(/audio\.apresentar\(/g) ?? []).length} apresentações, e os momentos são cinco`,
   );
   checar(jogo.includes('private vozDoBicho('), 'não existe o caminho posicional da voz');
   // Nenhuma chamada crua de `audio.grito` com um corpo à mão: o padrão
@@ -6005,6 +6009,77 @@ console.log('\n61. a pokébola vem quando você chama');
   checar(bola.noChao, 'a chamada abandonada deixou a bola fora do chão');
 
   console.log(`   chamada: 3 m em ${(quadros / 72).toFixed(1)} s, subindo até ${bola.posicao.y.toFixed(2)} m`);
+}
+
+// ASAS, BARBATANAS E BIGODES — playtest de 19/09.
+//
+// O `Rig` mapeava vinte e cinco papéis e tudo o mais ficava na pose de bind
+// para sempre. Os apêndices entram por HIERARQUIA (ver `Apendice` em
+// src/rig.ts), e é isso que se confere aqui, com um esqueleto de mentira: que
+// a cadeia é achada inteira, na ordem certa, com o lado certo — e que a régua
+// de nome aceita o índice do exportador dos dois lados.
+console.log('\n62. o Rig acha as asas, as barbatanas e os bigodes');
+{
+  checar(normalizar('Head_50') === 'head', `normalizar('Head_50') deu ${normalizar('Head_50')}`);
+  // Dezoito dos 151 numeram pelo começo — Pidgey, Rattata, Meowth. Sem isto,
+  // o rig inteiro deles dava zero e eles andavam na pose de bind.
+  checar(normalizar('004Hips') === 'hips', `normalizar('004Hips') deu ${normalizar('004Hips')}`);
+  checar(normalizar('050LArm') === 'larm', `normalizar('050LArm') deu ${normalizar('050LArm')}`);
+
+  const osso = (nome: string, pai: THREE.Object3D, y: number, x = 0) => {
+    const b = new THREE.Bone();
+    b.name = nome;
+    b.position.set(x, y, 0);
+    pai.add(b);
+    return b;
+  };
+
+  const corpo = new THREE.Group();
+  const quadril = osso('004Hips', corpo, 0);
+  const tronco = osso('005Spine1', quadril, 0.5);
+  osso('040Head', tronco, 0.5);
+
+  // Uma asa de quatro elos saindo do tronco, para o lado esquerdo.
+  let no: THREE.Object3D = tronco;
+  for (let i = 1; i <= 4; i++) no = osso(`LFeeler${i}`, no, 0, 0.3);
+  // E um bigode curto, do outro lado.
+  let bigode: THREE.Object3D = tronco;
+  for (let i = 1; i <= 2; i++) bigode = osso(`RFeelerA${i}`, bigode, 0, -0.05);
+
+  corpo.updateMatrixWorld(true);
+  const rig = new Rig(corpo);
+
+  checar(rig.tem('quadril') && rig.tem('cabeca'), 'o rig não achou o esqueleto numerado');
+  checar(rig.apendices.length === 2, `achou ${rig.apendices.length} apêndices, e são dois`);
+
+  const asa = rig.apendices.find((a) => a.tamanho === 4);
+  const pelo = rig.apendices.find((a) => a.tamanho === 2);
+  checar(asa !== undefined && pelo !== undefined, 'as cadeias não vieram com o tamanho certo');
+  checar(asa?.lado === -1, `a asa esquerda veio com lado ${asa?.lado}`);
+  checar(pelo?.lado === 1, `o bigode direito veio com lado ${pelo?.lado}`);
+  // A régua que separa asa de bigode: comprimento contra o tronco (1,0 aqui).
+  checar(
+    (asa?.relativo ?? 0) > 0.55,
+    `a asa mediu ${asa?.relativo.toFixed(2)} de tronco — seria tratada como bigode`,
+  );
+  checar(
+    (pelo?.relativo ?? 1) < 0.55,
+    `o bigode mediu ${pelo?.relativo.toFixed(2)} de tronco — bateria como asa`,
+  );
+
+  // E a onda chega na ponta: girar o último elo tem de mexer o último osso.
+  const indiceDaAsa = rig.apendices.indexOf(asa!);
+  const ponta = rig.apendices[indiceDaAsa].tamanho - 1;
+  rig.limpar();
+  rig.girarElo(indiceDaAsa, ponta, new THREE.Vector3(0, 0, 1), 0.4);
+  rig.aplicar(1);
+  corpo.updateMatrixWorld(true);
+  const girou = corpo.getObjectByName('LFeeler4')!.quaternion.angleTo(new THREE.Quaternion());
+  checar(girou > 0.3, `a ponta da asa girou ${girou.toFixed(2)} rad — a onda não chega lá`);
+
+  console.log(
+    `   apêndices: asa de ${asa?.tamanho} elos (${asa?.relativo.toFixed(1)} troncos) e bigode de ${pelo?.tamanho}`,
+  );
 }
 
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);

@@ -70,10 +70,11 @@ sem pôr o headset a cada mudança:
 
 | Ação | Controle |
 |---|---|
-| Pegar a pokébola | levar a mão ao **cinto do antebraço esquerdo** e fechar o **GRIP** na bola |
+| Pegar a pokébola | olhar para baixo e fechar o **GRIP** numa bola do **cinto da cintura** |
 | Guardar a bola de volta | levar a mão ao **mesmo slot** e abrir a mão |
 | Arremessar | **soltar o GRIP** no meio do movimento do braço |
 | Recolher uma bola do chão | **GRIP** com a mão em cima dela |
+| Chamar uma bola de longe | **apontar** para ela (ela acende) e fechar o **GRIP** — ela vem voando |
 | Pegar seu Pokémon no colo | **GRIP** com a mão nele (até meio metro de altura) |
 | Pegar com as DUAS mãos | feche as duas em volta dele — até 85 cm, e ele fica entre elas |
 | Passar de uma mão para a outra | abra UMA das duas: ele fica na que continua fechada |
@@ -87,13 +88,15 @@ sem pôr o headset a cada mudança:
 | Recolher para a bola | apontar para ele e apertar **A** |
 | Chamar de volta (desfaz o "fica aí") | **X** |
 | Ligar o PC (equipe e caixa) | **Y**, ou o ícone de monitor no painel do pulso |
+| Soltar um Pokémon na natureza | no PC, arrastar ele até a área **soltar** do rodapé — rende uma pedra |
 | Time, bolas, itens e os quatro golpes | girar o **pulso esquerdo**, como para ver as horas (o **direito**, com Canhoto ligado) |
 | Modo de jogo, dificuldade e opções | a **engrenagem**, no canto do painel do pulso |
 | Ouvir a ficha da Pokédex | **GATILHO** com a Pokédex na mão |
+| Escanear um bicho da sala | **apontar a Pokédex para ele** e puxar o **GATILHO** — registra e abre a ficha |
 | **Tirar foto** | **A/X** da mão que segura a Pokédex — elas ficam na tela de saída |
 | Escolher / recolher / usar item | apontar com a outra mão e puxar o **GATILHO** |
 | Trocar de bola | **analógico direito** para os lados |
-| Virar página da Pokédex | **analógico direito**, com a Pokédex aberta |
+| Virar página da Pokédex | **analógico direito**, ou as setas **‹ ›** no rodapé da tela |
 | Deixar evoluir / adiar | **A** / **B**, com a pergunta na tela |
 | Fazer carinho | **encostar a mão** na cabeça dele |
 | Pegar um item na mão | **GRIP** na carta do item, no painel do pulso |
@@ -509,6 +512,28 @@ brilhante precisa entregar é *ser visivelmente outro* à primeira vista. Antes,
 noventa espécies simplesmente não podiam ser brilhantes e não havia como o
 jogador descobrir quais — ele só nunca via.
 
+## Lendários, e quem você ainda não viu
+
+Os cinco lendários existiam no sorteio por peso, com 0,05 contra 22 de um comum:
+a conta dava **um encontro a cada dezenas de milhares**, ou seja, nunca. Eles
+saíram do bolo e ganharam caminho próprio. A partir de **seis espécies na sua
+coleção**, cada encontro tem uma chance em vinte de ser um lendário que você
+ainda não capturou — um de cada, com cinco minutos entre dois, **seis níveis
+acima** do resto e o carimbo sonoro do brilhante, porque ele pode nascer às suas
+costas e a chance de ver aquele Zapdos é uma só.
+
+Pela mesma razão há uma **carência de novidade**: doze encontros seguidos sem
+nada inédito e o próximo sai do bolo dos que você nunca viu. Os pesos continuam
+valendo dentro dele — a carência escolhe de onde se sorteia, não o quê. Sem ela,
+a Pokédex deixa de ser caçada e vira espera: os pesos favorecem os comuns, você
+já capturou os comuns, e o jogo passa a mostrar os mesmos dez a tarde inteira.
+
+E **Eevee** tem tratamento à parte enquanto não for capturado: vale como um
+incomum, não como o raro que ele é na tabela da PokeAPI. Ele é a porta de cinco
+convidadas, três pedras e a única escolha irreversível do jogo — prometer tudo
+isso e deixar atrás de um dado que pode não cair é uma promessa que o jogo não
+cumpre.
+
 ## O quarto, mapeado enquanto você anda
 
 O jogo não acontece em volta do ponto onde você entrou. Ele acontece **onde você
@@ -689,6 +714,22 @@ Por baixo não há duas listas: "time" são as seis primeiras posições de uma 
 só, e é por isso que trocar a posição 2 com a 9 tira um do time e põe outro numa
 escrita só, sem estado para manter em sincronia.
 
+### Soltar na natureza
+
+No rodapé há uma área de **soltar**. Com um bicho na mão ela acende e **diz o
+preço antes**: a pedra de evolução que aquele bicho vale, que sai do TIPO dele —
+um Vulpix devolve a Pedra do Fogo, um Staryu a da Água. Junto vêm poções e
+frutas conforme o nível, e um Doce Raro a partir do 25.
+
+É o que dá utilidade ao sexto Pidgey repetido, e é o caminho de quem quer uma
+pedra sem esperar o dado: elas caem a 0,03 por captura — uma a cada trinta e
+tantas, cada uma —, e quem joga uma tarde não vê nenhuma. Sem pedra, cinco
+convidadas e a única escolha irreversível do jogo ficam trancadas.
+
+Não há confirmação depois, pelo mesmo motivo que a pedra não tem: a confirmação
+é o caminho até ali — pegar o bicho, atravessar o painel com ele na mão e largar
+numa área escrita em vermelho. O **último não sai**.
+
 ## A voz da Pokédex
 
 Com a Pokédex aberta, o **gatilho lê a ficha em voz alta, em português**. Os
@@ -794,6 +835,34 @@ Os giros são em **espaço da criatura** (+Z é a frente dela), não em eixo loc
 de osso: dobrar o joelho é girar em X num arquivo e em Z noutro, e escrever
 contra os eixos locais daria uma animação por espécie. A conversão usa a
 orientação de repouso do pai.
+
+### Asas, barbatanas e bigodes
+
+O rig mapeia vinte e cinco papéis — tronco, membros, três nós de cauda, duas
+orelhas. Todo o resto do esqueleto ficava **parado na pose de bind**: o
+Butterfree atravessava o quarto com as quatro asas rígidas, o bigode do
+Magikarp era um arame e a crista do Gyarados, uma serra de plástico.
+
+A saída veio de ler os arquivos em vez de adivinhar (`node tools/diag-ossos.mjs`,
+que lista os ossos que o rig não conhece, por frequência): **a Game Freak chama
+todo apêndice de `feeler`**. As asas do Charizard são `LFeeler1`…`LFeeler6`; as
+asas do Butterfree são `LFeelerA`/`LFeelerB` e as antenas dele, `LFeelerC`; as
+barbatanas laterais do Magikarp são `LFeeler1`…`LFeeler5`; os bigodes do
+Gyarados, `LFeelerA1`…`LFeelerA6`. Um prefixo só, em boa parte dos 151.
+
+Eles não viram papéis, porque não são papéis — são **cadeias**, e cada bicho tem
+as suas. `Rig.apendices` entrega cada cadeia na ordem em que sai do corpo, com o
+**lado** e o **comprimento relativo ao tronco**, e essas duas medidas bastam
+para decidir o movimento sem uma tabela por espécie: quem é mais comprido que o
+tronco é asa e **bate** (muito mais forte em quem paira); quem é curto é bigode
+ou antena e **treme** o tempo todo, inclusive parado. A onda anda do corpo para
+a ponta com atraso por elo, que é o mesmo princípio da cauda de três nós.
+
+A folha de poses também denunciou um bug antigo: **dezoito dos 151 numeram os
+ossos pelo começo** (`004Hips`, `050LArm`), e para eles nenhum papel batia — o
+rig inteiro ficava vazio e o bicho andava na pose de bind. Pidgey, Rattata,
+Sandshrew e Meowth estavam nessa lista. `normalizar` agora tira o índice do
+exportador dos dois lados do nome.
 
 Há uma pose base de cada vez — parado, andando, correndo, desmaiado — e por
 cima um gesto. Quem tem clipe assado usa o clipe e recebe a pose procedural por

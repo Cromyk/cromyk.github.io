@@ -148,6 +148,13 @@ export interface Contexto {
    * colo de ninguém.
    */
   colo?: number;
+  /**
+   * Ele PAIRA em vez de pisar (Zubat, Gastly, Koffing).
+   *
+   * Muda o que os apêndices fazem: quem voa bate as asas, quem anda apenas as
+   * deixa acompanhar o corpo. Ver `ondularApendices`.
+   */
+  flutua?: boolean;
 }
 
 /** Acima desta velocidade, em m/s, a base vira corrida. */
@@ -707,10 +714,42 @@ export class Animador {
       this.rig.girar('peD', LADO, (-senoD * 0.35 + apoioD * 0.3) * amplitude);
 
       // Braços contra as pernas — é o contrapeso que todo bípede faz.
+      //
+      // O balanço puro em LADO (o que existia) é o braço de um boneco de pau:
+      // um eixo só, o mesmo ângulo para ida e volta, e nada acontecendo no
+      // ombro nem no cotovelo além de dobrar proporcionalmente. O pedido do
+      // playtest de 19/09 foi "melhorar a movimentação dos braços", e o que
+      // faltava são três coisas que todo braço de verdade faz:
+      //
+      // 1. **O OMBRO entra**, com um terço do ângulo e um quarto de ciclo de
+      //    atraso. O braço não sai do ombro parado: a escápula vai junto,
+      //    depois dele.
+      // 2. **O braço ABRE ao ir para trás.** O giro em FRENTE afasta o
+      //    cotovelo do corpo no fim do recuo e o traz de volta na frente —
+      //    sem isso o braço varre um plano perfeito, que é o que faz parecer
+      //    articulado num pino.
+      // 3. **O COTOVELO dobra mais de um lado.** `abs(seno)` dobra igual na
+      //    ida e na volta; um braço dobra bem mais quando vem à frente do que
+      //    quando vai atrás. O `max(0, ·)` separado é essa assimetria.
+      this.rig.girar('ombroE', LADO, Math.sin(f + Math.PI - 0.5) * bracos * 0.3);
+      this.rig.girar('ombroD', LADO, Math.sin(f - 0.5) * bracos * 0.3);
       this.rig.girar('bracoE', LADO, senoD * bracos);
       this.rig.girar('bracoD', LADO, senoE * bracos);
-      this.rig.girar('antebracoE', LADO, -Math.abs(senoD) * bracos * 0.5);
-      this.rig.girar('antebracoD', LADO, -Math.abs(senoE) * bracos * 0.5);
+      this.rig.girar('bracoE', FRENTE, -Math.max(0, -senoD) * bracos * 0.42);
+      this.rig.girar('bracoD', FRENTE, Math.max(0, -senoE) * bracos * 0.42);
+      this.rig.girar(
+        'antebracoE',
+        LADO,
+        -(Math.max(0, senoD) * 0.85 + Math.max(0, -senoD) * 0.3) * bracos,
+      );
+      this.rig.girar(
+        'antebracoD',
+        LADO,
+        -(Math.max(0, senoE) * 0.85 + Math.max(0, -senoE) * 0.3) * bracos,
+      );
+      // E a mão acompanha com atraso, como uma coisa pendurada na ponta.
+      this.rig.girar('maoE', LADO, Math.sin(f + Math.PI - 0.8) * bracos * 0.45);
+      this.rig.girar('maoD', LADO, Math.sin(f - 0.8) * bracos * 0.45);
 
       // Quadril: sobe duas vezes por ciclo (um por pé) e torce uma vez só.
       this.rig.girar('quadril', CIMA, senoE * amplitude * 0.28);
@@ -765,6 +804,72 @@ export class Animador {
       this.rig.girar('orelhaE', LADO, 0.6 * pKo);
       this.rig.girar('orelhaD', LADO, 0.6 * pKo);
       this.rig.girar('cauda1', LADO, 0.4 * pKo);
+    }
+
+    this.ondularApendices(t, ctx, pPassada);
+  }
+
+  /**
+   * Asas, barbatanas, bigodes e antenas: a onda que percorre cada cadeia.
+   *
+   * ## O que estava parado
+   *
+   * Tudo isso. O `Rig` mapeia vinte e cinco papéis — tronco, membros, três nós
+   * de cauda, duas orelhas — e o resto do esqueleto ficava exatamente na pose
+   * de bind, para sempre. Um Butterfree atravessava o quarto com as quatro
+   * asas rígidas; o bigode do Magikarp era um arame; a crista do Gyarados,
+   * uma serra de plástico. Foi o pedido do playtest de 19/09.
+   *
+   * ## Uma regra para todos
+   *
+   * Não há tabela por espécie, e não precisa haver: `Rig.apendices` entrega
+   * cadeias com LADO e COMPRIMENTO RELATIVO ao tronco (ver src/rig.ts), e essas
+   * duas medidas bastam para decidir como cada uma se mexe.
+   *
+   * - **Quem é grande é asa** (a do Charizard é mais comprida que o tronco
+   *   dele): bate forte, e muito mais forte em quem PAIRA — é o que segura o
+   *   bicho no ar.
+   * - **Quem é pequeno é bigode ou antena**: treme de leve, o tempo todo,
+   *   inclusive parado. Bigode parado é o que mais entrega modelo estático.
+   * - **A onda anda do corpo para a PONTA**, com atraso por elo e amplitude
+   *   crescente. É o mesmo princípio da cauda em três nós que já existia aqui,
+   *   e é o que faz a coisa parecer flexível em vez de girar inteira.
+   * - **Os dois lados sobem juntos.** Girando em torno do eixo FRENTE, a asa
+   *   esquerda sobe com ângulo positivo e a direita com negativo — daí o sinal
+   *   por lado. Sem ele, o bicho rema.
+   */
+  private ondularApendices(t: number, ctx: Contexto, pPassada: number) {
+    const apendices = this.rig.apendices;
+    if (apendices.length === 0) return;
+
+    const voa = ctx.flutua === true;
+    // Nervoso mexe mais depressa; desmaiado não mexe nada.
+    const ritmo = voa ? 5.4 : 1.6 + ctx.alarme * 1.4 + pPassada * 1.1;
+    const vivo = ctx.desmaiado ? 0.12 : 1;
+
+    for (let i = 0; i < apendices.length; i++) {
+      const ap = apendices[i];
+      const asa = ap.relativo > 0.55;
+      // A asa de quem paira bate de verdade (20°); a de quem anda só acompanha.
+      // O bigode fica nos 4° o tempo todo, que é o que o olho lê como "vivo".
+      const base = asa
+        ? (voa ? 0.36 : 0.06 + pPassada * 0.12)
+        : 0.05 + pPassada * 0.04 + ctx.alarme * 0.03;
+      const amplitude = base * vivo;
+      if (amplitude < 0.004) continue;
+
+      // Cada cadeia fora de fase da vizinha: as quatro asas do Butterfree
+      // batendo em uníssono seriam uma só asa dupla.
+      const fase = t * ritmo + i * 0.7;
+      const sinal = ap.lado === 1 ? -1 : 1;
+      const eixo = ap.lado === 0 ? LADO : FRENTE;
+
+      for (let e = 0; e < ap.tamanho; e++) {
+        // A ponta chega depois e vai mais longe.
+        const fracao = ap.tamanho > 1 ? e / (ap.tamanho - 1) : 0;
+        const onda = Math.sin(fase - e * 0.45);
+        this.rig.girarElo(i, e, eixo, onda * amplitude * (0.45 + fracao * 0.9) * sinal);
+      }
     }
   }
 

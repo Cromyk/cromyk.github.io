@@ -1661,6 +1661,9 @@ export class Pokemon {
       encarar: this.estado === 'desmaiado' ? null : this.residuoOlhar,
       desmaiado: this.estado === 'desmaiado',
       colo: this.pesoDoColo,
+      // Quem paira bate as asas de verdade; quem anda só as deixa acompanhar
+      // o corpo. Ver `ondularApendices` em src/anima.ts.
+      flutua: this.flutua,
     });
 
     if (this.estado !== 'preso') {

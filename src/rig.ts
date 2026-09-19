@@ -97,12 +97,100 @@ const CANDIDATOS: Record<Chave, string[]> = {
 };
 
 /**
+ * Os APÊNDICES: asas, barbatanas, bigodes, antenas, penas e tentáculos.
+ *
+ * ## A descoberta
+ *
+ * O pedido do playtest de 19/09 foi *"melhorar movimentação dos braços e
+ * elementos adicionais dos Pokémon, como ASAS, barbatanas, bigodes"*, e a
+ * primeira pergunta era factual: como esses ossos se chamam? A resposta, lida
+ * dos 151 arquivos com `node tools/diag-ossos.mjs`, é melhor do que parecia:
+ *
+ * **a Game Freak chama tudo isso de `feeler`.** As asas do Charizard são
+ * `LFeeler1`…`LFeeler6`; as asas do Butterfree são `LFeelerA`/`LFeelerB` e as
+ * antenas dele são `LFeelerC`; as barbatanas laterais do Magikarp são
+ * `LFeeler1`…`LFeeler5`; os bigodes do Gyarados são `LFeelerA1`…`LFeelerA6` e
+ * as cristas das costas dele são `FeelerB`…`FeelerE`; as penas da cabeça do
+ * Pidgey são `LFeeler1`/`LFeeler2`. Um prefixo só, em 60 dos 151.
+ *
+ * É a mesma lição de `tools/brasa.mjs`, onde a chama se achou pelo NOME do
+ * material: antes de adivinhar onde uma coisa está dentro de um modelo, leia
+ * como ela se chama.
+ *
+ * ## Por que não vira `Chave`
+ *
+ * Porque não são papéis, são CADEIAS, e cada bicho tem as suas: seis nós de asa
+ * no Charizard, sete de antena no Butterfree, nenhum no Charmander. Um papel
+ * `asaE` teria de escolher um nó e ignorar os outros cinco. Aqui a cadeia
+ * inteira é guardada na ordem em que sai do corpo, e a onda percorre ela com
+ * atraso por elo — que é o que faz uma asa bater e um bigode ondular com o
+ * mesmo código.
+ */
+export interface Apendice {
+  /** −1 para o lado esquerdo do bicho, +1 para o direito, 0 para o centro. */
+  lado: -1 | 0 | 1;
+  /** Quantos elos a cadeia tem. */
+  tamanho: number;
+  /**
+   * O comprimento da cadeia em relação ao tronco do bicho.
+   *
+   * É o que separa uma ASA de um BIGODE sem precisar de tabela por espécie: a
+   * asa do Charizard é mais comprida que o tronco dele; o bigode do Magikarp é
+   * uma fração. Quem é grande bate; quem é pequeno treme.
+   */
+  relativo: number;
+}
+
+/** Quantos apêndices e quantos elos cada um: um teto para o custo por quadro. */
+const MAX_APENDICES = 8;
+const MAX_ELOS = 8;
+
+/** O que conta como apêndice, pelo nome já normalizado. */
+function ehApendice(nome: string): boolean {
+  // `feeler` é o nome genérico da Game Freak (ver `Apendice`). `ltail`/`rtail`
+  // entram porque são as abas da cauda do Vaporeon e companhia — cauda que sai
+  // aos pares é barbatana, não cauda.
+  return /^(l|r)?feeler/.test(nome) || /^(l|r)tail/.test(nome);
+}
+
+function ladoDoNome(nome: string): -1 | 0 | 1 {
+  if (nome.startsWith('l')) return -1;
+  if (nome.startsWith('r')) return 1;
+  return 0;
+}
+
+/** Quantos ossos descem daqui. É a régua de "qual cadeia é a principal". */
+function contarDescendentes(osso: THREE.Object3D): number {
+  let total = 0;
+  for (const filho of osso.children) {
+    if (!(filho as THREE.Bone).isBone) continue;
+    total += 1 + contarDescendentes(filho);
+  }
+  return total;
+}
+
+/**
  * Tira do nome tudo o que é do exportador e não do rig: o prefixo de pilha
  * (`model_skeleton|Head`) e o índice de nó (`Head_50`).
  */
 export function normalizar(nome: string): string {
   const semPilha = nome.slice(nome.lastIndexOf('|') + 1);
-  return semPilha.replace(/_\d+$/, '').replace(/[\s.:-]/g, '').toLowerCase();
+  return (
+    semPilha
+      .replace(/_\d+$/, '')
+      // E o índice no COMEÇO, que é o mesmo exportador numerando os nós pelo
+      // outro lado: `004Hips`, `050LArm`, `036Spine2`.
+      //
+      // Dezoito dos 151 vêm assim — Pidgey, Rattata, Sandshrew, Meowth… —, e
+      // para eles o rig inteiro dava errado: nenhum papel batia, `encontrados`
+      // ficava zero e a animação procedural simplesmente não existia. O bicho
+      // atravessava o quarto na pose de bind. Achado em 19/09 pela folha de
+      // poses, que imprime "o Rig não reconheceu o esqueleto" — o aviso estava
+      // lá e ninguém tinha olhado para aquela espécie.
+      .replace(/^\d+/, '')
+      .replace(/[\s.:-]/g, '')
+      .toLowerCase()
+  );
 }
 
 interface No {
@@ -133,6 +221,17 @@ export const LADO = new THREE.Vector3(1, 0, 0);
 
 export class Rig {
   private nos = new Map<Chave, No>();
+  /** As cadeias de apêndice, na ordem em que saem do corpo. Ver `Apendice`. */
+  readonly apendices: Apendice[] = [];
+  /** Os nós de cada apêndice, do que nasce no corpo até a ponta. */
+  private elos: No[][] = [];
+  /**
+   * Todos os nós numa lista só — os dos papéis e os dos apêndices.
+   *
+   * Existe para o laço de cada quadro (`limpar` e `aplicar`) não ter de juntar
+   * duas coleções noventa vezes por segundo. Montada uma vez, no construtor.
+   */
+  private planos: No[] = [];
   /** Quantos papéis o esqueleto preencheu. Zero = modelo sem osso reconhecível. */
   readonly encontrados: number;
 
@@ -168,6 +267,71 @@ export class Rig {
     }
 
     this.encontrados = encontrados;
+    this.montarApendices(porNome, tomados, raizInv);
+    this.planos = [...this.nos.values()];
+    for (const cadeia of this.elos) this.planos.push(...cadeia);
+  }
+
+  /**
+   * Acha as cadeias de apêndice e as guarda na ordem em que saem do corpo.
+   *
+   * A busca é pela HIERARQUIA e não pelo nome: os nomes numerados
+   * (`LFeelerA1`, `LFeelerA2`) sugerem uma ordem, mas nem todos têm número —
+   * `FeelerB` do Gyarados é uma crista inteira num osso só, e `Feelera_end` do
+   * Vaporeon é a ponta de outra. Descer pelos filhos entrega a cadeia real,
+   * na ordem real, sem interpretar nome nenhum.
+   *
+   * Uma cadeia nasce num osso de apêndice cujo PAI não é apêndice. É o que
+   * separa duas asas de uma asa de doze nós.
+   */
+  private montarApendices(
+    porNome: Map<string, THREE.Bone>,
+    tomados: Set<THREE.Bone>,
+    raizInv: THREE.Quaternion,
+  ) {
+    // A régua do tamanho: o tronco. Ver `Apendice.relativo`.
+    const alto = this.nos.get('cabeca')?.osso ?? this.nos.get('peito')?.osso ?? null;
+    const baixo = this.nos.get('quadril')?.osso ?? this.nos.get('tronco')?.osso ?? null;
+    let tronco = 1;
+    if (alto && baixo) {
+      const a = alto.getWorldPosition(new THREE.Vector3());
+      const b = baixo.getWorldPosition(new THREE.Vector3());
+      tronco = Math.max(1e-4, a.distanceTo(b));
+    }
+
+    const raizes: Array<[string, THREE.Bone]> = [];
+    for (const [nome, osso] of porNome) {
+      if (!ehApendice(nome) || tomados.has(osso)) continue;
+      const pai = osso.parent as THREE.Bone | null;
+      if (pai?.isBone && ehApendice(normalizar(pai.name))) continue;
+      raizes.push([nome, osso]);
+    }
+    // Cadeia mais comprida primeiro: com o teto de oito, quem fica de fora tem
+    // de ser o detalhe, nunca a asa.
+    raizes.sort((a, b) => contarDescendentes(b[1]) - contarDescendentes(a[1]));
+
+    for (const [nome, raiz] of raizes.slice(0, MAX_APENDICES)) {
+      const cadeia: No[] = [];
+      let atual: THREE.Bone | null = raiz;
+      while (atual && cadeia.length < MAX_ELOS) {
+        if (tomados.has(atual)) break;
+        tomados.add(atual);
+        cadeia.push(this.montarNo(atual, raizInv));
+        atual = (atual.children.find(
+          (f) => (f as THREE.Bone).isBone && ehApendice(normalizar(f.name)),
+        ) ?? null) as THREE.Bone | null;
+      }
+      if (cadeia.length === 0) continue;
+
+      const inicio = cadeia[0].osso.getWorldPosition(new THREE.Vector3());
+      const fim = cadeia[cadeia.length - 1].osso.getWorldPosition(new THREE.Vector3());
+      this.elos.push(cadeia);
+      this.apendices.push({
+        lado: ladoDoNome(nome),
+        tamanho: cadeia.length,
+        relativo: inicio.distanceTo(fim) / tronco,
+      });
+    }
   }
 
   private montarNo(osso: THREE.Bone, raizInv: THREE.Quaternion): No {
@@ -264,7 +428,7 @@ export class Rig {
     corpo.getWorldQuaternion(_qRaiz);
     const raizInv = _qRaiz.clone().invert();
 
-    for (const no of this.nos.values()) {
+    for (const no of this.planos) {
       no.repouso.copy(no.osso.quaternion);
       if (no.osso.parent) {
         no.osso.parent.getWorldQuaternion(_qOsso);
@@ -277,9 +441,26 @@ export class Rig {
 
   /** Zera os giros do quadro. Chamado uma vez, antes das poses. */
   limpar() {
-    for (const no of this.nos.values()) {
+    for (const no of this.planos) {
       if (no.sujo) no.acumulado.identity();
     }
+  }
+
+  /**
+   * Soma um giro a um elo de apêndice. Ver `Apendice` e `Anima.ondular`.
+   *
+   * Recebe índices em vez de `Chave` porque as cadeias são do BICHO, não do
+   * jogo: a asa esquerda do Charizard é a cadeia 0 com seis elos, e o bigode
+   * do Magikarp é a cadeia 2 com cinco. Quem anima não precisa saber qual é
+   * qual — só que a onda anda do elo 0 para a ponta.
+   */
+  girarElo(apendice: number, elo: number, eixo: THREE.Vector3, angulo: number) {
+    if (angulo === 0) return;
+    const no = this.elos[apendice]?.[elo];
+    if (!no) return;
+    _q.setFromAxisAngle(eixo, angulo);
+    no.acumulado.multiply(_q);
+    no.sujo = true;
   }
 
   /**
@@ -307,7 +488,7 @@ export class Rig {
   aplicar(peso = 1) {
     if (peso <= 0.001) return;
     const cheio = peso >= 0.999;
-    for (const no of this.nos.values()) {
+    for (const no of this.planos) {
       if (!no.sujo) continue;
       // local = (paiRepouso⁻¹ · giro · paiRepouso) · repouso
       _q.copy(no.paiRepousoInv).multiply(no.acumulado).multiply(no.paiRepouso);

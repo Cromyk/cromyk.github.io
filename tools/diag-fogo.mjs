@@ -39,8 +39,15 @@ const CANDIDATOS = {
   cauda1: ['tail1', 'tail'], cauda2: ['tail2'], cauda3: ['tail3'],
   pescoco: ['neck1', 'neck'], cabeca: ['head1', 'head'],
 };
+// O índice do exportador cai dos DOIS lados: `Head_50` e `004Hips`. Ver
+// `normalizar` em src/rig.ts — esta é a mesma régua, e tem de continuar sendo.
 const normalizar = (n) =>
-  n.slice(n.lastIndexOf('|') + 1).replace(/_\d+$/, '').replace(/[\s.:-]/g, '').toLowerCase();
+  n
+    .slice(n.lastIndexOf('|') + 1)
+    .replace(/_\d+$/, '')
+    .replace(/^\d+/, '')
+    .replace(/[\s.:-]/g, '')
+    .toLowerCase();
 
 const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS.filter((e) => e !== EXTMeshoptCompression))
