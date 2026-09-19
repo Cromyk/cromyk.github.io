@@ -79,7 +79,7 @@ import { ehPedra, pedraPorId, aQuemServe } from './pedras';
 import { ItemNaMao, RastroDeIsca } from './isca';
 import { Mochila } from './mochila';
 import { Medidor } from './medidor';
-import { Achados } from './achados';
+import { ALCANCE_ACHADO, Achados } from './achados';
 import { Centro } from './centro';
 import { CONDICOES, condicaoDoGolpe } from './condicao';
 import { pedindoAjuda } from './gesto';
@@ -1356,6 +1356,15 @@ export class Jogo {
       this.guardarNaMochila(mao);
       return;
     }
+
+    // O item em cima do móvel. Vem DEPOIS de tudo que se agarra no corpo —
+    // Pokédex nas costas, mochila no peito, cinto no antebraço, carta no painel
+    // —, porque esses são gestos em cima de VOCÊ e nunca competem com uma mesa
+    // a um braço de distância. E vem ANTES da guarda de mão cheia, porque catar
+    // uma poção não precisa da mão livre: ela vai direto para a mochila, e
+    // recusar o gesto por causa da bola que você já segura seria o tipo de
+    // "não pega e você não sabe por quê" que este item existe para evitar.
+    if (this.pegarAchado(mao)) return;
 
     if (this.bolaNaMao.has(mao.indice)) return;
 
@@ -4565,41 +4574,68 @@ export class Jogo {
    * também se agarram.
    */
   private atualizarAchados(dt: number) {
-    this.achados.atualizar(dt, this.sala, this.posicaoJogador);
-    if (!this.achados.tipoNaSala) return;
-
-    for (const mao of this.maos) {
-      if (!mao.conectada) continue;
-      const tipo = this.achados.colher(this.pontoDeAgarre(mao));
-      if (!tipo) continue;
-
-      this.dex.ganharItem(tipo.id, 1);
-      mao.sentir('pegou');
-      audio.tilintar();
-      const onde = this.posicaoJogador;
-      audio.de(onde.x, onde.y, onde.z, () => audio.sucesso());
-      this.aviso.mostrar(
-        [
-          {
-            texto: `achou ${tipo.nome}`,
-            tamanho: 36,
-            cor: `#${new THREE.Color(tipo.cor).getHexString()}`,
-          },
-          ...(this.dex.primeiraVez('achado')
-            ? [
-                {
-                  texto: 'coisas aparecem pela casa — vale andar por aí',
-                  tamanho: 21,
-                  cor: '#9aa5b8',
-                  peso: 500,
-                },
-              ]
-            : []),
-        ],
-        2.4,
-      );
-      return;
+    // O destaque vem ANTES do `atualizar`, porque a força é consumida dentro
+    // dele — o mesmo arranjo das pokébolas caídas, pelo mesmo motivo.
+    const onde = this.achados.posicao;
+    if (onde) {
+      for (const mao of this.maos) {
+        if (!mao.conectada) continue;
+        const forca = forcaDeToque(
+          this.pontoDeAgarre(mao).distanceTo(onde),
+          ALCANCE_ACHADO,
+          AVISO.achado,
+        );
+        if (forca <= 0) continue;
+        mao.rocar(forca);
+        this.achados.aproximar(forca);
+      }
     }
+
+    this.achados.atualizar(dt, this.sala, this.posicaoJogador);
+  }
+
+  /**
+   * O item em cima do móvel, pego pelo GRIP — item 4.6 do roteiro.
+   *
+   * Pegar é com a MÃO, e não com a mira: o item está em cima da sua mesa de
+   * verdade, ao alcance do braço, e apontar para uma coisa que está a um palmo
+   * de você seria o gesto errado — o mesmo motivo pelo qual a mochila e o
+   * cinto também se agarram.
+   *
+   * E é com o GESTO, e não com a colisão. Isto rodava no laço de quadro:
+   * bastava a mão PASSAR perto e a poção sumia, creditada, com som e cartaz,
+   * sem você ter feito nada. Ver o cabeçalho de src/achados.ts.
+   */
+  private pegarAchado(mao: Mao): boolean {
+    const tipo = this.achados.colher(this.pontoDeAgarre(mao));
+    if (!tipo) return false;
+
+    this.dex.ganharItem(tipo.id, 1);
+    mao.sentir('pegou');
+    audio.tilintar();
+    const onde = this.posicaoJogador;
+    audio.de(onde.x, onde.y, onde.z, () => audio.sucesso());
+    this.aviso.mostrar(
+      [
+        {
+          texto: `achou ${tipo.nome}`,
+          tamanho: 36,
+          cor: `#${new THREE.Color(tipo.cor).getHexString()}`,
+        },
+        ...(this.dex.primeiraVez('achado')
+          ? [
+              {
+                texto: 'coisas aparecem pela casa — vale andar por aí',
+                tamanho: 21,
+                cor: '#9aa5b8',
+                peso: 500,
+              },
+            ]
+          : []),
+      ],
+      2.4,
+    );
+    return true;
   }
 
   /**

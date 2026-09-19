@@ -523,25 +523,61 @@ alavanca de um número só.
 - **Conferido em:** `npm test`, seção 45 — a forma dos cinco padrões, o piso, o
   escuro entre as duas batidas, a volta ao repouso e o flash de mão nua.
 
-### 4.6 O achado no chão se pega sozinho
+### 4.6 ✅ O achado em cima do móvel se pegava sozinho (feito em 19/09)
 
-`Achados.colher` roda no laço de quadro, e o getter `Achados.posicao` não tem
-consumidor nenhum: a dica que o comentário promete nunca foi escrita. O item do
-chão deveria ser pego pelo GRIP como tudo o mais, com destaque de aproximação
-antes — e nessa ordem, senão troca "pega sozinho" por "não pega e você não sabe
-por quê".
+`Achados.colher` rodava no laço de quadro: bastava a mão PASSAR perto da poção
+e ela sumia — creditada, com som e cartaz, sem nenhum gesto seu. Um item que se
+pega sozinho não é um item que você achou; é um item que aconteceu com você. E
+o getter `Achados.posicao` não tinha consumidor nenhum: a dica de aproximação
+que o comentário prometia nunca foi escrita.
+
+As duas metades eram a mesma coisa, e por isso foram juntas:
+
+- **Pegar é pelo GRIP**, como tudo o mais que se pega no jogo. Entra na cascata
+  depois de tudo que se agarra no CORPO (Pokédex nas costas, mochila no peito,
+  cinto no antebraço, carta no painel), que nunca compete com um móvel a um
+  braço de distância, e antes da guarda de mão cheia — catar uma poção não
+  precisa da mão livre, ela vai direto para a mochila.
+- **A aproximação responde antes.** O objeto cresce 18% e a luz sobe conforme a
+  mão chega, e a mão sente a textura (`forcaDeToque` + `rocar`). Sem isso, pegar
+  por GRIP seria adivinhação: um alvo de dez centímetros em cima de um móvel de
+  verdade, sem resposta nenhuma, é indistinguível de um alvo que não responde.
+
+Duas coisas que apareceram implementando:
+
+- **O achado nascia a 1,35 e encolhia sozinho no quadro seguinte.**
+  `ItemNaMao.atualizar` escrevia a escala com `setScalar` todo quadro, então
+  quem a definisse de fora a via durar um quadro. Ninguém ia notar olhando —
+  ninguém viu o tamanho certo nunca. Agora existe `escalaBase`, multiplicada.
+- **A banda de aviso do achado é própria** (`AVISO.achado`, 30 cm sobre um
+  agarre de 17), e não a da mochila que tem o mesmo nome de "item" e 8 cm: a
+  mochila abre a um palmo do seu peito, o achado está em cima de um móvel de
+  verdade e você chega nele de braço esticado, sem o próprio corpo para
+  calibrar a distância.
 
 - **Esforço:** médio.
 - **Como saber que funcionou:** você fecha a mão em volta da poção que apareceu
-  na sua mesa, e ela vem.
+  na sua mesa, e ela vem. Passar a mão por cima não tira mais nada de lá.
+- **Conferido em:** `npm test`, seção 46 — a mão varrendo por cima não colhe, a
+  escala responde à aproximação e volta, e o GRIP de longe é recusado sem gastar
+  o item.
 
-## Se fosse para escolher três
+## O que sobrou
 
-**0.1** (a medição), **4.2** (a bola que não gira) e **4.3** (o punho da mão
-nua).
+Com o 4.6, **todo item deste arquivo que dá para fazer sem o headset está
+feito** — fases 1, 2 e 4 inteiras, treze itens.
 
-O primeiro porque é o único item deste arquivo que eu não posso fazer, e porque
-tudo depois dele passa a ser decidido com número em vez de opinião — já são nove
-sistemas novos desde a última medida. O segundo porque é o objeto que mais
-aparece em campo de visão no jogo inteiro. E o terceiro porque o modo de mão nua
-acabou de voltar a existir (item 1.1), e seria uma pena ele voltar torto.
+O que resta depende de você:
+
+- **0.1** — os quatro números de quadro (parado, três selvagens, painel aberto,
+  mochila aberta). É o único item que eu não posso fazer, e **treze sistemas
+  novos** entraram desde a última medida. Tudo depois dele passa a ser decidido
+  com número em vez de opinião.
+- **3.1** — as quatro patas de fogo do Ponyta, que dependem do orçamento de
+  quadro que o 0.1 mede.
+- **3.2** — a oclusão ligada por padrão, que precisa de você vendo se o recorte
+  da mão aguenta.
+- **3.3** — o número da calibração da mão, que é uma medida no seu braço.
+
+Fora isso: confirmar se o download da foto funciona no navegador do Quest (o
+plano B é a Web Share API).

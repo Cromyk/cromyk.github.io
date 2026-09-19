@@ -115,11 +115,20 @@ export const AVISO = {
   /** Painel do pulso: agarre 9 cm → 6 cm. */
   carta: 0.15,
   /**
-   * Bola caída: agarre 16 cm → 14 cm. A maior banda do jogo, porque é o único
-   * alvo de grip que hoje não tem estado de aproximação NENHUM — e porque você
-   * chega nela agachado, com a própria mão tapando o alvo.
+   * Bola caída: agarre 16 cm → 14 cm. A maior banda do jogo, junto com o
+   * achado, porque você chega nela agachado, com a própria mão tapando o alvo.
    */
   bolaNoChao: 0.3,
+  /**
+   * Item em cima do móvel: agarre 17 cm → 13 cm.
+   *
+   * Larga como a da bola no chão, e não como a da mochila (que tem o mesmo
+   * nome de "item" e 8 cm), porque a geometria é outra: a mochila abre a um
+   * palmo do seu peito, na altura que você escolheu, e o achado está em cima de
+   * um móvel DE VERDADE — você chega nele de braço esticado, de lado, sem o
+   * apoio do próprio corpo para calibrar a distância.
+   */
+  achado: 0.3,
   /**
    * Pokédex nas costas: agarre 22 cm → 8 cm. Não alarga mais do que isso: a
    * bolha dela já é a maior do jogo e fica atrás do seu corpo, onde uma banda

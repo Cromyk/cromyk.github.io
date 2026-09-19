@@ -11,6 +11,7 @@
  */
 import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
+import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { Luva, PISO_DO_FLASH_MS, RESPIRO_DE_PULSO_MS, filaDePiscadas } from '../src/glove';
 import { TATO } from '../src/hands';
 import { NA_MAO, Pokebola, corrigirRumo } from '../src/orb';
@@ -97,7 +98,7 @@ import {
 } from '../src/pulso';
 import { Fotografo, LADO_DA_FOTO, MAX_FOTOS, nomeDaFoto } from '../src/foto';
 import { olhandoORelogio } from '../src/gesto';
-import { forcaDeToque, pulsoDeToque } from '../src/toque';
+import { AVISO, forcaDeToque, pulsoDeToque } from '../src/toque';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
 import { GOLPES_DEX } from '../src/golpes.gen';
@@ -4209,6 +4210,104 @@ console.log('\n45. a luva pisca o que a mão nua não sente');
   console.log(
     `   flash: 'não' em ${nao.contados} batidas a ${(esperado * 1000).toFixed(0)} ms ` +
       `· repouso ${repouso} · pico ${nao.maior.toFixed(2)}`,
+  );
+}
+
+// --- 46. o achado em cima do móvel não se pega sozinho ---
+//
+// `colher` rodava no laço de quadro: bastava a mão PASSAR perto da poção e ela
+// sumia — creditada, com som e cartaz, sem nenhum gesto seu. Um item que se
+// pega sozinho não é um item que você achou; é um item que aconteceu com você.
+//
+// E o getter `posicao` não tinha consumidor nenhum: a dica de aproximação que o
+// comentário prometia nunca foi escrita. As duas coisas são a mesma: sem
+// destaque, pegar por GRIP vira 'não pega e você não sabe por quê'.
+console.log('\n46. o achado em cima do móvel não se pega sozinho');
+{
+  const cena = new THREE.Group();
+  const sala = new Sala(new THREE.Group());
+  // Uma mesa a dois metros: longe o bastante para o achado nascer (ele nunca
+  // nasce a menos de um metro e meio de você) e em cima de móvel, nunca no chão.
+  sala.superficies = [
+    {
+      centro: new THREE.Vector3(2, 0.74, 0),
+      meiaLargura: 0.6,
+      meiaProfundidade: 0.6,
+      rotacaoY: 0,
+      rotulo: 'other',
+      altura: 0.74,
+      area: 1.44,
+      movel: 'mesa',
+    },
+  ];
+
+  const jogador = new THREE.Vector3(0, 1.6, 0);
+  const achados = new Achados(cena);
+
+  // Espera o item nascer. A espera inicial é de 25 s, e num quarto sem móvel
+  // ele reagenda de 12 em 12 — aqui tem mesa, então sai na primeira tentativa.
+  for (let q = 0; q < 60 * 30 && !achados.tipoNaSala; q++) achados.atualizar(1 / 60, sala, jogador);
+  checar(achados.tipoNaSala !== null, 'o achado não nasceu em cima da mesa em trinta segundos');
+
+  const onde = achados.posicao;
+  checar(onde !== null, 'o achado nasceu sem posição');
+  checar(onde !== null && onde.y > 0.5, `o achado nasceu a ${onde?.y.toFixed(2)} m — isso é chão`);
+
+  // (1) A MÃO PASSANDO POR CIMA NÃO PEGA NADA. Este é o bug.
+  const emCima = (onde as THREE.Vector3).clone();
+  for (let q = 0; q < 120; q++) {
+    // Varre a mão pela poção, indo e vindo, como um braço que passa perto.
+    const x = Math.sin(q * 0.2) * 0.3;
+    const mao = emCima.clone().add(new THREE.Vector3(x, 0, 0));
+    const d = (achados.posicao as THREE.Vector3).distanceTo(mao);
+    achados.aproximar(forcaDeToque(d, ALCANCE_ACHADO, AVISO.achado));
+    achados.atualizar(1 / 60, sala, jogador);
+  }
+  checar(achados.tipoNaSala !== null, 'a mão passou perto e o achado sumiu sozinho');
+
+  // (2) E A APROXIMAÇÃO TEM RESPOSTA. O objeto cresce com a mão chegando: é o
+  // aviso de que o gesto vai funcionar, sem o qual o GRIP é adivinhação.
+  const tamanho = () => {
+    let maior = 0;
+    cena.traverse((o) => {
+      maior = Math.max(maior, o.scale.x);
+    });
+    return maior;
+  };
+  // Longe: só o repouso.
+  for (let q = 0; q < 5; q++) achados.atualizar(1 / 60, sala, jogador);
+  const parado = tamanho();
+  checar(parado > 1.2, `o achado está a ${parado.toFixed(2)} de escala — o tamanho dele não sobreviveu ao quadro`);
+
+  // Com a mão em cima: cresce.
+  achados.aproximar(forcaDeToque(0, ALCANCE_ACHADO, AVISO.achado));
+  achados.atualizar(1 / 60, sala, jogador);
+  const perto = tamanho();
+  checar(perto > parado * 1.1, `a mão em cima levou a escala de ${parado.toFixed(2)} a ${perto.toFixed(2)}`);
+
+  // E solta: a amplitude é do quadro, não um estado que fica ligado.
+  achados.atualizar(1 / 60, sala, jogador);
+  checar(Math.abs(tamanho() - parado) < 1e-6, 'o destaque ficou ligado depois de a mão sair');
+
+  // A rampa é rampa: na borda da banda de aviso não há nada, e dentro do
+  // alcance de agarre ela satura.
+  checar(forcaDeToque(AVISO.achado, ALCANCE_ACHADO, AVISO.achado) === 0, 'a rampa do achado não começa em zero');
+  checar(forcaDeToque(ALCANCE_ACHADO, ALCANCE_ACHADO, AVISO.achado) === 1, 'a rampa do achado não satura no agarre');
+
+  // (3) SÓ O GESTO PEGA — e de longe ele não pega, que é a outra metade.
+  const longe = (achados.posicao as THREE.Vector3).clone().add(new THREE.Vector3(0.5, 0, 0));
+  checar(achados.colher(longe) === null, 'o GRIP pegou o achado de meio metro de distância');
+  checar(achados.tipoNaSala !== null, 'o achado sumiu num GRIP que foi recusado');
+
+  const tipo = achados.colher((achados.posicao as THREE.Vector3).clone());
+  checar(tipo !== null, 'o GRIP em cima do achado não pegou nada');
+  checar(achados.tipoNaSala === null, 'o achado foi colhido e continua na sala');
+  checar(achados.posicao === null, 'a sala vazia ainda devolve uma posição');
+
+  achados.descartar();
+  console.log(
+    `   achado: agarre ${(ALCANCE_ACHADO * 100).toFixed(0)} cm · aviso ${(AVISO.achado * 100).toFixed(0)} cm ` +
+      `· escala ${parado.toFixed(2)} → ${perto.toFixed(2)} com a mão em cima`,
   );
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);

@@ -23,6 +23,17 @@ export class ItemNaMao {
   readonly grupo = new THREE.Group();
   readonly tipo: TipoItem;
 
+  /**
+   * O tamanho de repouso deste item, multiplicado por tudo o mais.
+   *
+   * Existe por causa de um bug silencioso: `atualizar` escrevia a escala com
+   * `setScalar`, então quem tivesse posto o objeto num tamanho diferente o
+   * via voltar ao normal no primeiro quadro. O achado em cima do móvel nascia
+   * a 1,35 e encolhia sozinho um quadro depois — e ninguém ia perceber isso
+   * olhando, porque ninguém viu o tamanho certo nunca.
+   */
+  escalaBase = 1;
+
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
   private luz: THREE.PointLight;
   private tempo = 0;
@@ -141,7 +152,7 @@ export class ItemNaMao {
     const pulso = 0.5 + Math.sin(this.tempo * (chamando ? 9 : 3)) * (chamando ? 0.45 : 0.15);
     this.luz.intensity = pulso;
     const escala = 1 + (chamando ? Math.sin(this.tempo * 9) * 0.07 : 0);
-    this.grupo.scale.setScalar(escala);
+    this.grupo.scale.setScalar(this.escalaBase * escala);
   }
 
   descartar() {
