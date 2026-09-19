@@ -45,7 +45,7 @@ const COLUNAS = 4;
 const PASSO_X = 0.15;
 const PASSO_Y = 0.17;
 /** A que distância dos olhos a grade nasce. Perto o bastante para alcançar. */
-const DISTANCIA = 0.52;
+export const DISTANCIA_DA_MOCHILA = 0.52;
 /**
  * Quanto abaixo dos OLHOS a grade nasce, e não a que altura do chão.
  *
@@ -55,7 +55,7 @@ const DISTANCIA = 0.52;
  * medida que o headset conhece de verdade, então é dela que a altura sai — e
  * aí a mochila cai na altura do peito de quem quer que a tenha aberto.
  */
-const ABAIXO_DOS_OLHOS = 0.28;
+export const ABAIXO_DOS_OLHOS = 0.28;
 
 /**
  * Onde cada item fica na grade, em coordenadas do painel.
@@ -185,7 +185,7 @@ export class Mochila {
     direcao.normalize();
 
     const altura = posicao.y - ABAIXO_DOS_OLHOS;
-    this.grupo.position.copy(posicao).addScaledVector(direcao, DISTANCIA);
+    this.grupo.position.copy(posicao).addScaledVector(direcao, DISTANCIA_DA_MOCHILA);
     this.grupo.position.y = altura;
     // Encara a cabeça na horizontal: inclinar o painel para cima faria a
     // fileira de baixo apontar para o teto quando alguém o abrisse agachado.

@@ -58,10 +58,17 @@ import { MARCOS, faltamPara, marcoDe } from '../src/marcos';
 import { fatorDoHorario, habitoDe, noturnidade } from '../src/hora';
 import { Aviso } from '../src/hud';
 import { ITENS } from '../src/itens';
-import { Mochila, disporGrade } from '../src/mochila';
+import { ABAIXO_DOS_OLHOS, DISTANCIA_DA_MOCHILA, Mochila, disporGrade } from '../src/mochila';
 import { MEDIDAS_TIME, disporTime } from '../src/menu';
 import { classificarPelaAltura } from '../src/room';
-import { ALTURA_DE_ABRACO, Colo, alcanceDoColo, cabeNoColo, pontoDoColo } from '../src/colo';
+import {
+  ALCANCE_DE_ABRACO,
+  ALTURA_DE_ABRACO,
+  Colo,
+  alcanceDoColo,
+  cabeNoColo,
+  pontoDoColo,
+} from '../src/colo';
 import { Tablet, ALCANCE_TABLET } from '../src/tablet';
 import { FOGO_POR_ESPECIE, temFogo } from '../src/fogo';
 import { poseDoPulso } from '../src/pulso';
@@ -3229,6 +3236,68 @@ console.log('\n34. o gesto do relógio, e a pose do abraço');
 
   console.log(
     '   relógio: a pose do abraço dispara o gesto — por isso o painel só abre em mão vazia',
+  );
+}
+
+
+// --- 35. a mochila e o bicho abraçado disputam o mesmo gesto ---
+//
+// A cascata do GRIP tinha a mochila e a Pokédex ACIMA da guarda do colo: com a
+// mochila aberta, fechar a mão que abraça um Pokémon tirava uma poção de lá.
+//
+// A ordem foi corrigida (o colo e o abraço subiram para o topo), e o que se
+// afirma aqui é a PREMISSA: que os dois campos de agarre se sobrepõem mesmo na
+// pose típica. Se um dia a mochila mudar de lugar e deixar de disputar, esta
+// verificação avisa — e a ordem passa a ser preferência, não necessidade.
+console.log('\n35. a mochila e o bicho abraçado, no mesmo lugar');
+{
+  // A pose típica: olhos a 1,60 m, olhando para −Z.
+  const olhos = new THREE.Vector3(0, 1.6, 0);
+  const frente = new THREE.Vector3(0, 0, -1);
+
+  // Onde a mochila nasce (ver Mochila.abrir).
+  const centroDaMochila = olhos
+    .clone()
+    .addScaledVector(frente, DISTANCIA_DA_MOCHILA)
+    .setY(olhos.y - ABAIXO_DOS_OLHOS);
+
+  // Onde o bicho abraçado fica: entre as palmas, na altura do peito. `centro`
+  // do Pokémon É o meio das palmas — é o invariante de `pontoDoColo`.
+  const palmaE = new THREE.Vector3(-0.12, 1.25, -0.35);
+  const palmaD = new THREE.Vector3(0.12, 1.25, -0.35);
+  const centroDoBicho = palmaE.clone().add(palmaD).multiplyScalar(0.5);
+
+  // O item mais próximo da grade, com a mochila cheia (o pior caso, que é o
+  // comum: as pedras entram na grade conforme caem).
+  const lugares = disporGrade(ITENS.length);
+  let maisPerto = Infinity;
+  for (const lugar of lugares) {
+    // A grade encara o jogador na horizontal, então x local é x do mundo.
+    const noMundo = new THREE.Vector3(
+      centroDaMochila.x + lugar.x,
+      centroDaMochila.y + lugar.y,
+      centroDaMochila.z,
+    );
+    maisPerto = Math.min(maisPerto, noMundo.distanceTo(centroDoBicho));
+  }
+
+  const somaDosAlcances = Mochila.ALCANCE + ALCANCE_DE_ABRACO;
+  checar(
+    maisPerto < somaDosAlcances,
+    `a mochila e o abraço NÃO disputam mais (${maisPerto.toFixed(2)} m entre eles, ` +
+      `contra ${somaDosAlcances.toFixed(2)} de alcance somado) — a ordem da cascata virou preferência`,
+  );
+
+  // E a mão que vai abraçar ATRAVESSA a grade no caminho: ela sai do lado do
+  // corpo e vai até o bicho, passando pela profundidade em que os itens estão.
+  checar(
+    Math.abs(centroDaMochila.z - centroDoBicho.z) < 0.35,
+    'a mochila e o bicho abraçado ficam em profundidades distantes demais para a mão cruzar uma indo à outra',
+  );
+
+  console.log(
+    `   cascata: item mais perto do bicho abraçado a ${(maisPerto * 100).toFixed(0)} cm, ` +
+      `com ${(somaDosAlcances * 100).toFixed(0)} cm de alcance somado — o colo tem de vir antes`,
   );
 }
 

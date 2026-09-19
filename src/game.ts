@@ -908,6 +908,52 @@ export class Jogo {
   }
 
   /**
+   * A segunda mão entra no bicho que a primeira já está segurando.
+   *
+   * Separado de `abracar` porque ele precisa ser testado ANTES da mochila e da
+   * Pokédex na cascata do GRIP, e os outros dois casos do abraço não. Ver
+   * `pegarBola`: com a mochila aberta à frente do peito — que é exatamente
+   * onde o bicho abraçado está —, fechar a segunda mão em volta dele tirava uma
+   * poção de lá.
+   *
+   * Não chama `Pokemon.pegarNoColo()` de novo: ele já está no colo, e isto é
+   * ajustar a pegada, não pegar.
+   */
+  private entrarNoAbraco(mao: Mao, c: Pokemon): boolean {
+    const outra = this.outraMao(mao);
+    this.colo.pegar(mao.indice, c);
+    mao.segurando = true;
+    // Nas DUAS: o movimento de levar o braço até ele não pode virar impulso
+    // inicial do próximo arremesso.
+    mao.limparAmostras();
+    outra?.limparAmostras();
+    mao.sentir('acertou');
+    outra?.sentir('acertou');
+    audio.carinho();
+    c.animador.disparar('cafune', 1.2);
+    this.escorregando.delete(c);
+    this.avisarColo(c, 2);
+    return true;
+  }
+
+  /**
+   * A segunda mão está chegando num bicho que JÁ está em alguma mão?
+   *
+   * É o teste que sobe ao topo da cascata do GRIP. Ele é estreito de propósito:
+   * só responde quando alguém já segura o companheiro, e só para a mão que
+   * ainda não o segura.
+   */
+  private completandoAbraco(mao: Mao): boolean {
+    const c = this.companheiro;
+    if (!c || !c.viva || c.desmaiado) return false;
+    if (this.colo.maosEm(c) === 0) return false;
+    if (this.colo.bichoDe(mao.indice) === c) return false;
+    if (!cabeNoColo(c.altura * c.raiz.scale.y, 2)) return false;
+    if (!this.noAlcanceDoColo(mao, c, 2)) return false;
+    return this.entrarNoAbraco(mao, c);
+  }
+
+  /**
    * O gesto das DUAS mãos.
    *
    * ## O que ele resolve
@@ -956,21 +1002,7 @@ export class Jogo {
     const jaNele = this.colo.maosEm(c) > 0;
 
     // (1) a segunda mão entra no bicho que a primeira já segura
-    if (jaNele) {
-      this.colo.pegar(mao.indice, c);
-      mao.segurando = true;
-      // Nas DUAS: o movimento de levar o braço até ele não pode virar impulso
-      // inicial do próximo arremesso.
-      mao.limparAmostras();
-      outra?.limparAmostras();
-      mao.sentir('acertou');
-      outra?.sentir('acertou');
-      audio.carinho();
-      c.animador.disparar('cafune', 1.2);
-      this.escorregando.delete(c);
-      this.avisarColo(c, 2);
-      return true;
-    }
+    if (jaNele) return this.entrarNoAbraco(mao, c);
 
     // (2) cabe numa mão e ninguém o segura: o gesto de sempre resolve
     if (cabeNoColo(alturaEfetiva, 1)) return false;
@@ -1171,7 +1203,27 @@ export class Jogo {
   }
 
   private pegarBola(mao: Mao) {
-    // A mão foi às costas: isso é a Pokédex, e ela vem antes de tudo — é o
+    // O QUE VEM ANTES DE TUDO É O POKÉMON QUE VOCÊ JÁ ESTÁ SEGURANDO.
+    //
+    // Esta ordem foi crescendo por acréscimo, e a guarda do colo tinha ficado
+    // ABAIXO da Pokédex e da mochila. Na prática:
+    //
+    // - a mochila abre à frente do peito, que é exatamente onde um bicho
+    //   abraçado fica — fechar a mão que abraça tirava uma poção de lá;
+    // - a bolha da Pokédex nas costas tem vinte e dois centímetros, e num
+    //   abraço a mão passa perto o bastante.
+    //
+    // Um Pokémon nas suas mãos ganha de qualquer outra coisa que o gesto
+    // pudesse significar. Para pegar outra coisa, primeiro ponha ele no chão —
+    // que é o que abrir a mão faz.
+    if (this.colo.tem(mao.indice)) return;
+
+    // E a SEGUNDA mão chegando nele é um abraço, não um item. Teste estreito:
+    // só vale se alguém já o segura e se esta mão está a quinze centímetros do
+    // centro dele.
+    if (this.completandoAbraco(mao)) return;
+
+    // A mão foi às costas: isso é a Pokédex, e ela vem antes do resto — é o
     // único lugar do corpo onde não há mais nada para agarrar.
     if (this.pegarTablet(mao)) return;
 
@@ -1184,12 +1236,6 @@ export class Jogo {
     // do painel — se outra coisa respondesse primeiro, o gesto de pegar a poção
     // pegaria uma pokébola.
     if (this.pegarDaMochila(mao)) return;
-
-    // Mão com bicho no colo já está cheia — de bicho. Ela não cata bola do chão
-    // nem tira nada do cinto: para pegar outra coisa, primeiro ponha ele no
-    // chão. Sem isto, fechar a mão de novo com o Charmander nela começava a
-    // recolher pokébolas por cima dele.
-    if (this.colo.tem(mao.indice)) return;
 
     // Mão cheia em cima do painel: o GRIP GUARDA o que ela está segurando, em
     // vez de pegar mais uma coisa. É o "desisti" — você leva a bola de volta

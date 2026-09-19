@@ -127,7 +127,7 @@ nua desde que nasceu). Todos passaram a usar `Mao.pulso`.
   olha para ele, e nada abre. E, de mão nua, o painel do time abre girando o
   pulso — antes ele aparecia na origem do quarto.
 
-### 1.3 A cascata do GRIP tem duas inversões de prioridade
+### 1.3 ✅ A cascata do GRIP tem duas inversões de prioridade (feito em 19/09)
 
 A ordem em `pegarBola` foi crescendo por acréscimo, e duas coisas ficaram acima
 da guarda do colo:
@@ -140,7 +140,18 @@ A guarda do colo precisa subir para a primeira linha da cascata. É uma mudança
 de prioridade em gestos que já funcionam, então ela merece ser feita sozinha,
 com atenção, e não junto de outra coisa.
 
-- **Esforço:** baixo, mas é cirurgia em código que funciona.
+**Feito.** Duas coisas subiram para o topo da cascata: a guarda do colo (a mão
+que segura um Pokémon não faz mais nada com o GRIP até soltá-lo) e um teste
+novo e estreito, `completandoAbraco` — a SEGUNDA mão chegando num bicho que já
+está em alguma mão. O segundo existe separado porque só ele precisa vir antes
+da mochila; os outros dois casos do abraço continuam onde estavam.
+
+A seção 35 do smoke afirma a PREMISSA, que é o que dá sentido à ordem: na pose
+típica, o item mais próximo da grade fica a **20 cm** do centro do bicho
+abraçado, com **27 cm** de alcance somado entre os dois gestos. Eles disputam
+mesmo. Se a mochila um dia mudar de lugar e parar de disputar, o teste avisa — e
+aí a ordem passa a ser preferência em vez de necessidade.
+
 - **Como saber que funcionou:** com o bicho no colo e a mochila aberta, fechar a
   mão não troca o bicho por uma poção.
 
