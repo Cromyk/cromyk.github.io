@@ -714,6 +714,19 @@ Por baixo não há duas listas: "time" são as seis primeiras posições de uma 
 só, e é por isso que trocar a posição 2 com a 9 tira um do time e põe outro numa
 escrita só, sem estado para manter em sincronia.
 
+### Selecionar vários e soltar de uma vez
+
+O botão **selecionar**, no rodapé, troca o gesto: apontar e puxar o gatilho
+passa a **marcar** em vez de pegar, e a área de soltar vira um botão que diz
+quantos vão embora. É a diferença entre uma operação e vinte — arrastar resolve
+bem um Pidgey e é o gesto errado para vinte deles, que seriam vinte travessias
+do painel com o dedo puxado.
+
+A marca é uma faixa vermelha na carta inteira e um visto no canto de cima; sair
+do modo limpa tudo, porque uma seleção esquecida é uma seleção que te espera
+escondida na próxima vez que você abrir o PC. O último continua não saindo — se
+você marcar a coleção toda, saem todos menos um, e o aviso diz quantos foram.
+
 ### Soltar na natureza
 
 No rodapé há uma área de **soltar**. Com um bicho na mão ela acende e **diz o
@@ -730,11 +743,56 @@ Não há confirmação depois, pelo mesmo motivo que a pedra não tem: a confirm
 é o caminho até ali — pegar o bicho, atravessar o painel com ele na mão e largar
 numa área escrita em vermelho. O **último não sai**.
 
+## O rancho
+
+O ícone da **cerca**, no painel do pulso, troca o seu quarto por um **pasto**: a
+coleção inteira sai da bola de uma vez e fica passeando à sua volta, sem
+selvagem, sem briga e sem hora para acabar.
+
+Não há API para desligar o passthrough, e não precisa haver. A sessão é
+`immersive-ar` com o fundo transparente — o seu quarto aparece porque o jogo não
+desenha nada ali. Geometria **opaca** na frente da câmera tapa o passthrough do
+mesmo jeito que taparia qualquer outra coisa, então uma abóbada de céu de 40 m e
+um chão de 60 bastam para o quarto sumir. O chão do pasto **é o seu chão de
+verdade**: dar um passo continua sendo dar um passo, e o pasto nasce onde você
+estava quando abriu.
+
+Saem até oito, e o teto é de memória e não de gosto: o cache de modelos segura
+catorze, e cada Pokémon em cena traz geometria, esqueleto e textura. Quem não
+coube fica no PC, que é a tela onde se decide o bando.
+
+Lá dentro eles andam, param, se entreolham e reagem a você: encostar a mão na
+cabeça faz carinho — e o afeto conta, como conta no quarto —, e o GRIP pega no
+colo quem couber nele. A cerca é o limite: quem chega nela volta.
+
+O cenário inteiro são oito desenhos e 739 vértices, e nada aqui usa
+`transmission` nem pós-processamento (a água é opaca com brilho, não vidro). Em
+realidade mista o headset desenha tudo duas vezes a 90 Hz, e o orçamento é do
+bicho, não do capim. `npm run pasto` rasteriza o pasto de quatro ângulos num PNG
+e **falha se sobrar buraco** — buraco, em MR, é o seu quarto aparecendo no meio
+do rancho.
+
 ## A voz da Pokédex
 
 Com a Pokédex aberta, o **gatilho lê a ficha em voz alta, em português**. Os
 quatro iniciais têm narração gravada — cerca de meio minuto cada; quem não tem
 responde com o próprio grito.
+
+### A ficha completa
+
+Apontar uma espécie na grade e puxar o gatilho abre a **ficha inteira**, no
+lugar da grade: poder de combate, nível, vida e afeto do seu melhor exemplar; a
+**avaliação** em estrelas, com as três barras de gene e a frase do professor; os
+seis atributos-base numa escala fixa de 190, que é o que deixa comparar duas
+fichas; altura, peso, hábito, descrição, os quatro golpes e a evolução. O
+`‹ voltar` no canto devolve a grade.
+
+Os genes (0 a 15 em ataque, defesa e vitalidade, como os IVs do original) **não
+estão salvos**: eles são derivados da espécie, do instante da captura e de ser
+brilhante ou não. Três valores de quatro bits cabem folgados nessa combinação, e
+gravá-los custaria uma migração do save de quem já joga. O mesmo bicho tem os
+mesmos genes na terça e na sexta, e continua com eles depois de evoluir — porque
+o gene é do indivíduo, não da forma, e é assim no original também.
 
 A voz é **arquivo, não `speechSynthesis`**. A API do navegador seria de graça e
 sem nenhum megabyte no pacote, mas ela não sintetiza nada: pede a voz ao sistema.
@@ -917,9 +975,27 @@ setenta graus e vinha parar na frente do corpo.
 Duas armadilhas dos arquivos, resolvidas no código e não à mão:
 
 - **T-pose.** O Charmander vem de braços abertos na pose de bind. Somar animação
-  em cima disso o faz passear pelo quarto como um avião. `medirTPose` olha para
-  onde o braço aponta em repouso e, se for horizontal, abaixa — quem já chega de
-  braço caído não ganha correção nenhuma.
+  em cima disso o faz passear pelo quarto como um avião. `medirBracos` olha para
+  onde o braço aponta em repouso e, se for horizontal, abaixa — mas **não até
+  colar no corpo**. O quanto ele pode descer sai de trigonometria com a largura
+  medida do bicho (`Corpo.meiaCaixa`): o braço tem de sobrar do lado de fora da
+  silhueta, com teto de 34°. A fração fixa de antes (82% do caminho) não sabia a
+  largura de ninguém, e 18% de noventa graus põem o braço dentro da barriga de
+  um Snorlax.
+- **Braço de manequim.** Parado, o braço ficava exatamente no mesmo ângulo pelo
+  tempo que fosse. Agora há três ondas lentas de período incomensurável somadas
+  nele, desencontradas entre os dois lados — o conjunto nunca fecha, e o olho
+  não acha o compasso.
+- **Corrida fofa.** Quem tem braço curto em relação ao tronco — Pikachu,
+  Jigglypuff, Bulbasaur — corre **de braços esticados para fora**, tremendo. Não
+  há tabela por espécie: a régua é a proporção, e ela é a mesma razão pela qual
+  esses bichos não conseguiriam balançar o braço ao correr.
+- **A mão fecha.** `LFingerA`, `LFingerB1`, `RFingerC2`… estavam nos rips desde
+  sempre e nunca se mexeram: 22 espécies com três dedos de duas falanges, 15 com
+  um só. O eixo em que cada dedo dobra é **medido** — é a normal do plano em que
+  ele já está curvado na pose de bind —, e por isso não há um só número escrito
+  à mão. O punho fecha no soco e na garra, meio fecha na corrida, e respira
+  parado.
 - **Pose de bind inutilizável.** O Pikachu vem **deitado**: o rip conta com a
   animação dele para endireitar o bicho. A versão anterior tocava o Impactrueno
   em laço eterno, o que explicava o Pikachu permanentemente eletrocutado. Agora
@@ -1008,6 +1084,9 @@ src/
   hud.ts         texto, barras de vida e painéis em canvas 2D
   starter.ts     a vitrine dos quatro iniciais
   audio.ts       todos os sons, sintetizados — inclusive os gritos
+  rancho.ts      o pasto: céu, capim, cerca, lago e o bando solto
+  avaliacao.ts   os genes derivados, o poder de combate e a avaliação
+  cutucar.ts     o dedo que aperta botão sem grip: histerese e descanso
   rng.ts         aleatoriedade determinística
 tools/
   pokedex.mjs    baixa a PokeAPI e gera src/pokedex.gen.ts
@@ -1020,6 +1099,7 @@ tools/
   gritos.mjs     baixa os gritos oficiais dos 151 da PokeAPI (npm run gritos)
   golpes.mjs     baixa os golpes da PokeAPI e gera src/golpes.gen.ts
   paineis.ts     folha de contato dos painéis, rasterizada (npm run paineis)
+  pasto.ts       folha do rancho em quatro vistas; falha se sobrar buraco (npm run pasto)
   encaixe.mjs    confere que todo mundo encaixa no chão (npm run encaixe)
   smoke.ts       simula o jogo sem navegador (npm test)
   draco.mjs      copia o decodificador Draco do three para public/
@@ -1040,6 +1120,7 @@ npm run vozes      # grava os 151 dizendo o próprio nome
 npm run narracao   # grava a voz da Pokédex (só o que estiver faltando)
 npm run gritos     # baixa os gritos oficiais (--legacy para os de 8 bits)
 npm run paineis    # folha de contato dos painéis, para conferir a interface
+npm run pasto      # folha do rancho: quatro vistas, e o teste de "tapou o quarto?"
 npm run golpes     # regenera os golpes e as tabelas de aprendizado
 npm run encaixe    # confere o encaixe de todos no chão
 npm run build      # typecheck + bundle em dist/

@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { BORDA_COLISAO, MARGEM_DA_BOLA, Pokemon } from '../src/creature';
 import { avaliar, genesDe, poderDeCombate, totalDosGenes } from '../src/avaliacao';
 import { PainelPc } from '../src/pc';
+import { RAIO_DO_PASTO, Rancho } from '../src/rancho';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
@@ -6520,6 +6521,133 @@ console.log('\n66. o PC solta vários de uma vez, e sem embaralhar os índices')
   console.log(
     `   PC: modo seleção marca e solta em lote · 7 → 4 → 1 · o último fica · ` +
       `${ids.length} tipos de item numa despedida só`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n67. o rancho nasce onde você está, e o bando cabe nele');
+{
+  // O mesmo dublê de canvas dos outros blocos: o rancho desenha as texturas de
+  // capim e de céu num canvas na construção.
+  const ctx2d = new Proxy(
+    {},
+    {
+      get: (_a, prop) =>
+        prop === 'measureText'
+          ? () => ({ width: 10 })
+          : prop === 'createLinearGradient'
+            ? () => ({ addColorStop() {} })
+            : () => {},
+      set: () => true,
+    },
+  );
+  const global = globalThis as unknown as { document?: unknown };
+  global.document = {
+    createElement: () => ({ width: 1, height: 1, getContext: () => ctx2d }),
+  };
+
+  const rancho = new Rancho();
+  checar(!rancho.aberto && !rancho.grupo.visible, 'o rancho nasce aberto');
+
+  // Ele aparece ONDE VOCÊ ESTÁ, e não na origem da sessão: abrir na cozinha
+  // tem de pôr o pasto na cozinha. Ver `Rancho.abrir`.
+  const onde = new THREE.Vector3(3.2, 1.7, -1.4);
+  const piso = 0.15;
+  rancho.abrir(onde, piso);
+  checar(rancho.aberto, 'abrir não abriu');
+  checar(
+    Math.abs(rancho.grupo.position.x - onde.x) < 1e-6 &&
+      Math.abs(rancho.grupo.position.z - onde.z) < 1e-6,
+    `o pasto nasceu em ${rancho.grupo.position.x.toFixed(2)},${rancho.grupo.position.z.toFixed(2)} e devia nascer em você`,
+  );
+  checar(
+    Math.abs(rancho.grupo.position.y - piso) < 1e-6 && rancho.alturaEm() === piso,
+    'o chão do pasto não ficou no seu piso',
+  );
+
+  // O cercado: dentro é dentro, e a cerca é o limite que `Jogo` usa para
+  // segurar os moradores.
+  checar(rancho.dentro(onde), 'você não está dentro do seu próprio pasto');
+  const naCerca = new THREE.Vector3(onde.x + RAIO_DO_PASTO - 0.2, piso, onde.z);
+  const foraDaCerca = new THREE.Vector3(onde.x + RAIO_DO_PASTO + 0.5, piso, onde.z);
+  checar(rancho.dentro(naCerca), 'um ponto 20 cm dentro da cerca ficou de fora');
+  checar(!rancho.dentro(foraDaCerca), 'um ponto meio metro fora da cerca ficou dentro');
+
+  // --- os pontos de solta ---
+  const olhar = new THREE.Vector3(0.6, 0, -0.8).normalize();
+  const TOTAL = 8;
+  const pontos: THREE.Vector3[] = [];
+  for (let i = 0; i < TOTAL; i++) pontos.push(rancho.pontoDeSolta(i, TOTAL, olhar));
+
+  for (let i = 0; i < pontos.length; i++) {
+    const p = pontos[i];
+    checar(Number.isFinite(p.x) && Number.isFinite(p.z), `o ponto ${i} virou NaN`);
+    checar(rancho.dentro(p), `o morador ${i} nasce fora do cercado`);
+    checar(Math.abs(p.y - piso) < 1e-6, `o morador ${i} nasce fora do chão`);
+
+    // À FRENTE: soltar metade do bando nas suas costas faria parecer que só
+    // metade saiu. O arco abre 150°, então o cosseno mínimo é cos(75°) ≈ 0,26.
+    const para = new THREE.Vector3(p.x - onde.x, 0, p.z - onde.z).normalize();
+    checar(
+      para.dot(olhar) > 0.2,
+      `o morador ${i} nasceu atrás de você (cosseno ${para.dot(olhar).toFixed(2)})`,
+    );
+  }
+
+  // E eles não nascem uns dentro dos outros.
+  let maisPerto = Infinity;
+  for (let i = 0; i < pontos.length; i++) {
+    for (let j = i + 1; j < pontos.length; j++) {
+      maisPerto = Math.min(maisPerto, pontos[i].distanceTo(pontos[j]));
+    }
+  }
+  checar(maisPerto > 0.9, `dois moradores nascem a ${maisPerto.toFixed(2)} m um do outro`);
+
+  // Nem em cima do lago: um Charmander na água é engraçado uma vez e errado
+  // sempre. Ver `LAGO` em src/rancho.ts — o teste mede pela geometria, e não
+  // pela constante, para não repetir o número em dois lugares.
+  const lago = rancho.grupo.children.find(
+    (o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.type === 'CircleGeometry' &&
+      Math.abs((o as THREE.Mesh).position.y - 0.012) < 1e-6,
+  ) as THREE.Mesh | undefined;
+  checar(lago !== undefined, 'o laguinho sumiu do pasto');
+  if (lago) {
+    const raioDoLago = (lago.geometry as THREE.CircleGeometry).parameters.radius;
+    for (let i = 0; i < pontos.length; i++) {
+      const d = Math.hypot(
+        pontos[i].x - onde.x - lago.position.x,
+        pontos[i].z - onde.z - lago.position.z,
+      );
+      checar(d > raioDoLago, `o morador ${i} nasce dentro do lago (a ${d.toFixed(2)} m do centro)`);
+    }
+  }
+
+  // --- um quadro ---
+  for (let i = 0; i < 20; i++) rancho.atualizar(1 / 72);
+  checar(rancho.grupo.visible, 'o pasto aberto ficou invisível');
+  rancho.fechar();
+  for (let i = 0; i < 200; i++) rancho.atualizar(1 / 72);
+  checar(!rancho.grupo.visible, 'o pasto fechado continuou desenhando');
+
+  // O cenário inteiro cabe no orçamento: em MR o headset desenha tudo DUAS
+  // vezes a 90 Hz, e um cenário que dobre a contagem de desenhos come a folga
+  // que os Pokémon precisam. Ver o cabeçalho de src/rancho.ts.
+  let desenhos = 0;
+  let vertices = 0;
+  rancho.grupo.traverse((o) => {
+    const malha = o as THREE.Mesh;
+    if (!malha.isMesh) return;
+    desenhos++;
+    vertices += malha.geometry.getAttribute('position')?.count ?? 0;
+  });
+  checar(desenhos <= 12, `o rancho faz ${desenhos} desenhos, e o teto é 12`);
+  checar(vertices < 8000, `o rancho tem ${vertices} vértices, e o teto é 8000`);
+
+  rancho.descartar();
+  delete global.document;
+  console.log(
+    `   rancho: pasto de ${RAIO_DO_PASTO} m nasce em você · 8 soltas à frente, ` +
+      `${maisPerto.toFixed(1)} m entre as mais próximas · ${desenhos} desenhos, ${vertices} vértices`,
   );
 }
 

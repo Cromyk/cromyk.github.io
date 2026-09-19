@@ -132,6 +132,9 @@ const secoes: Array<{ titulo: string; pecas: Peca[] }> = [];
     { canvas: (painel.titulo as { canvas: Canvas }).canvas, rotulo: 'título' },
     { canvas: (painel.cardEngrenagem as { canvas: Canvas }).canvas, rotulo: 'engrenagem' },
     { canvas: (painel.cardPc as { canvas: Canvas }).canvas, rotulo: 'PC' },
+    { canvas: (painel.cardMochila as { canvas: Canvas }).canvas, rotulo: 'mochila' },
+    { canvas: (painel.cardChamar as { canvas: Canvas }).canvas, rotulo: 'vem cá' },
+    { canvas: (painel.cardRancho as { canvas: Canvas }).canvas, rotulo: 'rancho' },
   ];
   for (const [nome, lista] of [
     ['etiqueta do time', painel.etiquetas],

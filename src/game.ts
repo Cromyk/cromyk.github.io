@@ -66,6 +66,7 @@ import { Evolucao, PromptEvolucao } from './evolucao';
 import type { GestoDeAtaque } from './anima';
 import { PainelTime, type EntradaGolpe, type Selecao } from './menu';
 import { Cutucador, ENTRADA as CUTUCADA_ENTRADA } from './cutucar';
+import { RAIO_DO_PASTO, Rancho } from './rancho';
 import { type Modo } from './modos';
 import {
   Ajustes,
@@ -403,6 +404,19 @@ export class Jogo {
   readonly ajustes = new Ajustes();
   /** O dedo que aperta botão sem grip. Ver `cutucarPaineis`. */
   private cutucador = new Cutucador();
+  /** O pasto. Ver src/rancho.ts e `alternarRancho`. */
+  private rancho = new Rancho();
+  /**
+   * Quem está solto no pasto — a coleção fora da bola, toda de uma vez.
+   *
+   * Separado de `companheiro` de propósito. O companheiro é UM, tem barra de
+   * vida, recebe ordens, leva XP e briga; transformá-lo numa lista para caber
+   * o rancho mexeria em cada um desses sistemas. Os moradores não brigam nem
+   * levam ordem — eles passeiam, e é isso que o rancho é.
+   */
+  private moradores: Array<{ pokemon: Pokemon; exemplar: Exemplar }> = [];
+  /** Uma abertura de cada vez: ela baixa modelo, e é assíncrona. */
+  private mexendoNoRancho = false;
   private auras: Aura[] = [];
   /** Golpe escolhido à mão no painel. Só o modo Batalha usa. */
   private golpeArmado: string | null = null;
@@ -838,6 +852,10 @@ export class Jogo {
       this.chamarParaPerto(mao);
       return;
     }
+    if (alcancado.tipo === 'rancho') {
+      void this.alternarRancho();
+      return;
+    }
     if (alcancado.tipo === 'dificuldade') {
       this.escolherDificuldade(alcancado.entrada);
       return;
@@ -1211,7 +1229,7 @@ export class Jogo {
    * colo um bicho que não te conhece, e a resposta dele a isso não é ronronar.
    */
   private pegarNoColo(mao: Mao): boolean {
-    const c = this.companheiro;
+    const c = this.seuPokemonSobAMao(mao);
     if (!c || !c.viva || c.desmaiado) return false;
     if (!cabeNoColo(c.altura * c.raiz.scale.y, 1)) return false;
     if (!this.noAlcanceDoColo(mao, c, 1)) return false;
@@ -1225,6 +1243,33 @@ export class Jogo {
     this.vozDoBicho(c);
     this.avisarColo(c, 1);
     return true;
+  }
+
+  /**
+   * Qual dos SEUS está sob esta mão: o companheiro, ou um morador do pasto.
+   *
+   * No quarto a resposta é sempre o companheiro, porque só ele existe. No
+   * rancho há até oito, e pegar no colo tem de pegar aquele em que você
+   * encostou — não o primeiro da lista. Por isso a escolha é pelo mais PERTO
+   * do corpo (ver `Pokemon.distanciaAoCorpo`), e não pela ordem.
+   */
+  private seuPokemonSobAMao(mao: Mao): Pokemon | null {
+    if (this.moradores.length === 0) return this.companheiro;
+    const ponto = mao.pontoDeToque(new THREE.Vector3());
+    let melhor: Pokemon | null = null;
+    let menor = Infinity;
+    for (const { pokemon } of this.moradores) {
+      const d = pokemon.distanciaAoCorpo(ponto, BORDA_COLISAO);
+      if (d < menor) {
+        menor = d;
+        melhor = pokemon;
+      }
+    }
+    if (this.companheiro) {
+      const d = this.companheiro.distanciaAoCorpo(ponto, BORDA_COLISAO);
+      if (d < menor) melhor = this.companheiro;
+    }
+    return melhor;
   }
 
   /**
@@ -2764,12 +2809,13 @@ export class Jogo {
       else if (selecao.tipo === 'pc') this.alternarPc();
       else if (selecao.tipo === 'mochila') this.alternarMochila(mao);
       else if (selecao.tipo === 'chamar') this.chamarParaPerto(mao);
+      else if (selecao.tipo === 'rancho') void this.alternarRancho();
       else if (selecao.tipo === 'dificuldade') this.escolherDificuldade(selecao.entrada);
       else if (selecao.tipo === 'interruptor') this.alternarInterruptor(selecao.entrada.id);
       // O item vai para a MÃO, aqui também: mirar e apertar o gatilho é o
       // mesmo pedido que encostar a mão na carta, e um pedido só não pode ter
       // dois resultados diferentes. Quem usa de verdade é o toque no bicho.
-      else this.pegarIsca(mao, selecao.entrada.tipo.id);
+      else if (selecao.tipo === 'item') this.pegarIsca(mao, selecao.entrada.tipo.id);
       return;
     }
 
@@ -4567,6 +4613,199 @@ export class Jogo {
     );
   }
 
+  // ------------------------------------------------------------ o rancho
+
+  /**
+   * Quantos saem da bola ao mesmo tempo no pasto.
+   *
+   * O teto NÃO é de gosto, é de memória: `src/modelos.ts` segura no máximo
+   * catorze modelos e despeja o menos usado, e cada Pokémon em cena traz
+   * geometria, esqueleto e textura. Oito deixa folga para o companheiro, para
+   * um selvagem que tenha sobrado e para o modelo que estiver sendo baixado.
+   *
+   * Quem não coube fica no PC, e o aviso diz isso — trocar de bando é arrastar
+   * no PC, que é a tela que existe para exatamente essa decisão.
+   */
+  private static readonly MAX_MORADORES = 8;
+
+  /**
+   * O RANCHO: liga e desliga o pasto. Ver src/rancho.ts.
+   *
+   * *"Criar um ambiente de RANCHO POKÉMON para poder soltar os meus Pokémons à
+   * vontade e interagir com eles"* — playtest de 19/09.
+   *
+   * Entrar é uma troca de contexto e não um modo de jogo: os selvagens somem, o
+   * spawn para, o companheiro volta para a bola, e a coleção inteira sai dela.
+   * Sair desfaz tudo e devolve o seu quarto.
+   */
+  private async alternarRancho() {
+    if (this.mexendoNoRancho) return;
+    if (this.rancho.aberto) {
+      this.fecharRancho();
+      return;
+    }
+    this.mexendoNoRancho = true;
+    try {
+      await this.abrirRancho();
+    } finally {
+      this.mexendoNoRancho = false;
+    }
+  }
+
+  private async abrirRancho() {
+    if (!this.dex.escolheuInicial) return;
+
+    // O quarto sai de cena primeiro: um Rattata selvagem correndo no meio do
+    // pasto seria um convite para uma briga que o rancho não tem.
+    for (const selvagem of [...this.selvagens]) this.removerSelvagem(selvagem.pokemon);
+    if (this.companheiro) this.recolherCompanheiro();
+    this.pc.fechar();
+    this.mochila.fechar();
+
+    this.rancho.abrir(this.posicaoJogador, this.sala.pisoY);
+    if (!this.rancho.grupo.parent) this.cena.add(this.rancho.grupo);
+    // A sombra e o contorno do mapeamento são do QUARTO: no pasto eles são
+    // linhas azuis flutuando no capim.
+    this.sala.mostrarContorno(false);
+
+    const olhar = new THREE.Vector3();
+    this.camera.getWorldDirection(olhar);
+    olhar.y = 0;
+    if (olhar.lengthSq() < 1e-4) olhar.set(0, 0, -1);
+    olhar.normalize();
+
+    const todos = this.dex.todos;
+    const escolhidos = todos.slice(0, Jogo.MAX_MORADORES);
+
+    this.aviso.mostrar(
+      [
+        { texto: 'Rancho', tamanho: 40, cor: '#9ff0c4' },
+        {
+          texto:
+            todos.length > escolhidos.length
+              ? `${escolhidos.length} de ${todos.length} soltos · troque o bando no PC`
+              : `${escolhidos.length} soltos no pasto`,
+          tamanho: 22,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      3,
+    );
+    audio.abrirPainel();
+
+    for (let i = 0; i < escolhidos.length; i++) {
+      const exemplar = escolhidos[i];
+      const especie = porId(exemplar.id);
+      if (!especie) continue;
+      // Um de cada vez, e conferindo se o rancho ainda está aberto: baixar oito
+      // modelos leva segundos, e fechar no meio não pode deixar bicho nascendo
+      // num pasto que já sumiu.
+      if (!(await garantir(especie.id, exemplar.shiny))) continue;
+      if (!this.rancho.aberto) return;
+
+      const corpo = instanciar(
+        especie.id,
+        this.alturaDe(especie),
+        exemplar.shiny,
+        this.ajustes.tamanhoReal,
+      );
+      if (!corpo) continue;
+
+      const ponto = this.rancho.pontoDeSolta(i, escolhidos.length, olhar);
+      const pokemon = new Pokemon(
+        especie,
+        corpo,
+        ponto,
+        this.rancho.alturaEm(),
+        'companheiro',
+        this.dex.nivelDe(exemplar),
+        exemplar.shiny,
+      );
+      pokemon.afeto = exemplar.afeto ?? 0;
+      pokemon.hp = Math.max(1, Math.min(exemplar.hp, pokemon.hpMax));
+      this.cena.add(pokemon.raiz);
+      pokemon.invocar(ponto, this.rancho.alturaEm());
+      this.moradores.push({ pokemon, exemplar });
+      this.vozDoBicho(pokemon);
+    }
+  }
+
+  private fecharRancho() {
+    if (!this.rancho.aberto) return;
+    this.rancho.fechar();
+    for (const morador of this.moradores) {
+      this.tirarDoColo(morador.pokemon);
+      morador.pokemon.descartar(this.cena);
+    }
+    this.moradores.length = 0;
+    audio.recolher();
+    this.aviso.mostrar(
+      [
+        { texto: 'de volta ao seu quarto', tamanho: 34, cor: '#cfe6ff' },
+        { texto: 'todos voltaram para a bola', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+      ],
+      2.2,
+    );
+  }
+
+  /**
+   * Um quadro de pasto: o cenário, os moradores e o carinho neles.
+   *
+   * O carinho tem um caminho próprio aqui, e não o de `atualizarCarinho`.
+   * Aquele é escrito em volta de `this.companheiro` — um bicho, com barra de
+   * vida, com `exemplarEmCampo` — e generalizá-lo para uma lista significaria
+   * mexer na recarga, no ronronar e na conta de afeto de um sistema que
+   * funciona. Aqui o afago é mais simples, de propósito: não tem recarga nem
+   * cura, porque no pasto ninguém está machucado. Ele faz a cabeça seguir a
+   * mão e converte tempo em afeto, que é o que dá sentido a ficar ali.
+   */
+  private atualizarRancho(dt: number) {
+    this.rancho.atualizar(dt);
+    if (this.moradores.length === 0) return;
+
+    const toque = new THREE.Vector3();
+    for (const { pokemon, exemplar } of this.moradores) {
+      pokemon.atualizar(dt, this.posicaoJogador, this.rancho);
+
+      // A CERCA: quem chega perto dela volta. O `Pokemon` não conhece limite
+      // de área — ele passeia em torno de uma âncora —, e sem isto um Rapidash
+      // sai andando pelo capim infinito até virar um ponto no horizonte.
+      const centro = this.rancho.centroDoPasto;
+      const dx = pokemon.raiz.position.x - centro.x;
+      const dz = pokemon.raiz.position.z - centro.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > RAIO_DO_PASTO) {
+        const k = RAIO_DO_PASTO / Math.max(1e-4, dist);
+        pokemon.raiz.position.x = centro.x + dx * k;
+        pokemon.raiz.position.z = centro.z + dz * k;
+      }
+
+      if (pokemon.estado === 'colo' || pokemon.estado === 'saindo') continue;
+
+      const cabeca = pokemon.pontoDaCabeca();
+      const alcance = Math.max(DISTANCIA_CARINHO, pokemon.raio * 0.9 + 0.1);
+      for (const mao of this.maos) {
+        if (!mao.conectada || this.colo.tem(mao.indice) || this.maoCheia(mao)) continue;
+        mao.pontoDeToque(toque);
+        const d = toque.distanceTo(cabeca);
+        if (d > alcance) {
+          // Chegando: a mão sente antes de encostar, como em todo o resto do
+          // jogo. Ver src/toque.ts.
+          const chegando = forcaDeToque(d, alcance, alcance * 1.6);
+          if (chegando > 0) mao.rocar(chegando * 0.6);
+          continue;
+        }
+        pokemon.receberCarinho();
+        pokemon.seguirCarinho(toque);
+        mao.rocar(forcaDeToque(d, Math.min(0.12, alcance * 0.4), alcance));
+        this.dex.ganharAfeto(exemplar, AFETO.porSegundoDeCarinho * dt);
+        pokemon.afeto = exemplar.afeto ?? 0;
+        break;
+      }
+    }
+  }
+
   private removerSelvagem(alvo: Pokemon) {
     const i = this.selvagens.findIndex((s) => s.pokemon === alvo);
     if (i === -1) return;
@@ -4649,7 +4888,10 @@ export class Jogo {
 
     // No Relaxante ninguém nasce: o modo existe justamente para a sala ficar
     // sua e do seu Pokémon.
-    if (this.ajustes.modoAtual.spawnAutomatico && !this.modoWidget) {
+    // No RANCHO ninguém nasce, pelo mesmo motivo do Relaxante: o pasto existe
+    // para você ficar com os seus, e um Rattata caindo no meio do bando
+    // transformaria o passeio numa briga de nove contra um.
+    if (this.ajustes.modoAtual.spawnAutomatico && !this.modoWidget && !this.rancho.aberto) {
       this.proximoSpawn -= dt;
       if (this.proximoSpawn <= 0 && this.selvagens.length < MAX_SELVAGENS) {
         const [minimo, maximo] = this.ajustes.modoAtual.intervaloSpawn;
@@ -4674,6 +4916,7 @@ export class Jogo {
     this.atualizarMarca(dt);
     this.atualizarIscas(dt);
     this.atualizarSelvagens(dt);
+    this.atualizarRancho(dt);
     this.atualizarMarcaDeAlvo(dt);
     this.atualizarCompanheiro(dt);
     // Depois do companheiro: quem está no colo tem a posição escrita pela mão,
@@ -7236,6 +7479,9 @@ export class Jogo {
     // Os bichos, os corpos e tudo o que tem lugar no quarto.
     for (const selvagem of [...this.selvagens]) this.removerSelvagem(selvagem.pokemon);
     if (this.companheiro) this.removerCompanheiro();
+    // O pasto também: ele é ancorado num piso que morre com a sessão, e voltar
+    // a entrar acharia o capim na altura do peito. Ver `Rancho.abrir`.
+    this.fecharRancho();
     for (const bola of [...this.bolas]) bola.descartar(this.cena);
     this.bolas.length = 0;
     this.bolaNaMao.clear();
@@ -7407,6 +7653,8 @@ export class Jogo {
     for (const mira of this.miras.values()) mira.descartar();
     for (const raio of this.raios.values()) raio.descartar();
     for (const feixe of this.feixes.values()) feixe.descartar();
+    for (const { pokemon } of this.moradores) pokemon.descartar(this.cena);
+    this.rancho.descartar();
     this.mochila.descartar();
     this.medidor.descartar();
     this.achados.descartar();

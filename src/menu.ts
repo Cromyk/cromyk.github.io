@@ -78,6 +78,7 @@ export type Selecao =
   | { tipo: 'pc' }
   | { tipo: 'mochila' }
   | { tipo: 'chamar' }
+  | { tipo: 'rancho' }
   | { tipo: 'dificuldade'; entrada: PerfilDificuldade }
   | { tipo: 'interruptor'; entrada: EntradaInterruptor };
 
@@ -325,6 +326,7 @@ export class PainelTime {
    */
   private cardMochila = new Placa(LADO_PC, LADO_PC, 128);
   private cardChamar = new Placa(LADO_PC, LADO_PC, 128);
+  private cardRancho = new Placa(LADO_PC, LADO_PC, 128);
   private alvos: THREE.Mesh[] = [];
   private titulo = new Placa(LARGURA_PAINEL, ALTURA_TITULO, 448);
   /** A chapa única por trás de tudo. Ver `moldura` e `ajustarMoldura`. */
@@ -472,11 +474,13 @@ export class PainelTime {
 
     this.grupo.add(this.cardMochila.malha);
     this.grupo.add(this.cardChamar.malha);
+    this.grupo.add(this.cardRancho.malha);
 
     novoAlvo('engrenagem', 0, LADO_ENGRENAGEM, LADO_ENGRENAGEM);
     novoAlvo('pc', 0, LADO_PC, LADO_PC);
     novoAlvo('mochila', 0, LADO_PC, LADO_PC);
     novoAlvo('chamar', 0, LADO_PC, LADO_PC);
+    novoAlvo('rancho', 0, LADO_PC, LADO_PC);
   }
 
   get time(): Array<EntradaTime | null> {
@@ -743,9 +747,10 @@ export class PainelTime {
     const yTitulo = yIcones + LADO_ICONE / 2 + ALTURA_TITULO / 2 + 0.007;
 
     const passoIcone = LADO_ICONE + VAO_ICONE;
-    // Da esquerda para a direita: PC, mochila, "vem cá", ajustes. A engrenagem
-    // fica na ponta direita, que é onde todo mundo procura opções.
-    const xIcone = (coluna: number) => (coluna - 1.5) * passoIcone;
+    // Da esquerda para a direita: PC, mochila, "vem cá", rancho, ajustes. A
+    // engrenagem fica na ponta direita, que é onde todo mundo procura opções.
+    // São CINCO desde o rancho, então o centro da fileira anda meio passo.
+    const xIcone = (coluna: number) => (coluna - 2) * passoIcone;
 
     this.titulo.malha.position.set(0, yTitulo, 0);
 
@@ -753,6 +758,7 @@ export class PainelTime {
       [this.cardPc, indiceEngrenagem + 1],
       [this.cardMochila, indiceEngrenagem + 2],
       [this.cardChamar, indiceEngrenagem + 3],
+      [this.cardRancho, indiceEngrenagem + 4],
       [this.cardEngrenagem, indiceEngrenagem],
     ];
     for (let c = 0; c < porIcone.length; c++) {
@@ -995,6 +1001,53 @@ export class PainelTime {
     ctx.stroke();
 
     this.cardChamar.marcarSujo();
+  }
+
+  /**
+   * O RANCHO: o pasto onde a coleção inteira sai da bola de uma vez.
+   *
+   * O ícone é a cerca — três estacas e duas travessas — com um morro atrás. É
+   * a silhueta que se reconhece a sete centímetros de distância sem precisar
+   * de legenda, que é a régua de todos os ícones desta fileira. Ver
+   * src/rancho.ts.
+   */
+  private redesenharRancho(sobMira: boolean) {
+    const { ctx, canvas } = this.cardRancho;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, { sobMira }, RAIO.pequeno);
+
+    const cor = sobMira ? COR.texto : COR.textoFraco;
+    const L = canvas.width;
+    const A = canvas.height;
+
+    // O morro, atrás.
+    ctx.beginPath();
+    ctx.moveTo(L * 0.1, A * 0.6);
+    ctx.quadraticCurveTo(L * 0.34, A * 0.28, L * 0.58, A * 0.6);
+    ctx.strokeStyle = sobMira ? 'rgba(160, 220, 160, 0.9)' : 'rgba(140, 180, 140, 0.45)';
+    ctx.lineWidth = Math.max(2, L * 0.03);
+    ctx.stroke();
+
+    ctx.strokeStyle = cor;
+    ctx.lineWidth = Math.max(2, L * 0.045);
+    ctx.lineCap = 'round';
+
+    // Três estacas.
+    for (const fx of [0.22, 0.5, 0.78]) {
+      ctx.beginPath();
+      ctx.moveTo(L * fx, A * 0.5);
+      ctx.lineTo(L * fx, A * 0.84);
+      ctx.stroke();
+    }
+    // Duas travessas.
+    for (const fy of [0.6, 0.74]) {
+      ctx.beginPath();
+      ctx.moveTo(L * 0.16, A * fy);
+      ctx.lineTo(L * 0.84, A * fy);
+      ctx.stroke();
+    }
+
+    this.cardRancho.marcarSujo();
   }
 
   /**
@@ -1413,6 +1466,7 @@ export class PainelTime {
     this.redesenharPc(this.destacado?.tipo === 'pc');
     this.redesenharMochila(this.destacado?.tipo === 'mochila');
     this.redesenharChamar(this.destacado?.tipo === 'chamar');
+    this.redesenharRancho(this.destacado?.tipo === 'rancho');
     if (this.nosAjustes) {
       this.redesenharAjustes();
       return;
@@ -1605,6 +1659,7 @@ export class PainelTime {
     saltar([this.cardPc], 'pc', 0.012);
     saltar([this.cardMochila], 'mochila', 0.012);
     saltar([this.cardChamar], 'chamar', 0.012);
+    saltar([this.cardRancho], 'rancho', 0.012);
   }
 
   /** Traduz um alvo (tipo + índice) no que ele representa. */
@@ -1634,6 +1689,8 @@ export class PainelTime {
         return { tipo: 'mochila' };
       case 'chamar':
         return { tipo: 'chamar' };
+      case 'rancho':
+        return { tipo: 'rancho' };
       case 'dificuldade': {
         const entrada = DIFICULDADES[indice];
         return entrada ? { tipo: 'dificuldade', entrada } : null;
@@ -1730,6 +1787,7 @@ export class PainelTime {
       this.cardPc,
       this.cardMochila,
       this.cardChamar,
+      this.cardRancho,
     ])
       card.descartar();
     for (const d of this.descartaveis) d.dispose();
