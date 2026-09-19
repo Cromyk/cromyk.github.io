@@ -46,7 +46,7 @@ import { Luva } from './glove';
 import { Rastro, aVista, rumoDoRastro } from './rastro';
 import { marcoDe } from './marcos';
 import { fatorDoHorario, nomeDoPeriodo, noturnidade } from './hora';
-import { Cinto } from './cinto';
+import { ALCANCE_SLOT, Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
 import { Fotografo, type Foto } from './foto';
 import { Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
@@ -1260,6 +1260,48 @@ export class Jogo {
     return (
       cinto.slotSob(this.pontoDeAgarre(mao)) ?? cinto.slotSob(this.pontoDoDedo(mao))
     );
+  }
+
+  /**
+   * Marca que esta mão SAIU do painel e do cinto.
+   *
+   * ## O gesto que estava morto
+   *
+   * Tirar a bola e devolvê-la são o mesmo gesto em lugares diferentes: você
+   * fecha a mão no slot para tirar, e a mão continua ali. Sem uma memória de
+   * "ela saiu e voltou", soltar a bola em cima do lugar de onde ela veio
+   * devolveria no mesmo quadro — e a bola nunca sairia do braço. Daí os dois
+   * conjuntos.
+   *
+   * Só que os dois só eram alimentados dentro de `atualizarEscolhaInicial`, que
+   * **para de rodar assim que você escolhe o parceiro**. Ou seja: passado o
+   * primeiro minuto de jogo, nenhuma mão jamais era marcada como tendo saído, e
+   * o gesto de desistir — abrir a mão em cima do painel ou do slot para devolver
+   * a bola em vez de arremessá-la — simplesmente não existia. Quem tentasse
+   * devolver arremessava.
+   *
+   * ## A margem
+   *
+   * "Saiu" não é "não está exatamente em cima": a mão treme, o rastreamento
+   * treme, e um único quadro de ruído a 7,5 cm do slot marcaria saída sem a mão
+   * ter saído de lugar nenhum. Com 1,6× de folga, ela precisa se AFASTAR de
+   * verdade — o que é o gesto que a pessoa faz mesmo, levando a mão para o
+   * lado do corpo antes de arremessar.
+   */
+  private marcarSaidaDosLugares(mao: Mao) {
+    const folga = 1.6;
+
+    const carta = this.painelTime.aberto
+      ? this.painelTime.alcancado(this.pontoDoDedo(mao), Jogo.ALCANCE_PAINEL * folga)
+      : null;
+    if (!carta) this.saiuDoPainel.add(mao.indice);
+
+    const cinto = this.cintoPara(mao);
+    const slot = cinto
+      ? (cinto.slotSob(this.pontoDeAgarre(mao), ALCANCE_SLOT * folga) ??
+        cinto.slotSob(this.pontoDoDedo(mao), ALCANCE_SLOT * folga))
+      : null;
+    if (!slot) this.saiuDoCinto.add(mao.indice);
   }
 
   private pegarBola(mao: Mao) {
@@ -4127,14 +4169,10 @@ export class Jogo {
       mao.amostrarBotoes();
       mao.atualizarPulso();
       mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
-      // A memória de ter saído do painel, para guardar e pegar não serem o
-      // mesmo gesto. Ver saiuDoPainel.
-      if (!this.cartaSobAMao(mao)) this.saiuDoPainel.add(mao.indice);
-      // O mesmo para o cinto: você fecha a mão NO slot para tirar a bola, e a
-      // mão continua ali. Devolver só passa a valer depois que ela saiu e
-      // voltou — senão tirar e guardar seriam o mesmo gesto, e a bola nunca
-      // sairia do braço.
-      if (!this.slotSobAMao(mao)) this.saiuDoCinto.add(mao.indice);
+      // A memória de ter saído do painel e do cinto. Ver `marcarSaidaDosLugares`
+      // — e note que ela é chamada TAMBÉM no laço principal das mãos, que é
+      // onde ela faltava.
+      this.marcarSaidaDosLugares(mao);
       const raio = this.raios.get(mao.indice);
       if (raio) raio.atualizar(dt, mao.lado === this.ladoQueAponta, 0.9);
     }
@@ -4880,6 +4918,10 @@ export class Jogo {
       // dele, e os três medem contra a pose DESTE quadro.
       mao.atualizarPulso();
       mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
+      // Onde isto FALTAVA: sem ele, depois de escolher o inicial nenhuma mão
+      // voltava a ser marcada como tendo saído do painel ou do cinto, e o gesto
+      // de devolver a bola em vez de arremessá-la deixava de existir.
+      this.marcarSaidaDosLugares(mao);
       this.sinaisDaMaoNua(mao);
       this.botoesDaMao(mao);
 

@@ -3788,6 +3788,55 @@ console.log('\n40. a foto');
   );
 }
 
+
+// --- 41. a margem de "saiu do lugar" ---
+//
+// Tirar a bola e devolvê-la são o mesmo gesto em lugares diferentes, e o que os
+// separa é a memória de a mão ter SAÍDO. Essa memória só era alimentada dentro
+// do laço da escolha inicial, que para de rodar assim que você escolhe o
+// parceiro: passado o primeiro minuto, o gesto de devolver deixava de existir e
+// quem tentasse devolver arremessava.
+//
+// O conserto está no Jogo, que não roda sem navegador. O que se afirma aqui é o
+// NÚMERO que ele usa — a margem —, porque ela tem duas maneiras de estar errada
+// e as duas são silenciosas.
+console.log('\n41. a margem de sair do lugar');
+{
+  const FOLGA = 1.6;
+  const margemDoSlot = ALCANCE_SLOT * FOLGA;
+
+  // Pequena demais não é margem: um quadro de tremor marcaria "saiu" com a mão
+  // parada em cima do slot, e devolver voltaria a ser impossível de propósito.
+  checar(margemDoSlot > ALCANCE_SLOT, 'a margem não é maior que o alcance — não é margem');
+  checar(
+    margemDoSlot - ALCANCE_SLOT > 0.03,
+    `a folga é de ${((margemDoSlot - ALCANCE_SLOT) * 100).toFixed(1)} cm, menos do que a mão treme`,
+  );
+
+  // Grande demais também quebra, e de um jeito pior: se para "sair" fosse
+  // preciso afastar a mão mais do que o braço alcança confortavelmente, o
+  // jogador nunca marcaria saída e o gesto continuaria morto — só que agora com
+  // código que parece funcionar.
+  checar(
+    margemDoSlot < 0.2,
+    `para sair do slot é preciso afastar a mão ${(margemDoSlot * 100).toFixed(0)} cm, o que é meio braço`,
+  );
+
+  // E a mão tem de conseguir sair de TODOS os slots ao mesmo tempo: eles estão
+  // a 6,6 cm um do outro ao longo do antebraço, então a margem mede contra o
+  // slot mais perto, e não contra o conjunto. Afastar-se do braço resolve —
+  // mas deslizar ao longo dele, não.
+  checar(
+    PASSO_SLOT < margemDoSlot,
+    'os slots estão mais longe entre si do que a margem: deslizar de um para o outro marcaria saída',
+  );
+
+  console.log(
+    `   sair do lugar: ${(margemDoSlot * 100).toFixed(1)} cm do slot mais perto ` +
+      `(alcance ${(ALCANCE_SLOT * 100).toFixed(1)}, passo ${(PASSO_SLOT * 100).toFixed(1)})`,
+  );
+}
+
   console.log(
     `   ${PEDRAS.length} pedras, ${pares} evoluções · ` +
       `${EVOLUI_SO_COM_PEDRA.size} espécies saíram da evolução por nível`,

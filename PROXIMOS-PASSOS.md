@@ -361,12 +361,111 @@ continua para quem tiver outra mão.
 
 ---
 
+---
+
+## Fase 4 — O que a auditoria do toque deixou marcado
+
+As Fases 1 e 2 saíram inteiras. Os três itens da Fase 3 dependem do headset e
+estão parados esperando você. Esta fase existe para o trabalho não parar junto,
+e ela não é lista de desejos: **cada item aqui saiu da auditoria de 18/09** — as
+seis dimensões, os quarenta e oito achados e o cético que foi ao código conferir
+cada um. Vêm com arquivo e linha porque foram lidos, não imaginados.
+
+### 4.1 ✅ O gesto de devolver a bola estava morto (feito em 19/09)
+
+`saiuDoPainel` e `saiuDoCinto` são a memória de a mão ter SAÍDO do lugar de
+onde tirou a bola — sem ela, tirar e devolver seriam o mesmo gesto e a bola
+nunca sairia do braço. Só que os dois só eram alimentados dentro de
+`atualizarEscolhaInicial`, **que para de rodar assim que você escolhe o
+parceiro**. Passado o primeiro minuto de jogo, nenhuma mão voltava a ser marcada
+como tendo saído: quem tentasse devolver a bola abrindo a mão em cima do painel
+ou do slot **arremessava**.
+
+**Feito.** `marcarSaidaDosLugares` roda no laço principal das mãos, com 1,6× de
+margem — "saiu" não é "não está exatamente em cima", porque a mão treme e um
+quadro de ruído marcaria saída sem a mão ter saído de lugar nenhum. A seção 41
+do smoke guarda esse número pelos dois lados: pequeno demais não é margem,
+grande demais exige meio braço de afastamento e o gesto continua morto, só que
+agora com código que parece funcionar.
+
+### 4.2 A bola na mão não gira com o punho
+
+`src/game.ts` copia só a POSIÇÃO da bola presa à mão; o quaternion nunca segue
+o punho. Você gira o pulso e ela mantém a orientação do mundo — uma esfera
+girada é difícil de notar parada, e é impossível de não notar quando a faixa
+passa de pé para deitada sozinha.
+
+Junto vem a outra metade: o deslocamento `(0, 0.01, −0.055)` contra um raio de
+4,5 cm põe a superfície da bola a um centímetro da origem do grip, e os dedos da
+luva fecham por DENTRO dela.
+
+- **Esforço:** baixo.
+- **Como saber que funcionou:** gire o pulso com a bola na mão. A faixa
+  acompanha, e os dedos ficam por fora.
+
+### 4.3 O punho fechado da mão nua decide rápido demais
+
+`lerPunhoFechado` decide com um limiar único e cada borda dispara a cascata
+inteira do GRIP. Falta um **latch**: guardar o estado candidato e confirmar uns
+120 ms depois. Descartar a borda não serve — descartar faz a bola colar na mão.
+
+E a régua tem um caminho alternativo que muda o significado do limiar conforme o
+runtime entregue o metacarpo ou a falange, o que quer dizer que o mesmo gesto
+tem sensibilidades diferentes em dois headsets.
+
+- **Esforço:** médio. É o coração do modo de mão nua.
+- **Como saber que funcionou:** de mão nua, fechar o punho devagar pega a bola
+  uma vez, e não três.
+
+### 4.4 Histerese na escolha do slot do cinto
+
+Os quatro slots compartilham X e Y e estão a 6,6 cm um do outro, então a
+fronteira entre dois vizinhos fica a 3,3 cm — e a bola destacada troca sozinha
+com o braço parado. O slot destacado no quadro anterior precisa de uns 15% de
+vantagem para continuar sendo o escolhido.
+
+Só valia depois que a rampa do toque existisse, porque antes dela a troca era
+invisível. Agora ela existe: a bola cresce e a mão vibra, então a troca sozinha
+passou a ser **visível e sentida**.
+
+- **Esforço:** baixo.
+- **Como saber que funcionou:** aproxime a mão do cinto e pare. A bola acesa
+  não pisca entre duas.
+
+### 4.5 A luva pisca no lugar da vibração, de mão nua
+
+Não existe vibração com hand tracking: o atuador vive no gamepad do controle, e
+uma fonte de mão nua não tem um. Todo `sentir()` é descartado em silêncio — o
+que quer dizer que metade do vocabulário tátil do jogo não existe para quem
+larga os controles.
+
+A saída é a luva PISCAR herdando a FORMA do padrão: `recusado`, que é o único
+de duas batidas, vira dois flashes. A forma é o que a tabela de vibração diz
+importar mais do que a força.
+
+- **Esforço:** médio-baixo.
+- **Como saber que funcionou:** de mão nua, de olhos no bicho, você percebe que
+  o jogo recusou o gesto.
+
+### 4.6 O achado no chão se pega sozinho
+
+`Achados.colher` roda no laço de quadro, e o getter `Achados.posicao` não tem
+consumidor nenhum: a dica que o comentário promete nunca foi escrita. O item do
+chão deveria ser pego pelo GRIP como tudo o mais, com destaque de aproximação
+antes — e nessa ordem, senão troca "pega sozinho" por "não pega e você não sabe
+por quê".
+
+- **Esforço:** médio.
+- **Como saber que funcionou:** você fecha a mão em volta da poção que apareceu
+  na sua mesa, e ela vem.
+
 ## Se fosse para escolher três
 
-**1.1** (mão nua não joga), **1.2** (o painel que abre sozinho) e **0.1** (a
-medição).
+**0.1** (a medição), **4.2** (a bola que não gira) e **4.3** (o punho da mão
+nua).
 
-O primeiro porque é um bug de acessibilidade que exclui um modo inteiro de jogar
-— e porque a pessoa que tira os controles não tem como saber que o problema não
-é ela. O segundo porque atrapalha o gesto que acabou de ser feito. E o terceiro
-porque tudo depois dele passa a ser decidido com número em vez de opinião.
+O primeiro porque é o único item deste arquivo que eu não posso fazer, e porque
+tudo depois dele passa a ser decidido com número em vez de opinião — já são nove
+sistemas novos desde a última medida. O segundo porque é o objeto que mais
+aparece em campo de visão no jogo inteiro. E o terceiro porque o modo de mão nua
+acabou de voltar a existir (item 1.1), e seria uma pena ele voltar torto.
