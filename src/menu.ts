@@ -76,6 +76,8 @@ export type Selecao =
   | { tipo: 'golpe'; entrada: EntradaGolpe }
   | { tipo: 'engrenagem' }
   | { tipo: 'pc' }
+  | { tipo: 'mochila' }
+  | { tipo: 'chamar' }
   | { tipo: 'dificuldade'; entrada: PerfilDificuldade }
   | { tipo: 'interruptor'; entrada: EntradaInterruptor };
 
@@ -233,6 +235,12 @@ export class PainelTime {
   private cardEngrenagem = new Placa(LADO_ENGRENAGEM, LADO_ENGRENAGEM, 128);
   /** O atalho para o PC: a caixa inteira e a equipe, ver src/pc.ts. */
   private cardPc = new Placa(LADO_PC, LADO_PC, 128);
+  /**
+   * A mochila e o "vem cá", os dois últimos comandos que só existiam em
+   * botão. Ver `redesenharMochila`.
+   */
+  private cardMochila = new Placa(LADO_PC, LADO_PC, 128);
+  private cardChamar = new Placa(LADO_PC, LADO_PC, 128);
   private alvos: THREE.Mesh[] = [];
   private titulo = new Placa(0.24, 0.032, 448);
 
@@ -335,8 +343,13 @@ export class PainelTime {
       novoAlvo('interruptor', i, LARGURA_CHAVE, ALTURA_CHAVE);
     }
 
+    this.grupo.add(this.cardMochila.malha);
+    this.grupo.add(this.cardChamar.malha);
+
     novoAlvo('engrenagem', 0, LADO_ENGRENAGEM, LADO_ENGRENAGEM);
     novoAlvo('pc', 0, LADO_PC, LADO_PC);
+    novoAlvo('mochila', 0, LADO_PC, LADO_PC);
+    novoAlvo('chamar', 0, LADO_PC, LADO_PC);
   }
 
   get time(): Array<EntradaTime | null> {
@@ -592,6 +605,21 @@ export class PainelTime {
     const alvoPc = this.alvos[indiceEngrenagem + 1];
     alvoPc.visible = true;
     alvoPc.position.set(xPc, yTitulo, -0.001);
+
+    // E logo abaixo dos dois, uma coluna curta de cada lado: a mochila sob o
+    // PC, o "vem cá" sob a engrenagem. Ficam FORA do corpo do painel de
+    // propósito — a lateral é a faixa dos comandos, e o miolo continua sendo
+    // só o seu time, que foi o pedido do playtest de compactar a informação.
+    const yAbaixo = yTitulo - (LADO_PC + 0.007);
+    this.cardMochila.malha.position.set(xPc, yAbaixo, 0);
+    const alvoMochila = this.alvos[indiceEngrenagem + 2];
+    alvoMochila.visible = true;
+    alvoMochila.position.set(xPc, yAbaixo, -0.001);
+
+    this.cardChamar.malha.position.set(xEngrenagem, yAbaixo, 0);
+    const alvoChamar = this.alvos[indiceEngrenagem + 3];
+    alvoChamar.visible = true;
+    alvoChamar.position.set(xEngrenagem, yAbaixo, -0.001);
   }
 
   // ------------------------------------------------------------ desenho
@@ -698,6 +726,101 @@ export class PainelTime {
     ctx.fill();
 
     this.cardPc.marcarSujo();
+  }
+
+  /**
+   * A mochila e o "vem cá": os dois últimos comandos que só o botão tinha.
+   *
+   * ## Por que eles estão aqui
+   *
+   * É o mesmo argumento do PC, um degrau mais grave. O PC "sempre abriu no
+   * botão Y, o que é o mesmo que não existir para quem não leu o manual" — e
+   * para quem larga os controles não é NEM o manual: **não existe botão**. Uma
+   * fonte de hand tracking não tem gamepad, `apertou()` lê um array vazio, e o
+   * comando não é difícil de achar, é impossível de dar.
+   *
+   * Eram três nessa situação. A mochila (B na mão que aponta), o chamar (A na
+   * mão do painel), e a foto — que ficou na Pokédex, onde a câmera está. As
+   * outras ações de botão têm caminho: recolher é escolher no painel quem já
+   * está em campo, e o PC é a carta ao lado.
+   *
+   * O ícone é uma bolsa com alça, desenhada em caminho pelo mesmo motivo da
+   * engrenagem — emoji no headset vira retângulo vazio.
+   */
+  private redesenharMochila(sobMira: boolean) {
+    const { ctx, canvas } = this.cardMochila;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, { sobMira }, RAIO.pequeno);
+
+    const cor = sobMira ? COR.texto : COR.textoFraco;
+    const l = canvas.width * 0.5;
+    const a = l * 0.82;
+    const x = (canvas.width - l) / 2;
+    const y = canvas.height * 0.36;
+
+    ctx.lineWidth = Math.max(2, canvas.width * 0.035);
+    ctx.strokeStyle = cor;
+
+    // O corpo da bolsa.
+    ctx.beginPath();
+    ctx.roundRect(x, y, l, a, 5);
+    ctx.stroke();
+
+    // A alça, um meio-arco saindo do topo.
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, y, l * 0.28, Math.PI, 0);
+    ctx.stroke();
+
+    // E o fecho, que é o que separa uma bolsa de uma caixa.
+    ctx.beginPath();
+    ctx.moveTo(x, y + a * 0.42);
+    ctx.lineTo(x + l, y + a * 0.42);
+    ctx.stroke();
+
+    this.cardMochila.marcarSujo();
+  }
+
+  /**
+   * O "vem cá": ele deixa o que está fazendo e volta para perto de você.
+   *
+   * O ícone é uma seta apontando para dentro de um ponto — a mesma ideia do
+   * comando, que não é "ande até ali" e sim "volte para mim". Ver
+   * `redesenharMochila` para o porquê de isto estar no painel.
+   */
+  private redesenharChamar(sobMira: boolean) {
+    const { ctx, canvas } = this.cardChamar;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, { sobMira }, RAIO.pequeno);
+
+    const cor = sobMira ? COR.texto : COR.textoFraco;
+    const cx = canvas.width / 2;
+    const cy = canvas.height * 0.58;
+    const r = canvas.width * 0.13;
+
+    ctx.lineWidth = Math.max(2, canvas.width * 0.035);
+    ctx.strokeStyle = cor;
+
+    // O ponto que é você.
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // A seta vindo de cima para dentro dele.
+    const topo = canvas.height * 0.16;
+    ctx.beginPath();
+    ctx.moveTo(cx, topo);
+    ctx.lineTo(cx, cy - r - canvas.height * 0.04);
+    ctx.stroke();
+
+    const ponta = cy - r - canvas.height * 0.04;
+    const aba = canvas.width * 0.11;
+    ctx.beginPath();
+    ctx.moveTo(cx - aba, ponta - aba);
+    ctx.lineTo(cx, ponta);
+    ctx.lineTo(cx + aba, ponta - aba);
+    ctx.stroke();
+
+    this.cardChamar.marcarSujo();
   }
 
   /**
@@ -1111,6 +1234,8 @@ export class PainelTime {
   private redesenhar(bolaAtivaId: string) {
     this.redesenharEngrenagem(this.destacado?.tipo === 'engrenagem');
     this.redesenharPc(this.destacado?.tipo === 'pc');
+    this.redesenharMochila(this.destacado?.tipo === 'mochila');
+    this.redesenharChamar(this.destacado?.tipo === 'chamar');
     if (this.nosAjustes) {
       this.redesenharAjustes();
       return;
@@ -1269,6 +1394,8 @@ export class PainelTime {
     saltar(this.cardsChave, 'interruptor', 0.01);
     saltar([this.cardEngrenagem], 'engrenagem', 0.012);
     saltar([this.cardPc], 'pc', 0.012);
+    saltar([this.cardMochila], 'mochila', 0.012);
+    saltar([this.cardChamar], 'chamar', 0.012);
   }
 
   /** Traduz um alvo (tipo + índice) no que ele representa. */
@@ -1294,6 +1421,10 @@ export class PainelTime {
         return { tipo: 'engrenagem' };
       case 'pc':
         return { tipo: 'pc' };
+      case 'mochila':
+        return { tipo: 'mochila' };
+      case 'chamar':
+        return { tipo: 'chamar' };
       case 'dificuldade': {
         const entrada = DIFICULDADES[indice];
         return entrada ? { tipo: 'dificuldade', entrada } : null;
@@ -1374,6 +1505,8 @@ export class PainelTime {
       ...this.cardsChave,
       this.cardEngrenagem,
       this.cardPc,
+      this.cardMochila,
+      this.cardChamar,
     ])
       card.descartar();
     for (const d of this.descartaveis) d.dispose();

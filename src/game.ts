@@ -819,6 +819,12 @@ export class Jogo {
    * mão: é a câmera no seu punho e o dedo no disparador. Com a Pokédex
    * guardada, o mesmo botão continua fazendo o que sempre fez.
    *
+   * E, desde 19/09, há um segundo caminho que não passa por botão nenhum: com
+   * a Pokédex na mão, o gatilho da mão LIVRE apontando para o mundo — e não
+   * para uma ficha — é o obturador. Ver `narrarDaDex`. Sem ele, a fotografia
+   * inteira não existia para quem joga de mão nua: uma fonte de hand tracking
+   * não tem gamepad, e `apertou()` lê um array vazio.
+   *
    * O enquadramento é o do seu olhar, e não o da Pokédex. Parece errado e não
    * é: em MR você ENQUADRA com a cabeça — é para onde você está olhando que
    * está o bicho —, e uma foto tirada do ponto de vista de uma placa que você
@@ -1452,6 +1458,14 @@ export class Jogo {
         }
         if (alcancado.tipo === 'pc') {
           this.alternarPc();
+          return;
+        }
+        if (alcancado.tipo === 'mochila') {
+          this.alternarMochila(mao);
+          return;
+        }
+        if (alcancado.tipo === 'chamar') {
+          this.chamarParaPerto(mao);
           return;
         }
         if (alcancado.tipo === 'dificuldade') {
@@ -2224,6 +2238,11 @@ export class Jogo {
   private menuTomaOGatilho(): boolean {
     // A escolha do inicial é modal de verdade: antes dela não há jogo.
     if (this.escolha) return true;
+
+    // A pergunta da evolução, quando a mira está num dos dois lados dela. Pela
+    // mesma regra dos outros menus: sem alvo, o gatilho continua sendo do jogo
+    // — você pode estar apontando para o bicho que está prestes a mudar.
+    if (this.evolucaoPendente && this.promptEvolucao.apontado) return true;
     if (this.pc.aberto && this.pc.temAlvo) return true;
     if (this.painelTime.aberto && this.painelTime.selecao) return true;
     // A Pokédex responde ao gatilho lendo a ficha em voz alta, e ela não tem
@@ -2349,6 +2368,22 @@ export class Jogo {
   }
 
   private puxarGatilho(mao: Mao) {
+    // A pergunta da evolução, antes de qualquer outra coisa: ela é modal, e
+    // enquanto estiver na tela o jogo está parado esperando por ela.
+    //
+    // Este é o caminho SEM BOTÃO. Os botões A e B continuam valendo (ver
+    // `botoesDaMao`), e continuam sendo o caminho mais curto para quem tem
+    // controle — mas uma fonte de hand tracking não tem gamepad nenhum, e sem
+    // isto a pergunta era um cartaz de mão única: aparecia, parava o jogo, e
+    // não havia gesto no mundo capaz de respondê-la.
+    const resposta = this.evolucaoPendente ? this.promptEvolucao.apontado : null;
+    if (resposta) {
+      mao.sentir(resposta === 'sim' ? 'pegou' : 'marcou');
+      if (resposta === 'sim') this.permitirEvolucao();
+      else this.recusarEvolucao();
+      return;
+    }
+
     // Escolha do inicial na frente de tudo: nada mais funciona antes dela.
     if (this.escolha) {
       const especie = this.escolha.confirmar();
@@ -2376,6 +2411,8 @@ export class Jogo {
       else if (selecao.tipo === 'golpe') this.armarGolpe(selecao.entrada);
       else if (selecao.tipo === 'engrenagem') this.abrirAjustes();
       else if (selecao.tipo === 'pc') this.alternarPc();
+      else if (selecao.tipo === 'mochila') this.alternarMochila(mao);
+      else if (selecao.tipo === 'chamar') this.chamarParaPerto(mao);
       else if (selecao.tipo === 'dificuldade') this.escolherDificuldade(selecao.entrada);
       else if (selecao.tipo === 'interruptor') this.alternarInterruptor(selecao.entrada.id);
       // O item vai para a MÃO, aqui também: mirar e apertar o gatilho é o
@@ -2405,7 +2442,28 @@ export class Jogo {
    */
   private narrarDaDex(mao: Mao) {
     const especie = this.painelDex.selecionada;
-    if (!especie) return;
+
+    // SEM ficha sob a mira, o gatilho é o OBTURADOR.
+    //
+    // A foto nasceu no botão A da mão que segura a Pokédex — "a câmera no
+    // punho e o dedo no botão" —, e isso é verdade com controle e é o nada
+    // absoluto sem ele: uma fonte de hand tracking não tem gamepad, `apertou()`
+    // lê um array vazio, e o item 2.3 inteiro deixa de existir para quem larga
+    // os controles.
+    //
+    // Aqui não custa gesto novo nem carta nova: com a Pokédex na mão o painel
+    // dela está SEMPRE aberto, e puxar o gatilho sem apontar para bicho nenhum
+    // não fazia absolutamente nada — era o único `return` mudo da cascata do
+    // gatilho. Apontou para uma ficha, lê a ficha; apontou para o mundo, tira
+    // o retrato dele.
+    if (!especie) {
+      // Só a mão LIVRE. A que segura a Pokédex está com o punho fechado, e de
+      // mão nua um punho fechado tem o polegar encostado no indicador — que é
+      // exatamente o que o runtime chama de pinça. Deixar o obturador nela
+      // faria o gesto de PEGAR a Pokédex bater uma foto do chão.
+      if (mao.indice !== this.tablet.naMaoDe) this.baterFoto(mao);
+      return;
+    }
 
     mao.sentir('pegou');
 
@@ -3956,9 +4014,28 @@ export class Jogo {
     );
     this.aviso.atualizar(dt, this.camera);
     if (this.evolucaoPendente) {
-      this.promptEvolucao.mostrar(this.evolucaoPendente.de, this.evolucaoPendente.para);
+      // "A" e "B" só estão escritos quando existem: com as mãos nuas, o texto
+      // vira o gesto que funciona. Um cartaz que manda apertar um botão que a
+      // sua mão não tem é pior do que um cartaz sem instrução nenhuma.
+      const comBotao = this.maos.some((m) => m.conectada && !m.semControle);
+      this.promptEvolucao.mostrar(
+        this.evolucaoPendente.de,
+        this.evolucaoPendente.para,
+        comBotao,
+      );
     }
-    this.promptEvolucao.atualizar(dt, this.evolucaoPendente !== null, this.camera);
+    this.promptEvolucao.atualizar(
+      dt,
+      this.evolucaoPendente !== null,
+      this.camera,
+      // As miras só são montadas com a pergunta na tela: `mira()` aloca dois
+      // vetores por mão por quadro, e a pergunta é rara e curta.
+      this.evolucaoPendente
+        ? this.modoPlano
+          ? [this.miraDaCamera()]
+          : this.maos.filter((m) => m.conectada).map((m) => m.mira())
+        : [],
+    );
   }
 
   /** A vitrine dos iniciais, enquanto você não escolheu. */

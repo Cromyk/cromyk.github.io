@@ -9,6 +9,7 @@
  * de mentira serve igual. Quem confere o modelo de verdade é `npm run render`,
  * que desenha os 151 num PNG.
  */
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
@@ -4308,6 +4309,127 @@ console.log('\n46. o achado em cima do móvel não se pega sozinho');
   console.log(
     `   achado: agarre ${(ALCANCE_ACHADO * 100).toFixed(0)} cm · aviso ${(AVISO.achado * 100).toFixed(0)} cm ` +
       `· escala ${parado.toFixed(2)} → ${perto.toFixed(2)} com a mão em cima`,
+  );
+}
+
+// --- 47. nenhum comando existe só em botão ---
+//
+// Uma fonte de hand tracking NÃO TEM GAMEPAD: `Mao.apertou()` lê um array
+// vazio, e todo comando que só existisse num botão A ou B simplesmente não
+// existia para quem larga os controles. Eram quatro:
+//
+//   mochila · chamar para perto · bater foto · responder a evolução
+//
+// O último era o pior: a pergunta da evolução é MODAL, então o jogo parava com
+// um cartaz na frente do rosto que não havia gesto no mundo capaz de responder.
+//
+// Isto se confere no FONTE porque o invariante é estrutural — é sobre haver ou
+// não um segundo caminho —, e é assim que ele pega a regressão que importa:
+// alguém acrescentar o comando vinte e dois só no botão.
+console.log('\n47. nenhum comando existe só em botão');
+{
+  const fonte = readFileSync('src/game.ts', 'utf8');
+
+  /** O corpo de um método, do `{` dele até a chave que fecha. */
+  const corpoDe = (nome: string): string => {
+    const cabeca = fonte.indexOf(`private ${nome}(`);
+    if (cabeca < 0) return '';
+    let i = fonte.indexOf('{', cabeca);
+    let nivel = 0;
+    for (let j = i; j < fonte.length; j++) {
+      if (fonte[j] === '{') nivel++;
+      else if (fonte[j] === '}') {
+        nivel--;
+        if (nivel === 0) return fonte.slice(i, j + 1);
+      }
+    }
+    return '';
+  };
+
+  // Os dois lugares onde um botão é lido. Fora deles é caminho sem botão.
+  const botoes = corpoDe('botoesDaMao');
+  const calibra = corpoDe('calibrarComOAnalogico');
+  checar(botoes.length > 200, 'não achei o corpo de botoesDaMao — o teste não vale nada');
+  checar(botoes.includes('BOTAO_A'), 'botoesDaMao não lê botão nenhum — o teste está olhando para o lugar errado');
+
+  // Nenhum outro lugar do jogo pode ler botão: o dia em que ler, este teste
+  // para de cobrir o comando que estiver lá.
+  const lendoBotao = (fonte.match(/apertou\(BOTAO_/g) ?? []).length;
+  const aqui = (botoes.match(/apertou\(BOTAO_/g) ?? []).length + (calibra.match(/apertou\(BOTAO_/g) ?? []).length;
+  checar(
+    lendoBotao === aqui,
+    `${lendoBotao - aqui} leituras de botão moram fora de botoesDaMao — o teste não as cobre`,
+  );
+
+  /**
+   * Cada comando de botão e o método que faz a MESMA coisa sem botão.
+   *
+   * Recolher é o único que muda de método: no painel do pulso, escolher quem já
+   * está em campo recolhe ele de volta — mesma consequência, outro caminho.
+   */
+  const CAMINHOS: ReadonlyArray<readonly [string, string]> = [
+    ['alternarMochila', 'alternarMochila'],
+    ['chamarParaPerto', 'chamarParaPerto'],
+    ['baterFoto', 'baterFoto'],
+    ['alternarPc', 'alternarPc'],
+    ['permitirEvolucao', 'permitirEvolucao'],
+    ['recusarEvolucao', 'recusarEvolucao'],
+    ['recolherApontando', 'escolherDoTime'],
+  ];
+
+  for (const [comando, semBotao] of CAMINHOS) {
+    checar(fonte.includes(`private ${comando}(`), `o comando ${comando} sumiu do jogo`);
+    const todas = (fonte.match(new RegExp(`this\\.${semBotao}\\(`, 'g')) ?? []).length;
+    const noBotao = (botoes.match(new RegExp(`this\\.${semBotao}\\(`, 'g')) ?? []).length;
+    checar(
+      todas - noBotao > 0,
+      `${comando} só existe no botão: ${semBotao} nunca é chamado fora de botoesDaMao`,
+    );
+  }
+
+  // E os dois caminhos novos passam pelo painel do pulso, que abre por GESTO —
+  // o de olhar as horas — e por isso existe de mão nua.
+  for (const carta of ['mochila', 'chamar']) {
+    checar(
+      fonte.includes(`selecao.tipo === '${carta}'`),
+      `a carta '${carta}' não responde ao gatilho no painel`,
+    );
+    checar(
+      fonte.includes(`alcancado.tipo === '${carta}'`),
+      `a carta '${carta}' não responde à mão que a toca`,
+    );
+  }
+
+  // A pergunta da evolução: o cartaz tem lado sob a mira, e o gatilho o resolve.
+  checar(
+    fonte.includes('this.promptEvolucao.apontado'),
+    'a pergunta da evolução voltou a não ter alvo de mira',
+  );
+  const gatilho = corpoDe('puxarGatilho');
+  checar(
+    gatilho.includes('permitirEvolucao') && gatilho.includes('recusarEvolucao'),
+    'o gatilho não responde mais à pergunta da evolução',
+  );
+  // Antes de TUDO no gatilho: a pergunta é modal, e o que vier antes dela a
+  // engoliria — foi assim que ela nasceu presa ao botão.
+  checar(
+    gatilho.indexOf('permitirEvolucao') < gatilho.indexOf('this.escolha'),
+    'a pergunta da evolução deixou de ser a primeira coisa que o gatilho resolve',
+  );
+
+  // E a foto sai pelo gatilho da mão LIVRE, nunca pela que segura a Pokédex:
+  // de mão nua, segurar é punho fechado, e punho fechado é polegar encostado no
+  // indicador — que é o que o runtime chama de pinça.
+  const dex = corpoDe('narrarDaDex');
+  checar(dex.includes('this.baterFoto('), 'o obturador saiu do gatilho da Pokédex');
+  checar(
+    dex.includes('mao.indice !== this.tablet.naMaoDe'),
+    'a mão que SEGURA a Pokédex voltou a poder disparar o obturador',
+  );
+
+  console.log(
+    `   ${CAMINHOS.length} comandos de botão, ${CAMINHOS.length} caminhos sem botão ` +
+      `· ${lendoBotao} leituras de A/B, todas em botoesDaMao`,
   );
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);

@@ -188,6 +188,9 @@ const BRANCO = new THREE.Color(1, 1, 1);
  * Não é o `Aviso` comum: aquele some sozinho em alguns segundos, e uma pergunta
  * que some sozinha não é uma pergunta. Este fica até ser respondido.
  */
+/** O que a mira está escolhendo no cartaz. */
+export type RespostaDaEvolucao = 'sim' | 'nao';
+
 export class PromptEvolucao {
   readonly grupo = new THREE.Group();
   private placa = new Placa(0.42, 0.19, 660);
@@ -195,9 +198,49 @@ export class PromptEvolucao {
   private tempo = 0;
   private assinatura = '';
 
+  /**
+   * Os dois lados do cartaz, miráveis.
+   *
+   * ## Por que eles existem
+   *
+   * A pergunta era A ou B, e só. Isso é modal — o jogo para até você responder
+   * — e uma fonte de hand tracking **não tem gamepad**: `apertou()` lê um array
+   * vazio, nenhum dos dois botões existe, e quem larga os controles ficava com
+   * um cartaz na frente do rosto que não dava para responder de jeito nenhum.
+   * Não é um comando difícil de achar; é um jogo travado.
+   *
+   * Agora os dois lados são alvos de mira, como as cartas do painel e as fichas
+   * da Pokédex: aponte para o lado e puxe o gatilho — que existe de mão nua,
+   * porque o WebXR o entrega como a pinça do indicador.
+   */
+  private alvos: THREE.Mesh[] = [];
+  private sob: RespostaDaEvolucao | null = null;
+  private raycaster = new THREE.Raycaster();
+  private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
+
   constructor() {
     this.grupo.add(this.placa.malha);
     this.grupo.visible = false;
+
+    const geo = new THREE.PlaneGeometry(1, 1);
+    const mat = new THREE.MeshBasicMaterial({ visible: false });
+    this.descartaveis.push(geo, mat);
+    // Metade do cartaz para cada lado, na faixa de baixo onde as duas frases
+    // estão escritas. Mais alto começaria a comer o nome da espécie, e mirar
+    // no nome não é escolher nada.
+    for (const lado of ['sim', 'nao'] as const) {
+      const alvo = new THREE.Mesh(geo, mat);
+      alvo.scale.set(0.2, 0.07, 1);
+      alvo.position.set(lado === 'sim' ? -0.09 : 0.09, -0.055, 0.002);
+      alvo.userData = { lado };
+      this.grupo.add(alvo);
+      this.alvos.push(alvo);
+    }
+  }
+
+  /** O lado sob a mira agora, ou nada. */
+  get apontado(): RespostaDaEvolucao | null {
+    return this.sob;
   }
 
   private redesenhar(de: Especie, para: Especie) {
@@ -224,19 +267,39 @@ export class PromptEvolucao {
     ctx.fillStyle = hex(0xfff2b0);
     ctx.fillText(`vai virar ${para.nome}`, canvas.width / 2, 112);
 
+    // O lado sob a mira ganha um fundo: sem isso, apontar para um cartaz que
+    // não responde nada até o gatilho descer é adivinhação.
+    for (const [lado, cx] of [
+      ['sim', canvas.width * 0.29],
+      ['nao', canvas.width * 0.72],
+    ] as const) {
+      if (this.sob !== lado) continue;
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.beginPath();
+      ctx.roundRect(cx - canvas.width * 0.16, 146, canvas.width * 0.32, 40, 8);
+      ctx.fill();
+    }
+
     ctx.font = fonte(23, 700);
     ctx.fillStyle = COR.bom;
-    ctx.fillText('A — deixar evoluir', canvas.width * 0.29, 158);
+    // Com controle na mão, o botão continua escrito: ele continua funcionando,
+    // e é o caminho mais curto para quem o tem. Sem controle, o texto seria uma
+    // instrução impossível — então lá ele vira o gesto que existe.
+    ctx.fillText(this.comBotao ? 'A — deixar evoluir' : 'aponte — deixar evoluir', canvas.width * 0.29, 158);
     ctx.fillStyle = COR.ruim;
-    ctx.fillText('B — agora não', canvas.width * 0.72, 158);
+    ctx.fillText(this.comBotao ? 'B — agora não' : 'aponte — agora não', canvas.width * 0.72, 158);
 
     this.placa.marcarSujo();
   }
 
-  mostrar(de: Especie, para: Especie) {
-    const assinatura = `${de.id}>${para.id}`;
+  /** Se há controle na mão: muda o que as duas frases dizem. */
+  private comBotao = true;
+
+  mostrar(de: Especie, para: Especie, comBotao = true) {
+    const assinatura = `${de.id}>${para.id}|${this.sob ?? '-'}|${comBotao ? 'b' : 'g'}`;
     if (assinatura !== this.assinatura) {
       this.assinatura = assinatura;
+      this.comBotao = comBotao;
       this.redesenhar(de, para);
     }
   }
@@ -245,11 +308,19 @@ export class PromptEvolucao {
     this.assinatura = '';
   }
 
-  atualizar(dt: number, mostrando: boolean, camera: THREE.Camera) {
+  atualizar(
+    dt: number,
+    mostrando: boolean,
+    camera: THREE.Camera,
+    miras: ReadonlyArray<{ origem: THREE.Vector3; direcao: THREE.Vector3 }> = [],
+  ) {
     this.tempo += dt;
     this.visivel += ((mostrando ? 1 : 0) - this.visivel) * Math.min(1, dt * 9);
     this.grupo.visible = this.visivel > 0.02;
-    if (!this.grupo.visible) return;
+    if (!this.grupo.visible) {
+      this.sob = null;
+      return;
+    }
 
     this.placa.opacidade = this.visivel;
     // Um pouco acima do centro da vista: a pergunta precisa estar no caminho do
@@ -258,9 +329,28 @@ export class PromptEvolucao {
     this.grupo.position.lerp(alvo, Math.min(1, dt * 8));
     this.grupo.quaternion.copy(camera.quaternion);
     this.grupo.scale.setScalar(0.85 + this.visivel * 0.15 + Math.sin(this.tempo * 3) * 0.012);
+
+    // A mira, depois de o cartaz estar no lugar deste quadro: mirar no lugar
+    // onde ele estava no quadro passado erraria justamente enquanto ele chega.
+    this.grupo.updateMatrixWorld(true);
+    const antes = this.sob;
+    this.sob = null;
+    if (this.visivel > 0.6) {
+      for (const mira of miras) {
+        this.raycaster.set(mira.origem, mira.direcao);
+        const acertos = this.raycaster.intersectObjects(this.alvos, false);
+        if (acertos.length === 0) continue;
+        this.sob = acertos[0].object.userData.lado as RespostaDaEvolucao;
+        break;
+      }
+    }
+    // O cartaz só é redesenhado quando a assinatura muda, e o lado sob a mira
+    // faz parte dela: sem isto o destaque nunca apareceria.
+    if (this.sob !== antes) this.assinatura = '';
   }
 
   descartar() {
     this.placa.descartar();
+    for (const d of this.descartaveis) d.dispose();
   }
 }

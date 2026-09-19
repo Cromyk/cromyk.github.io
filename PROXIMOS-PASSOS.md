@@ -562,16 +562,80 @@ Duas coisas que apareceram implementando:
   escala responde à aproximação e volta, e o GRIP de longe é recusado sem gastar
   o item.
 
-## O que sobrou
+## Fase 5 — o que a auditoria achou depois do roteiro
 
-Com o 4.6, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2 e 4 inteiras, treze itens.
+A fase 4 acabou e o arquivo ficou sem item que eu pudesse fazer. Esta fase sai
+de uma varredura minha no que já está no ar, e não de um playtest — o que quer
+dizer que os itens daqui para baixo são achados, e não pedidos seus.
+
+### 5.1 ✅ Nenhum comando existe só em botão (feito em 19/09)
+
+O item 1.1 devolveu o cinto, os itens e a Pokédex a quem joga de mão nua. Os
+**botões** continuaram mortos: uma fonte de hand tracking não tem gamepad,
+`Mao.apertou()` lê um array vazio, e quatro comandos só existiam ali.
+
+- **a mochila** (B na mão que aponta) — o inventário inteiro;
+- **o "vem cá"** (A na mão do painel) — chamar o companheiro de volta;
+- **a foto** (A com a Pokédex na mão) — o item 2.3 inteiro, recém-feito e já
+  inacessível para metade dos jogadores;
+- **a resposta à evolução** (A ou B) — e este era o pior: a pergunta é MODAL, o
+  jogo para com um cartaz na frente do rosto, e **não havia gesto no mundo**
+  capaz de respondê-la. Não é um comando difícil de achar; é um jogo travado.
+
+Cada um ganhou caminho no vocabulário que já existe, sem gesto novo:
+
+- **mochila** e **vem cá** viraram cartas no painel do pulso, ao lado do PC e da
+  engrenagem — que estão lá pelo mesmo motivo, escrito no código desde antes:
+  *"sempre abriu no botão Y, o que é o mesmo que não existir para quem não leu o
+  manual"*. O painel abre pelo gesto de olhar as horas, e as cartas respondem à
+  mira e à mão que as toca.
+- **a foto** saiu no gatilho da mão LIVRE quando ela não aponta para ficha
+  nenhuma. Com a Pokédex na mão o painel dela está sempre aberto, e esse gatilho
+  era o único `return` mudo da cascata — apontou para uma ficha, lê a ficha;
+  apontou para o mundo, tira o retrato dele. Só a mão livre: a que segura a
+  Pokédex está de punho fechado, e um punho fechado tem o polegar no indicador,
+  que é o que o runtime chama de pinça.
+- **a evolução** ganhou dois alvos de mira no próprio cartaz, como as cartas do
+  painel e as fichas da Pokédex. O lado sob a mira acende, e o gatilho resolve —
+  antes de tudo, porque a pergunta é modal. E o texto muda: com controle na mão
+  continua escrito "A" e "B"; sem controle, vira "aponte". Um cartaz que manda
+  apertar um botão que a sua mão não tem é pior do que um cartaz sem instrução.
+
+Os botões continuam valendo, todos. Quem tem controle não perde nada.
+
+- **Esforço:** médio-alto.
+- **Como saber que funcionou:** sem os controles, abra a mochila e chame o
+  companheiro pelo painel do pulso; com a Pokédex na mão, aponte para o quarto e
+  puxe o gatilho; e deixe um bicho evoluir para responder a pergunta apontando.
+- **Conferido em:** `npm test`, seção 47 — para cada um dos sete comandos de
+  botão há um método que faz a mesma coisa e é chamado de fora de
+  `botoesDaMao`, e as oito leituras de A/B estão todas lá dentro. É um teste de
+  fonte porque o invariante é estrutural: ele pega o dia em que alguém
+  acrescentar o comando vinte e dois só no botão.
+
+### 5.2 A calibração da mão não existe sem controle
+
+`calibrarComOAnalogico` é o único lugar que sobrou lendo hardware que a mão nua
+não tem — e não é só o botão de zerar: o ajuste inteiro é feito no ANALÓGICO, e
+uma fonte de hand tracking também não tem um. Quem joga sem controle não pode
+corrigir o encaixe da própria mão.
+
+Fica anotado e não foi feito no mesmo ciclo de propósito: mexer nisso sem o
+número do item 3.3 é escolher no escuro o que a sua medição decide.
+
+- **Esforço:** médio.
+- **Depende de:** 3.3.
+
+## O que depende de você
+
+Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
+feito** — fases 1, 2, 4 e o 5.1, catorze itens.
 
 O que resta depende de você:
 
 - **0.1** — os quatro números de quadro (parado, três selvagens, painel aberto,
-  mochila aberta). É o único item que eu não posso fazer, e **treze sistemas
-  novos** entraram desde a última medida. Tudo depois dele passa a ser decidido
+  mochila aberta). É o único item que eu não posso fazer, e já são **quinze
+  sistemas novos** desde a última medida. Tudo depois dele passa a ser decidido
   com número em vez de opinião.
 - **3.1** — as quatro patas de fogo do Ponyta, que dependem do orçamento de
   quadro que o 0.1 mede.
