@@ -42,6 +42,8 @@ const FUNDO = [22, 27, 38];
 /** As colunas da folha: uma pose por coluna, sempre na mesma ordem. */
 interface Coluna {
   rotulo: string;
+  /** 0..1 da pose de colo. Ver `aplicarColo` em src/anima.ts. */
+  colo?: number;
   base: Base;
   gesto?: Gesto;
   /** Em que instante do gesto (0..1) o quadro é tirado. */
@@ -66,6 +68,9 @@ const COLUNAS: Coluna[] = [
   { rotulo: 'sopro: cospe', base: 'parado', gesto: 'sopro', quando: 0.72, velocidade: 0 },
   { rotulo: 'acenando', base: 'parado', gesto: 'acenar', quando: 0.5, velocidade: 0 },
   { rotulo: 'cafuné', base: 'parado', gesto: 'cafune', quando: 0.5, velocidade: 0 },
+  // A pose de estar sendo segurado. É uma CAMADA, não um gesto (ver
+  // `aplicarColo`), então ela não tem `quando`: ela está ligada ou não.
+  { rotulo: 'no colo', base: 'parado', quando: 0, velocidade: 0, colo: 1 },
   { rotulo: 'desmaiado', base: 'desmaiado', quando: 0, velocidade: 0 },
 ];
 
@@ -324,6 +329,7 @@ for (const esp of especies) {
       vida: coluna.base === 'desmaiado' ? 0 : 1,
       encarar: coluna.gesto === 'olhar' ? null : 0.25,
       desmaiado: coluna.base === 'desmaiado',
+      colo: coluna.colo ?? 0,
     };
 
     // Deixa as bases assentarem antes do gesto: o peso da pose base sobe por

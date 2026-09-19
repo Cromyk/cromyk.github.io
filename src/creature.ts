@@ -137,6 +137,14 @@ export class Pokemon {
   /** Achatada ao aterrissar, volta sozinha. */
   private impacto = 0;
   /**
+   * 0..1 — quanto da pose de estar sendo segurado está aplicada.
+   *
+   * Suavizado, e não ligado e desligado: entrar e sair do colo é o corpo dele
+   * mudando de pose, e um corte seco lê como troca de boneco. Ver `aplicarColo`
+   * em src/anima.ts.
+   */
+  private pesoDoColo = 0;
+  /**
    * As DUAS mãos nele, e não uma.
    *
    * Escrito pelo jogo (ver src/colo.ts), lido aqui para duas coisas: ele encara
@@ -1451,6 +1459,12 @@ export class Pokemon {
     // Os ossos primeiro (clipe assado e pose procedural), o corpo inteiro
     // depois. A ordem importa: o squash abaixo escreve em `corpo.scale`, que
     // é o pai de tudo o que o esqueleto acabou de posicionar.
+    // A pose de estar sendo segurado entra e sai suave: um corte seco entre
+    // "de pé" e "no colo" lê como troca de boneco. Seis por segundo dá uns 300
+    // ms, que é o tempo de um bicho se acomodar na sua mão.
+    const querColo = this.estado === 'colo' ? 1 : 0;
+    this.pesoDoColo += (querColo - this.pesoDoColo) * Math.min(1, dt * 6);
+
     this.animador.atualizar(this.estado === 'desmaiado' ? dt * 0.35 : dt, {
       // Quem flutua nunca "anda": o ciclo de passada num Gastly moveria pernas
       // que ele não tem, e num Zubat moveria as asas no ritmo errado. Ele fica
@@ -1460,6 +1474,7 @@ export class Pokemon {
       vida: this.hpFracao,
       encarar: this.estado === 'desmaiado' ? null : this.residuoOlhar,
       desmaiado: this.estado === 'desmaiado',
+      colo: this.pesoDoColo,
     });
 
     if (this.estado !== 'preso') {

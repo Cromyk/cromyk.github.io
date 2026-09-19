@@ -225,7 +225,7 @@ braço apoiado no colo. O painel do pulso idem — ele nasce do punho.
 O jogo tem 151 bichos e um laço de captura. O que ele ainda não tem é o motivo
 para você continuar com o MESMO bicho depois de capturá-lo.
 
-### 2.1 A pose de estar sendo segurado
+### 2.1 ✅ A pose de estar sendo segurado (feito em 19/09)
 
 Dívida registrada no commit do colo: não existe pose de "no colo" no animador.
 Com uma mão a palma tapa metade do corpo e ninguém repara; pendurado à frente do
@@ -235,7 +235,25 @@ aparecer.
 O lugar certo é uma camada `colo` entre a base e o gesto — não um `Gesto` novo,
 porque disparar um gesto por quadro o prenderia em peso zero.
 
-- **Esforço:** médio. Mexe em `src/anima.ts`, que é o arquivo mais delicado.
+**Feito.** `aplicarColo`, uma camada entre a base e o gesto, com `ctx.colo`
+de 0 a 1 — exatamente onde a dívida dizia que era o lugar certo, e pelo motivo
+que ela dizia: um `Gesto` tem começo, meio e fim, e rearmá-lo por quadro o
+prenderia em peso zero para sempre.
+
+A pose: as coxas sobem à frente (−33°), os joelhos dobram atrás delas (−41°), os
+pés pendem, o tronco reclina para TRÁS (para a frente é a pose de quem está
+caindo), os braços vêm à frente dobrados (−19°) e a cabeça levanta um pouco. A
+cauda pende e a base continua balançando-a por cima — é o que a mantém viva.
+
+Entra e sai por interpolação: um corte seco entre "de pé" e "no colo" lê como
+troca de boneco.
+
+`npm run poses` ganhou a coluna **"no colo"** — é ali que se vê, sem headset,
+que o Bulbasaur recolhe as patas e o Charmander dobra os braços. A seção 38 do
+smoke mede a diferença COM SINAL (recolher e esticar dariam o mesmo ângulo em
+módulo) e guarda o teto: a pose inteira cabe em 45° por osso, porque o que
+denuncia uma pose inventada é o exagero.
+
 - **Como saber que funcionou:** levantado com as duas mãos, ele parece estar
   sendo segurado — pernas recolhidas, corpo relaxado — e não de pé no ar.
 

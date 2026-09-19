@@ -132,6 +132,14 @@ export interface Contexto {
   /** Para onde a cabeça deve olhar, em espaço da criatura. Null solta o pescoço. */
   encarar: number | null;
   desmaiado: boolean;
+  /**
+   * 0..1 — quanto ele está sendo SEGURADO por você. Ver `aplicarColo`.
+   *
+   * Opcional porque nem todo chamador sabe disso: as ferramentas de folha de
+   * contato montam o contexto à mão, e um bicho que elas desenham não está no
+   * colo de ninguém.
+   */
+  colo?: number;
 }
 
 /** Acima desta velocidade, em m/s, a base vira corrida. */
@@ -387,6 +395,7 @@ export class Animador {
     this.oscilacao = 0;
     this.rig.limpar();
     this.aplicarBase(ctx);
+    this.aplicarColo(ctx);
     this.aplicarGesto(ctx);
     this.encararComACabeca(dt, ctx);
     this.relaxarBracos();
@@ -549,6 +558,72 @@ export class Animador {
     const u = t - atraso;
     if (u <= 0) return 0;
     return Math.max(0, Math.sin(Math.max(0, (u - 0.36) / 0.64) * Math.PI)) - Math.max(0, 1 - u / 0.36) * 0.6;
+  }
+
+  /**
+   * A pose de estar sendo segurado.
+   *
+   * ## Por que ela é uma CAMADA e não um gesto
+   *
+   * Um `Gesto` tem começo, meio e fim: `disparar` zera o cronômetro e o peso é
+   * um seno que sobe e desce. Estar no colo não tem duração — dura o tempo que
+   * a sua mão durar —, e rearmar um gesto por quadro o prenderia em peso zero
+   * para sempre. Daí uma camada própria, entre a base e o gesto: ela SOMA por
+   * cima do ócio, e o gesto continua podendo acontecer em cima dela (ele ainda
+   * acena e olha em volta no seu colo).
+   *
+   * ## Por que ela precisava existir
+   *
+   * Com uma mão a palma tapa metade do corpo e ninguém repara. Levantado à
+   * frente do rosto pelas DUAS mãos — que é o gesto de 19/09 —, um bicho na
+   * pose de ócio, de pé no ar com as pernas retas, é a coisa mais boneco que o
+   * jogo tem. Era a dívida registrada quando o colo de duas mãos entrou.
+   *
+   * ## A pose
+   *
+   * Um animal levantado recolhe as pernas e relaxa o tronco para trás. Nada
+   * aqui é grande: o corpo inteiro se move menos de 40°, porque o que denuncia
+   * uma pose inventada é o exagero, e porque isto soma em cima da base.
+   *
+   * Os sinais seguem a convenção do topo deste arquivo, que muda de osso para
+   * osso: tronco e peito apontam para cima (positivo inclina à FRENTE), a
+   * cabeça aponta para a frente (positivo BAIXA o focinho), e braços, coxas e
+   * cauda apontam para baixo (positivo joga para TRÁS).
+   */
+  private aplicarColo(ctx: Contexto) {
+    const p = ctx.colo ?? 0;
+    if (p < 0.01 || ctx.desmaiado) return;
+
+    // As pernas recolhem: a coxa sobe à frente e o joelho dobra atrás dela. É o
+    // que mais distingue "sendo segurado" de "de pé no ar".
+    this.rig.girar('coxaE', LADO, -0.58 * p);
+    this.rig.girar('coxaD', LADO, -0.58 * p);
+    this.rig.girar('pernaE', LADO, -0.72 * p);
+    this.rig.girar('pernaD', LADO, -0.72 * p);
+    // O pé solta e pende.
+    this.rig.girar('peE', LADO, -0.3 * p);
+    this.rig.girar('peD', LADO, -0.3 * p);
+
+    // O tronco reclina para trás, como quem está apoiado em alguma coisa — e
+    // não para a frente, que é a pose de quem está caindo.
+    this.rig.girar('tronco', LADO, -0.14 * p);
+    this.rig.girar('peito', LADO, -0.06 * p);
+    // E a cabeça levanta um pouco, para ele olhar para você em vez de para o
+    // chão. O resto do olhar é de `encararComACabeca`.
+    this.rig.girar('cabeca', LADO, -0.16 * p);
+
+    // Os braços caem à frente, dobrados. Um bicho no colo não fica de braços
+    // estendidos: ele se apoia ou se encolhe.
+    this.rig.girar('bracoE', LADO, -0.34 * p);
+    this.rig.girar('bracoD', LADO, -0.34 * p);
+    this.rig.girar('antebracoE', LADO, -0.42 * p);
+    this.rig.girar('antebracoD', LADO, -0.42 * p);
+
+    // A cauda pende e enrola de leve. Ela já aponta para baixo em repouso, e a
+    // base continua balançando-a por cima disto — é o que a mantém viva.
+    this.rig.girar('cauda1', LADO, 0.1 * p);
+    this.rig.girar('cauda2', LADO, 0.16 * p);
+    this.rig.girar('cauda3', LADO, 0.2 * p);
   }
 
   private aplicarGesto(ctx: Contexto) {

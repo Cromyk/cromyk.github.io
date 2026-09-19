@@ -3475,6 +3475,122 @@ console.log('\n37. o alcance de quem está sentado');
   );
 }
 
+
+// --- 38. a pose de estar sendo segurado ---
+//
+// Era a dívida registrada quando o colo de duas mãos entrou: não existia pose
+// de "no colo" no animador. Com uma mão a palma tapa metade do corpo e ninguém
+// repara; levantado à frente do rosto pelas duas, um bicho na pose de ócio — de
+// pé no ar, pernas retas — é a coisa mais boneco que o jogo tem.
+//
+// A camada é somada por cima da base (ver `aplicarColo`), então o que se mede
+// aqui é a DIFERENÇA entre rodar o mesmo ocioso com e sem ela. Com sinal, e não
+// só em módulo: recolher as pernas e esticá-las dariam o mesmo ângulo.
+console.log('\n38. a pose de estar sendo segurado');
+{
+  // Os mesmos nomes dos outros testes de pose: são os que o Rig reconhece.
+  const nomes = [
+    'Hips', 'Spine1', 'Spine2', 'Neck', 'Head', 'Jaw',
+    'LShoulder', 'LArm', 'LForeArm', 'LHand', 'RShoulder', 'RArm', 'RForeArm', 'RHand',
+    'LThigh', 'LLeg', 'LFoot', 'RThigh', 'RLeg', 'RFoot', 'Tail1', 'Tail2', 'Tail3',
+  ];
+
+  /** O giro em torno de X, COM sinal, de um osso contra o repouso dele. */
+  const giroEmX = (osso: THREE.Bone, repouso: THREE.Quaternion) => {
+    const relativo = repouso.clone().invert().multiply(osso.quaternion);
+    // O sinal do componente x do quaternion é o sentido do giro em torno de X.
+    const angulo = 2 * Math.atan2(Math.hypot(relativo.x, relativo.y, relativo.z), relativo.w);
+    return relativo.x >= 0 ? angulo : -angulo;
+  };
+
+  const posar = (colo: number) => {
+    // Mesma semente para os dois: `variacoesDeOcio` sorteia, e sem prender o
+    // acaso a diferença medida seria metade pose e metade sorte. É a mesma
+    // armadilha que já tornou o teste da chicotada intermitente.
+    const sorteioReal = Math.random;
+    let semente = 0x2f6e2b1;
+    Math.random = () => {
+      semente = (semente + 0x6d2b79f5) | 0;
+      let t = Math.imul(semente ^ (semente >>> 15), 1 | semente);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    try {
+      const { corpo, porNome, repousos } = esqueletoDe(nomes, 0.6);
+      const animador = new Animador(corpo);
+      const ctx = { velocidade: 0, alarme: 0, vida: 1, encarar: 0, desmaiado: false, colo };
+      // Tempo de sobra para a camada assentar: ela entra por interpolação na
+      // criatura, mas aqui o valor é direto, e o que precisa assentar é a base.
+      for (let i = 0; i < 120; i++) animador.atualizar(1 / 72, ctx);
+      const saida = new Map<string, number>();
+      for (const nome of nomes) {
+        saida.set(nome, giroEmX(porNome.get(nome)!, repousos.get(nome)!));
+      }
+      return saida;
+    } finally {
+      Math.random = sorteioReal;
+    }
+  };
+
+  const solto = posar(0);
+  const noColo = posar(1);
+  const delta = (nome: string) => noColo.get(nome)! - solto.get(nome)!;
+
+  // AS PERNAS RECOLHEM. Pela convenção de eixos, coxa e joelho apontam para
+  // baixo, e negativo traz para a FRENTE — que é o lado em que um bicho
+  // levantado dobra as pernas.
+  for (const perna of ['LThigh', 'RThigh']) {
+    checar(
+      delta(perna) < -0.3,
+      `a coxa ${perna} não recolheu no colo: ${(delta(perna) * (180 / Math.PI)).toFixed(0)}°`,
+    );
+  }
+  for (const joelho of ['LLeg', 'RLeg']) {
+    checar(
+      delta(joelho) < -0.4,
+      `o joelho ${joelho} não dobrou no colo: ${(delta(joelho) * (180 / Math.PI)).toFixed(0)}°`,
+    );
+  }
+
+  // O TRONCO RECLINA PARA TRÁS, e não para a frente — para a frente é a pose de
+  // quem está caindo. Tronco aponta para cima, positivo inclina à frente.
+  checar(delta('Spine1') < 0, `o tronco caiu para a frente no colo: ${delta('Spine1').toFixed(2)}`);
+
+  // OS BRAÇOS VÊM À FRENTE e dobram.
+  checar(delta('LArm') < -0.2 && delta('RArm') < -0.2, 'os braços não vieram à frente no colo');
+  checar(delta('LForeArm') < -0.25, 'o antebraço não dobrou no colo');
+
+  // E NADA DISSO É EXAGERO: a pose inteira cabe em 45° por osso. O que denuncia
+  // uma pose inventada é o exagero, e esta camada SOMA em cima da base.
+  let maior = 0;
+  let culpado = '';
+  for (const nome of nomes) {
+    if (Math.abs(delta(nome)) > maior) {
+      maior = Math.abs(delta(nome));
+      culpado = nome;
+    }
+  }
+  checar(
+    maior < Math.PI / 4,
+    `a pose de colo gira ${culpado} em ${(maior * (180 / Math.PI)).toFixed(0)}°, o que é pose de contorcionista`,
+  );
+
+  // Com colo = 0 ela não existe: um bicho no chão não pode herdar nada disto.
+  const comparacao = posar(0);
+  for (const nome of nomes) {
+    checar(
+      Math.abs(comparacao.get(nome)! - solto.get(nome)!) < 1e-9,
+      `o mesmo ocioso deu poses diferentes em ${nome} — o teste virou sorteio`,
+    );
+  }
+
+  console.log(
+    `   colo: coxa ${(delta('LThigh') * (180 / Math.PI)).toFixed(0)}°, ` +
+      `joelho ${(delta('LLeg') * (180 / Math.PI)).toFixed(0)}°, ` +
+      `braço ${(delta('LArm') * (180 / Math.PI)).toFixed(0)}° — maior giro ${(maior * (180 / Math.PI)).toFixed(0)}° em ${culpado}`,
+  );
+}
+
   console.log(
     `   ${PEDRAS.length} pedras, ${pares} evoluções · ` +
       `${EVOLUI_SO_COM_PEDRA.size} espécies saíram da evolução por nível`,
