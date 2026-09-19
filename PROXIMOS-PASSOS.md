@@ -932,10 +932,58 @@ persistência de verdade.
   meio da rajada; `gravarAgora` escreve na hora e cancela o pedido pendente em
   vez de gravar duas vezes; e as três portas existem.
 
+### 5.9 ✅ Mexer no PC trocava quem volta a campo (feito em 19/09)
+
+Duas coisas são guardadas por **índice** no estado: o **ativo** (o próximo a
+sair da bola) e o **em campo** (quem estava fora da bola quando o jogo parou,
+para a sessão seguinte devolvê-lo ao seu lado).
+
+Qualquer arrasto no PC muda os índices embaixo dos dois. O ativo tinha
+conserto — três das quatro operações já o reencontravam pela referência, e uma
+delas diz isso por escrito: *"o ativo é guardado por ÍNDICE, e mover a lista
+embaixo dele o faria apontar para outro bicho"*.
+
+**O em campo não tinha conserto nenhum.** Nenhuma das quatro operações o
+corrigia — e ele existe justamente para sobreviver ao fim da sessão:
+
+1. você está com o Charmander em campo;
+2. abre o PC e arrasta ele da primeira vaga para a quarta;
+3. sai e volta — e o jogo invoca **quem estiver na primeira vaga**.
+
+Não dá erro, não some com nada, e é impossível de adivinhar: o sintoma aparece
+uma sessão inteira depois da causa. O teste, rodado contra o código de antes,
+diz o que acontecia em uma linha: *"depois de recarregar voltou **zubat** a
+campo, e não charmander"*.
+
+A correção é um invólucro — `mexendoNaLista` — que guarda as duas referências
+antes de a lista mexer e as reencontra depois. Um invólucro e não mais uma
+linha em cada operação, porque já eram quatro operações com **três consertos
+diferentes** (um por índice, dois por referência e um com regra própria), e foi
+essa dispersão que deixou o segundo índice de fora. A quinta operação que
+alguém escrever herda o conserto sem precisar saber que ele existe.
+
+Duas regras que ficaram explícitas no caminho:
+
+- **soltar quem estava em campo** faz o em campo virar *ninguém*, e não o
+  vizinho de índice: inventar um substituto ali faria a sessão seguinte invocar
+  um bicho que você nunca mandou sair da bola;
+- **mandar para a caixa** mantém o em campo. Sair e voltar com um bicho
+  guardado é estranho, mas foi você que fez — trocar por outro seria pior.
+
+E `limpar()` tinha o mesmo esquecimento no lugar mais óbvio de todos: uma lista
+vazia continuava com o índice de quem estava em campo.
+
+- **Esforço:** baixo.
+- **Como saber que funcionou:** com o seu Pokémon em campo, abra o PC, arraste
+  ele para outra vaga, saia e entre de novo. É ele quem volta ao seu lado.
+- **Conferido em:** `npm test`, seção 54 — oito cenários, e todos os oito
+  falham contra o código anterior (conferido rodando o teste novo contra o
+  `state.ts` do commit passado).
+
 ## O que depende de você
 
 Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.8, vinte itens.
+feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.9, vinte e um itens.
 
 O que resta depende de você:
 

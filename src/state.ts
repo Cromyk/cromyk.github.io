@@ -453,13 +453,55 @@ export class Dex {
    * tirar um do time e pôr outro — uma escrita só, e nenhum estado para manter
    * em sincronia.
    */
+  /**
+   * Mexe na lista sem perder de vista QUEM é quem.
+   *
+   * ## O bug
+   *
+   * Duas coisas são guardadas por ÍNDICE nesta classe: o **ativo** (o próximo
+   * a sair da bola) e o **em campo** (quem estava fora da bola quando o jogo
+   * parou, para a sessão seguinte devolvê-lo ao seu lado).
+   *
+   * Qualquer arrasto no PC muda os índices embaixo dos dois. O ativo tinha
+   * conserto — três das quatro operações já o reencontravam pela referência, e
+   * uma delas diz isso por escrito: *"o ativo é guardado por índice, e mover a
+   * lista embaixo dele o faria apontar para outro bicho"*.
+   *
+   * **O em campo não tinha.** Nenhuma das quatro o corrigia, e ele existe
+   * justamente para sobreviver ao fim da sessão. O resultado:
+   *
+   * 1. você está com o Charmander em campo;
+   * 2. abre o PC e arrasta ele da primeira vaga para a quarta;
+   * 3. sai e volta — e o jogo invoca **quem estiver na primeira vaga**, que é
+   *    outro bicho, ou ninguém.
+   *
+   * Não dá erro, não some com nada, e é impossível de adivinhar: o sintoma
+   * aparece uma sessão inteira depois da causa.
+   *
+   * ## Por que um invólucro, e não mais uma linha em cada operação
+   *
+   * Porque já eram quatro operações com três consertos diferentes — um por
+   * índice (`corrigirAtivo`), dois por referência e um com regra própria — e
+   * foi essa dispersão que deixou o segundo índice de fora. A quinta operação
+   * que alguém escrever herda o conserto sem precisar saber que ele existe.
+   */
+  private mexendoNaLista<T>(operacao: () => T): T {
+    const ativo = this.exemplarAtivo;
+    const campo = this.exemplares[this.emCampo] ?? null;
+    const saida = operacao();
+    this.ativo = ativo ? this.exemplares.indexOf(ativo) : -1;
+    this.emCampo = campo ? this.exemplares.indexOf(campo) : -1;
+    return saida;
+  }
+
   trocar(a: number, b: number) {
     if (a === b) return;
     if (a < 0 || b < 0 || a >= this.exemplares.length || b >= this.exemplares.length) return;
-    const guardado = this.exemplares[a];
-    this.exemplares[a] = this.exemplares[b];
-    this.exemplares[b] = guardado;
-    this.corrigirAtivo(a, b);
+    this.mexendoNaLista(() => {
+      const guardado = this.exemplares[a];
+      this.exemplares[a] = this.exemplares[b];
+      this.exemplares[b] = guardado;
+    });
     this.salvar();
   }
 
@@ -468,27 +510,23 @@ export class Dex {
     if (de === para) return;
     if (de < 0 || de >= this.exemplares.length) return;
     const destino = Math.max(0, Math.min(this.exemplares.length - 1, para));
-    const ativo = this.exemplarAtivo;
-    const [exemplar] = this.exemplares.splice(de, 1);
-    this.exemplares.splice(destino, 0, exemplar);
-    // O ativo é guardado por ÍNDICE, e mover a lista embaixo dele o faria
-    // apontar para outro bicho. Reencontrar pela referência conserta isso.
-    this.ativo = ativo ? this.exemplares.indexOf(ativo) : -1;
+    this.mexendoNaLista(() => {
+      const [exemplar] = this.exemplares.splice(de, 1);
+      this.exemplares.splice(destino, 0, exemplar);
+    });
     this.salvar();
-  }
-
-  private corrigirAtivo(a: number, b: number) {
-    if (this.ativo === a) this.ativo = b;
-    else if (this.ativo === b) this.ativo = a;
   }
 
   /** Solta um exemplar de volta à natureza. O inicial não sai. */
   soltar(indice: number): Exemplar | null {
     if (indice < 0 || indice >= this.exemplares.length) return null;
     if (this.exemplares.length <= 1) return null;
-    const ativo = this.exemplarAtivo;
-    const [saiu] = this.exemplares.splice(indice, 1);
-    this.ativo = ativo && ativo !== saiu ? this.exemplares.indexOf(ativo) : 0;
+    const saiu = this.mexendoNaLista(() => this.exemplares.splice(indice, 1)[0]);
+    // Quem some não pode continuar sendo o ativo: o lugar dele passa a ser o
+    // primeiro da lista. Já o EM CAMPO vira "ninguém" e fica assim — inventar
+    // um substituto ali faria a sessão seguinte invocar um bicho que você
+    // nunca mandou sair da bola.
+    if (this.ativo < 0 && this.exemplares.length > 0) this.ativo = 0;
     this.salvar();
     return saiu;
   }
@@ -623,47 +661,37 @@ export class Dex {
     const bicho = this.exemplares[de] ?? null;
     if (!bicho) return null;
 
-    const ativo = this.exemplarAtivo;
     const paraTime = para < TAMANHO_TIME;
     const deTime = de < TAMANHO_TIME;
     const destino = this.exemplares[para] ?? null;
 
-    if (destino) {
-      this.exemplares[de] = destino;
-      this.exemplares[para] = bicho;
-      this.reencontrarAtivo(ativo);
-      this.salvar();
-      return 'trocou';
-    }
+    const oQueFoi = this.mexendoNaLista<'trocou' | 'moveu'>(() => {
+      if (destino) {
+        this.exemplares[de] = destino;
+        this.exemplares[para] = bicho;
+        return 'trocou';
+      }
 
-    // Vaga vazia. Tirar de onde estava é o que muda conforme o lado.
-    if (deTime) this.exemplares[de] = null;
-    else this.exemplares.splice(de, 1);
+      // Vaga vazia. Tirar de onde estava é o que muda conforme o lado.
+      if (deTime) this.exemplares[de] = null;
+      else this.exemplares.splice(de, 1);
 
-    if (paraTime) {
-      const alvo = para;
-      while (this.exemplares.length <= alvo) this.exemplares.push(null);
-      this.exemplares[alvo] = bicho;
-    } else {
-      // Na caixa não há vaga vazia: soltar num quadrado em branco quer dizer
-      // "põe no fim", que é onde aquele quadrado está.
-      this.exemplares.push(bicho);
-    }
+      if (paraTime) {
+        const alvo = para;
+        while (this.exemplares.length <= alvo) this.exemplares.push(null);
+        this.exemplares[alvo] = bicho;
+      } else {
+        // Na caixa não há vaga vazia: soltar num quadrado em branco quer dizer
+        // "põe no fim", que é onde aquele quadrado está.
+        this.exemplares.push(bicho);
+      }
+      return 'moveu';
+    });
 
-    this.reencontrarAtivo(ativo);
     this.salvar();
-    return 'moveu';
+    return oQueFoi;
   }
 
-  /**
-   * Faz `ativo` voltar a apontar para o MESMO bicho depois de a lista mexer.
-   *
-   * O ativo é guardado por índice, e qualquer arrasto muda os índices embaixo
-   * dele. Sem isto, arrastar um bicho qualquer trocaria quem vai a campo.
-   */
-  private reencontrarAtivo(ativo: Exemplar | null) {
-    this.ativo = ativo ? this.exemplares.indexOf(ativo) : -1;
-  }
 
   /** O inicial chega com a vida cheia e já escolhido. */
   receberInicial(id: string, nivel = 5) {
@@ -940,6 +968,9 @@ export class Dex {
     this.exemplares = [];
     this.comecarDoZero();
     this.ativo = -1;
+    // O mesmo esquecimento de `arrastar`, no lugar mais óbvio de todos: sem
+    // isto, uma lista vazia continuava com um índice de quem estava em campo.
+    this.emCampo = -1;
     this.escolheuInicial = false;
     this.salvar();
   }

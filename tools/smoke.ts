@@ -5069,5 +5069,131 @@ console.log('\n53. gravar o estado não trava o quadro');
 
   console.log('   estado: seis gravações em rajada viraram uma · e três portas forçam antes de sumir');
 }
+
+// --- 54. mexer no PC não troca quem volta a campo ---
+//
+// Duas coisas são guardadas por ÍNDICE no estado: o ATIVO (o próximo a sair da
+// bola) e o EM CAMPO (quem estava fora da bola quando o jogo parou, para a
+// sessão seguinte devolvê-lo ao seu lado).
+//
+// Qualquer arrasto no PC muda os índices embaixo dos dois. O ativo tinha
+// conserto — três das quatro operações já o reencontravam pela referência, e
+// uma delas diz isso por escrito. O EM CAMPO não tinha conserto nenhum:
+//
+//   1. você está com o Charmander em campo
+//   2. abre o PC e arrasta ele da primeira vaga para a quarta
+//   3. sai e volta — e o jogo invoca quem estiver na primeira vaga
+//
+// Não dá erro, não some com nada, e é impossível de adivinhar: o sintoma
+// aparece uma sessão inteira depois da causa.
+console.log('\n54. mexer no PC não troca quem volta a campo');
+{
+  const novaDex = () => {
+    const d = new Dex();
+    d.limpar();
+    d.receberInicial('charmander');
+    for (const id of ['pidgey', 'rattata', 'caterpie', 'zubat', 'geodude', 'magikarp']) {
+      d.registrarCaptura(id, 10, 8, false);
+    }
+    return d;
+  };
+
+  // (1) ARRASTAR PARA UMA VAGA VAZIA DO TIME.
+  {
+    const dex = novaDex();
+    const meu = dex.time[0]!;
+    dex.marcarEmCampo(meu);
+    checar(dex.exemplarEmCampoSalvo === meu, 'marcar em campo não pegou');
+
+    // Abre uma vaga e arrasta o bicho em campo para ela.
+    dex.arrastar(1, TAMANHO_TIME + 2);
+    dex.arrastar(0, 1);
+    checar(dex.exemplarEmCampoSalvo === meu, 'arrastar para uma vaga vazia trocou quem volta a campo');
+  }
+
+  // (2) TROCAR DE LUGAR COM OUTRO.
+  {
+    const dex = novaDex();
+    const meu = dex.time[0]!;
+    const outro = dex.time[3]!;
+    dex.marcarEmCampo(meu);
+    dex.arrastar(0, 3);
+    checar(dex.exemplarEmCampoSalvo === meu, 'trocar de vaga trocou quem volta a campo');
+    checar(dex.time[0] === outro, 'a troca não aconteceu — o teste não vale nada');
+  }
+
+  // (3) DO TIME PARA A CAIXA: ele continua sendo o que estava em campo. Sair e
+  //     voltar com um bicho guardado é estranho, mas é o que VOCÊ fez — inventar
+  //     outro no lugar seria pior.
+  {
+    const dex = novaDex();
+    const meu = dex.time[0]!;
+    dex.marcarEmCampo(meu);
+    dex.arrastar(0, TAMANHO_TIME + 3);
+    checar(dex.exemplarEmCampoSalvo === meu, 'mandar para a caixa perdeu quem estava em campo');
+  }
+
+  // (4) MOVER E TROCAR, as duas operações antigas.
+  {
+    const dex = novaDex();
+    const meu = dex.time[2]!;
+    dex.marcarEmCampo(meu);
+    dex.mover(0, 5);
+    checar(dex.exemplarEmCampoSalvo === meu, 'mover a lista trocou quem volta a campo');
+    dex.trocar(1, 4);
+    checar(dex.exemplarEmCampoSalvo === meu, 'trocar dois outros trocou quem volta a campo');
+  }
+
+  // (5) SOLTAR QUEM ESTAVA EM CAMPO: vira ninguém, e não o vizinho de índice.
+  {
+    const dex = novaDex();
+    const meu = dex.time[0]!;
+    const vizinho = dex.time[1]!;
+    dex.marcarEmCampo(meu);
+    dex.soltar(0);
+    checar(dex.exemplarEmCampoSalvo === null, 'soltar quem estava em campo promoveu o vizinho');
+    checar(dex.time[0] === vizinho, 'soltar não tirou o bicho da lista');
+    // E o ativo continua existindo: quem some não pode ser o próximo a sair da
+    // bola, mas a lista não pode ficar sem ninguém escolhido.
+    checar(dex.exemplarAtivo !== null, 'soltar o ativo deixou o jogo sem ninguém escolhido');
+  }
+
+  // (6) SOLTAR OUTRO não mexe em quem está em campo.
+  {
+    const dex = novaDex();
+    const meu = dex.time[2]!;
+    dex.marcarEmCampo(meu);
+    dex.soltar(0);
+    checar(dex.exemplarEmCampoSalvo === meu, 'soltar um terceiro trocou quem volta a campo');
+  }
+
+  // (7) O CICLO INTEIRO, que é onde o bug aparecia de verdade: mexer no PC,
+  //     gravar, e abrir o jogo de novo.
+  {
+    const dex = novaDex();
+    const meu = dex.time[0]!;
+    dex.marcarEmCampo(meu);
+    dex.arrastar(0, 4);
+    dex.gravarAgora();
+
+    const depois = new Dex();
+    const voltou = depois.exemplarEmCampoSalvo;
+    checar(voltou !== null, 'depois de recarregar, ninguém voltou a campo');
+    checar(
+      voltou?.id === meu.id,
+      `depois de recarregar voltou ${voltou?.id} a campo, e não ${meu.id}`,
+    );
+  }
+
+  // (8) E limpar a Dex não deixa um índice apontando para uma lista vazia.
+  {
+    const dex = novaDex();
+    dex.marcarEmCampo(dex.time[0]!);
+    dex.limpar();
+    checar(dex.exemplarEmCampoSalvo === null, 'a Dex limpa continua com alguém em campo');
+  }
+
+  console.log('   PC: arrastar, mover, trocar e soltar mantêm o ativo E quem volta a campo');
+}
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);
