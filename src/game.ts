@@ -150,8 +150,6 @@ const MAX_SELVAGENS = 3;
  * constante por mais que voce caminhe.
  */
 const DISTANCIA_DE_SUMICO = 9;
-/** Só a bola comum recarrega sozinha; as outras vêm de capturas. */
-const RECARGA_BOLA_COMUM = 5;
 /**
  * Quantos encontros seguidos sem novidade até o jogo forçar um inédito.
  *
@@ -359,7 +357,6 @@ export class Jogo {
    */
   semLimiteDeArea = false;
 
-  private recarga = 0;
   readonly ajustes = new Ajustes();
   private auras: Aura[] = [];
   /** Golpe escolhido à mão no painel. Só o modo Batalha usa. */
@@ -2971,7 +2968,87 @@ export class Jogo {
       case 'fechou':
         audio.recolher();
         break;
+      case 'selecao':
+        audio.abrirPainel();
+        if (this.pc.modoSelecao) {
+          this.aviso.mostrar(
+            [
+              { texto: 'modo seleção', tamanho: 34, cor: '#ff9f9f' },
+              {
+                texto: 'aponte e puxe o gatilho em cada um · depois solte todos de uma vez',
+                tamanho: 21,
+                cor: '#9aa5b8',
+                peso: 500,
+              },
+            ],
+            3,
+          );
+        }
+        break;
+      case 'marcou':
+      case 'desmarcou':
+        audio.clique();
+        break;
+      // Soltar VÁRIOS acontece na DESCIDA do gatilho, e não na subida como o
+      // arrasto: no modo seleção não há nada na mão para largar, é um botão.
+      case 'soltouVarios':
+        this.dizerDespedida();
+        if (this.temCompanheiroEmCampo) this.recolherCompanheiro();
+        break;
+      case 'recusou':
+        this.avisarUltimo();
+        break;
     }
+  }
+
+  /**
+   * O que a natureza devolveu pelo que você soltou.
+   *
+   * Vale para o arrasto de um e para a leva do modo seleção — é o mesmo texto,
+   * e a razão de o gesto existir é justamente o que ele paga. Ver
+   * `recompensaPorSoltar`.
+   */
+  private dizerDespedida() {
+    const despedida = this.pc.despedida;
+    this.pc.despedida = null;
+    if (!despedida) return;
+    audio.tilintar();
+    this.aviso.mostrar(
+      [
+        {
+          texto:
+            despedida.quantos > 1
+              ? `${despedida.nome} voltaram para a natureza`
+              : `${despedida.nome} voltou para a natureza`,
+          tamanho: 32,
+          cor: '#9ff0c4',
+        },
+        ...despedida.itens.map((achado) => ({
+          texto: `+${achado.quantidade} ${itemPorId(achado.id)?.nome ?? achado.id}`,
+          tamanho: 23,
+          cor: ehPedra(achado.id) ? '#ffd78a' : '#9aa5b8',
+          peso: 600,
+        })),
+      ],
+      3.4,
+    );
+  }
+
+  /** O último não sai. Ver `Dex.soltar`: sem ninguém, não há jogo. */
+  private avisarUltimo() {
+    audio.clique();
+    this.aviso.mostrar(
+      [
+        { texto: 'esse é o último', tamanho: 34, cor: '#ff9f9f' },
+        {
+          texto: 'você precisa de pelo menos um Pokémon',
+          tamanho: 22,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      2.4,
+    );
   }
 
   /**
@@ -2994,42 +3071,14 @@ export class Jogo {
     // O último não sai. Ver `Dex.soltar`: sem ninguém, não há jogo — e um
     // gesto engolido em silêncio seria lido como bug.
     if (feito === 'recusou') {
-      audio.clique();
-      this.aviso.mostrar(
-        [
-          { texto: 'esse é o último', tamanho: 34, cor: '#ff9f9f' },
-          {
-            texto: 'você precisa de pelo menos um Pokémon',
-            tamanho: 22,
-            cor: '#9aa5b8',
-            peso: 500,
-          },
-        ],
-        2.4,
-      );
+      this.avisarUltimo();
       return;
     }
 
     // Soltou na natureza: o que a natureza devolveu é a única razão de o gesto
     // existir, então ele é dito por inteiro. Ver `recompensaPorSoltar`.
     if (feito === 'soltou') {
-      const despedida = this.pc.despedida;
-      this.pc.despedida = null;
-      if (despedida) {
-        audio.tilintar();
-        this.aviso.mostrar(
-          [
-            { texto: `${despedida.nome} voltou para a natureza`, tamanho: 32, cor: '#9ff0c4' },
-            ...despedida.itens.map((achado) => ({
-              texto: `+${achado.quantidade} ${itemPorId(achado.id)?.nome ?? achado.id}`,
-              tamanho: 23,
-              cor: ehPedra(achado.id) ? '#ffd78a' : '#9aa5b8',
-              peso: 600,
-            })),
-          ],
-          3.4,
-        );
-      }
+      this.dizerDespedida();
       if (this.temCompanheiroEmCampo) this.recolherCompanheiro();
       return;
     }
@@ -4511,14 +4560,27 @@ export class Jogo {
 
     if (this.bonusFruta > 0) this.bonusFruta -= dt;
 
-    const comum = BOLA_PADRAO;
-    if (this.dex.bolas(comum.id) < comum.maximo) {
-      this.recarga += dt;
-      if (this.recarga >= RECARGA_BOLA_COMUM) {
-        this.recarga = 0;
-        this.dex.ganharBola(comum.id, 1);
-      }
-    }
+    // A MOCHILA NÃO SE ENCHE SOZINHA — e aqui ela se enchia, em segredo.
+    //
+    // *"As pokébolas do inventário não resetam, elas ficam salvas para usar
+    // quando um Pokémon interessante aparecer"* — playtest de 19/09. O estoque
+    // sempre foi gravado no `localStorage` e sempre sobreviveu a fechar o jogo;
+    // o que não sobrevivia era o SENTIDO dele, e por causa deste bloco.
+    //
+    // Havia duas recargas, independentes uma da outra:
+    //
+    // 1. esta, por quadro: **uma Bola Comum a cada 5 segundos, até 12**. São
+    //    doze bolas por minuto, ou seja, a contagem voltava sozinha para o
+    //    teto o tempo todo. Não é rede de segurança, é torneira aberta — e
+    //    um número que volta sempre para 12 não é um estoque, é um enfeite;
+    // 2. `Dex.recarregar()`, que é a documentada: uma a cada 75 s, até SEIS,
+    //    por relógio de parede, contando também o tempo com o headset na
+    //    estante. Essa é a rede de segurança que o `TipoBola.recarga` promete
+    //    — *"a rede de segurança te tira do buraco, não te abastece"*.
+    //
+    // Fica só a segunda. Guardar uma Bola Prisma para o bicho certo passa a
+    // valer alguma coisa, porque a mochila passa a ser o que você deixou nela.
+    // Ver `Dex.recarregar`, chamada uma vez por quadro em `atualizar`.
 
     // No Relaxante ninguém nasce: o modo existe justamente para a sala ficar
     // sua e do seu Pokémon.

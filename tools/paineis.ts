@@ -227,10 +227,23 @@ const dexDaFolha = new Dex();
   pc.definirDex(dex as never);
   (pc as unknown as { pegou: number }).pegou = 2;
   pc.desenhar();
-  secoes.push({
-    titulo: 'PC do treinador',
-    pecas: [{ canvas: (pc.placa as { canvas: Canvas }).canvas, rotulo: 'equipe e caixa' }],
+  const pecasPc: Peca[] = [
+    { canvas: (pc.placa as { canvas: Canvas }).canvas, rotulo: 'equipe e caixa' },
+  ];
+
+  // E o MODO SELEÇÃO, que é a tela nova: marcar vários e soltar de uma vez.
+  // Uma segunda instância porque a folha guarda o CANVAS, e desenhar duas
+  // vezes na mesma placa daria duas fotos iguais — a última.
+  const pcSel = espiar(new PainelPc());
+  pcSel.definirDex(dex as never);
+  pcSel.alternarSelecao();
+  for (const i of [1, 3, 7, 9, 10]) (pcSel as unknown as { marcados: Set<number> }).marcados.add(i);
+  pcSel.desenhar();
+  pecasPc.push({
+    canvas: (pcSel.placa as { canvas: Canvas }).canvas,
+    rotulo: 'modo seleção · 5 marcados',
   });
+  secoes.push({ titulo: 'PC do treinador', pecas: pecasPc });
 }
 
 // --- Pokédex ---

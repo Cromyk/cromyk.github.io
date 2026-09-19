@@ -59,11 +59,15 @@ export type AlvoPc =
   | { tipo: 'pagina'; direcao: 1 | -1 }
   | { tipo: 'curar' }
   | { tipo: 'soltar' }
+  | { tipo: 'selecionar' }
   | { tipo: 'fechar' };
 
 /** O que a natureza devolveu pelo bicho que você soltou. Ver `soltarArrasto`. */
 export interface Despedida {
+  /** O nome de quem saiu, ou "3 Pokemon" quando foram varios. */
   nome: string;
+  /** Quantos sairam nesta leva. Um, no arrasto; N, na selecao. */
+  quantos: number;
   itens: Achado[];
 }
 
@@ -80,6 +84,33 @@ export class PainelPc {
    * painel sabe soltar e sabe pagar, mas não sabe falar. Quem lê, limpa.
    */
   despedida: Despedida | null = null;
+
+  /**
+   * O MODO SELECAO: marcar varios e soltar todos de uma vez.
+   *
+   * ## Por que ele existe
+   *
+   * *"No PC eu quero poder selecionar varios Pokemons para jogar fora"* —
+   * playtest de 19/09. O arrasto resolve bem a operacao de UM: pegar, levar,
+   * largar. Ele e exatamente o gesto errado para VINTE Pidgeys: sao vinte
+   * travessias do painel com o dedo puxado, e a vigesima e um teste de
+   * paciencia, nao de intencao.
+   *
+   * ## Por que um modo, e nao um gesto novo
+   *
+   * Porque "marcar" e "pegar" comecam do mesmo jeito — mira numa carta,
+   * gatilho — e nao ha um segundo botao que a mao livre possa apertar sem
+   * largar o que esta fazendo. Um modo separa os dois de forma que a TELA diz
+   * em qual voce esta: o botao fica aceso, as cartas ganham caixinha, e o
+   * rodape troca de texto. Sem estado invisivel.
+   *
+   * Sair do modo limpa a selecao, de proposito: uma selecao que sobrevive a
+   * saida e uma selecao que te espera escondida na proxima vez que voce abrir
+   * o PC, e a operacao dela e irreversivel.
+   */
+  modoSelecao = false;
+  /** Quem esta marcado, por indice em `dex.todosComVagas`. */
+  private marcados = new Set<number>();
 
   private placa = new Placa(LARGURA, ALTURA, PX);
   private alvos: THREE.Mesh[] = [];
@@ -137,6 +168,7 @@ export class PainelPc {
     // única coisa irreversível desta tela, e não pode ficar encostada no botão
     // de fechar. Ver `soltarArrasto`.
     novoAlvo({ tipo: 'soltar' }, PainelPc.SOLTAR_X, rodape, PainelPc.SOLTAR_L, 54);
+    novoAlvo({ tipo: 'selecionar' }, PX - PainelPc.MARGEM - 620, rodape, 200, 54);
     novoAlvo({ tipo: 'curar' }, PX - PainelPc.MARGEM - 400, rodape, 190, 54);
     novoAlvo({ tipo: 'fechar' }, PX - PainelPc.MARGEM - 190, rodape, 190, 54);
   }
@@ -189,6 +221,8 @@ export class PainelPc {
   abrir(camera: THREE.Camera) {
     this.aberto = true;
     this.pegou = -1;
+    this.modoSelecao = false;
+    this.marcados.clear();
     this.assinatura = '';
 
     const cabeca = camera.getWorldPosition(new THREE.Vector3());
@@ -208,6 +242,8 @@ export class PainelPc {
   fechar() {
     this.aberto = false;
     this.pegou = -1;
+    this.modoSelecao = false;
+    this.marcados.clear();
   }
 
   virarPagina(direcao: 1 | -1) {
@@ -244,7 +280,17 @@ export class PainelPc {
    * Botões — página, curar, fechar — continuam resolvendo aqui, na descida: um
    * botão não se arrasta.
    */
-  comecarArrasto(): 'pegou' | 'curou' | 'fechou' | 'pagina' | null {
+  comecarArrasto():
+    | 'pegou'
+    | 'curou'
+    | 'fechou'
+    | 'pagina'
+    | 'selecao'
+    | 'marcou'
+    | 'desmarcou'
+    | 'soltouVarios'
+    | 'recusou'
+    | null {
     const alvo = this.destacado;
     if (!alvo || !this.dex) return null;
 
@@ -261,12 +307,98 @@ export class PainelPc {
       this.assinatura = '';
       return 'curou';
     }
+    if (alvo.tipo === 'selecionar') {
+      this.alternarSelecao();
+      return 'selecao';
+    }
+
+    // No MODO SELEÇÃO o gatilho marca em vez de pegar, e o "soltar" solta
+    // todos os marcados de uma vez. Ver `modoSelecao`.
+    if (this.modoSelecao) {
+      if (alvo.tipo === 'soltar') return this.soltarMarcados();
+      const alvoDaMarca = this.indiceReal(alvo);
+      if (alvoDaMarca < 0) return null;
+      if (this.marcados.has(alvoDaMarca)) {
+        this.marcados.delete(alvoDaMarca);
+        this.assinatura = '';
+        return 'desmarcou';
+      }
+      this.marcados.add(alvoDaMarca);
+      this.assinatura = '';
+      return 'marcou';
+    }
 
     const indice = this.indiceReal(alvo);
     if (indice < 0) return null;
     this.pegou = indice;
     this.assinatura = '';
     return 'pegou';
+  }
+
+  /** Liga e desliga o modo seleção. Desligar sempre limpa. Ver `modoSelecao`. */
+  alternarSelecao() {
+    this.modoSelecao = !this.modoSelecao;
+    this.marcados.clear();
+    // Um bicho na mão e o modo mudando embaixo dele seria um arrasto órfão.
+    this.pegou = -1;
+    this.assinatura = '';
+  }
+
+  /** Quantos estão marcados agora. */
+  get quantosMarcados(): number {
+    return this.marcados.size;
+  }
+
+  /**
+   * Solta TODOS os marcados na natureza, de uma vez.
+   *
+   * ## A armadilha dos índices
+   *
+   * `Dex.soltar(i)` mexe na lista — o que estava depois anda para trás. Soltar
+   * uma seleção na ordem em que ela foi marcada faria o segundo índice apontar
+   * para outro bicho, e o terceiro para um terceiro. Por isso a ordem é do
+   * MAIOR PARA O MENOR: tirar o último não move nenhum dos anteriores.
+   *
+   * ## O último não sai
+   *
+   * `Dex.soltar` recusa quando sobraria ninguém, e a recusa aqui não é um erro
+   * — é o fim do laço. Quem marcou a coleção inteira solta todos menos um, e o
+   * aviso diz quantos saíram de verdade. Devolver 'recusou' sem soltar nada
+   * seria pior: o gesto teria sido engolido por causa de um só.
+   */
+  private soltarMarcados(): 'soltouVarios' | 'recusou' | null {
+    if (!this.dex || this.marcados.size === 0) return null;
+
+    const ordem = [...this.marcados].sort((a, b) => b - a);
+    const juntos = new Map<string, number>();
+    let saíram = 0;
+    let ultimoNome = '';
+
+    for (const indice of ordem) {
+      const quem = this.dex.todosComVagas[indice] ?? null;
+      const especie = quem ? porId(quem.id) : null;
+      if (!quem || !especie) continue;
+      const nivel = this.dex.nivelDe(quem);
+      if (!this.dex.soltar(indice)) continue;
+
+      saíram++;
+      ultimoNome = especie.nome;
+      for (const item of recompensaPorSoltar(especie.tipos, nivel)) {
+        this.dex.ganharItem(item.id, item.quantidade);
+        juntos.set(item.id, (juntos.get(item.id) ?? 0) + item.quantidade);
+      }
+    }
+
+    this.marcados.clear();
+    this.assinatura = '';
+    if (saíram === 0) return 'recusou';
+
+    this.despedida = {
+      nome: saíram === 1 ? ultimoNome : `${saíram} Pokémon`,
+      quantos: saíram,
+      itens: [...juntos].map(([id, quantidade]) => ({ id, quantidade })),
+    };
+    return 'soltouVarios';
   }
 
   /**
@@ -304,7 +436,7 @@ export class PainelPc {
 
       const itens = recompensaPorSoltar(especie.tipos, nivel);
       for (const item of itens) this.dex.ganharItem(item.id, item.quantidade);
-      this.despedida = { nome: especie.nome, itens };
+      this.despedida = { nome: especie.nome, quantos: 1, itens };
       return 'soltou';
     }
     // Soltou fora de qualquer vaga — no cabeçalho, no vão entre cartas, ou com
@@ -363,10 +495,15 @@ export class PainelPc {
 
     ctx.font = fonte(26, 500);
     ctx.fillStyle = COR.textoFraco;
+    ctx.fillStyle = this.modoSelecao ? COR.ruim : COR.textoFraco;
     ctx.fillText(
-      this.pegou >= 0
-        ? 'ainda segurando — solte o gatilho na vaga onde ele deve ficar'
-        : 'aponte, SEGURE o gatilho e leve até a vaga',
+      this.modoSelecao
+        ? this.marcados.size > 0
+          ? `${this.marcados.size} marcado${this.marcados.size > 1 ? 's' : ''} — solte todos de uma vez`
+          : 'aponte e puxe o gatilho para marcar quem vai embora'
+        : this.pegou >= 0
+          ? 'ainda segurando — solte o gatilho na vaga onde ele deve ficar'
+          : 'aponte, SEGURE o gatilho e leve até a vaga',
       PainelPc.MARGEM + 380,
       42,
     );
@@ -389,6 +526,7 @@ export class PainelPc {
         this.destacado?.tipo === 'time' && this.destacado.indice === i,
         this.pegou === i,
         true,
+        time[i] ? this.marcados.has(i) : false,
       );
     }
 
@@ -413,6 +551,7 @@ export class PainelPc {
         this.destacado?.tipo === 'caixa' && this.destacado.indice === i,
         this.pegou === real,
         false,
+        guardados[inicio + i] ? this.marcados.has(real) : false,
       );
     }
 
@@ -430,6 +569,16 @@ export class PainelPc {
     // lembrete apagado de que existe; com alguém na mão, é uma porta aberta.
     this.areaDeSoltar(PainelPc.SOLTAR_X, rodape, PainelPc.SOLTAR_L, 54);
 
+    this.botao(
+      canvas.width - PainelPc.MARGEM - 620,
+      rodape,
+      200,
+      54,
+      this.modoSelecao ? 'cancelar' : 'selecionar',
+      this.destacado?.tipo === 'selecionar',
+      this.modoSelecao ? COR.ruim : COR.texto,
+      this.modoSelecao,
+    );
     this.botao(canvas.width - PainelPc.MARGEM - 400, rodape, 190, 54, 'curar time', this.destacado?.tipo === 'curar', COR.bom);
     this.botao(canvas.width - PainelPc.MARGEM - 190, rodape, 190, 54, 'fechar', this.destacado?.tipo === 'fechar', COR.ruim);
 
@@ -453,6 +602,33 @@ export class PainelPc {
     const arrastando = this.arrastando;
     const sobMira = this.destacado?.tipo === 'soltar';
     const especie = arrastando ? porId(arrastando.id) : null;
+
+    // No MODO SELEÇÃO ela é um BOTÃO, e não uma área de largar: diz quantos
+    // vão embora e espera uma puxada de gatilho. Ver `soltarMarcados`.
+    if (this.modoSelecao) {
+      const quantos = this.marcados.size;
+      cartao(ctx, x, y, l, a, { sobMira, ativo: quantos > 0 && sobMira }, RAIO.pequeno);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = fonte(25, 700);
+      ctx.fillStyle = quantos === 0 ? COR.textoApagado : sobMira ? COR.ruim : COR.texto;
+      ctx.fillText(
+        quantos === 0
+          ? 'marque quem vai embora'
+          : `soltar ${quantos} — e não voltam`,
+        x + l / 2,
+        y + a / 2 - 8,
+      );
+      ctx.font = fonte(20, 600);
+      ctx.fillStyle = COR.textoFraco;
+      ctx.fillText(
+        quantos === 0 ? 'aponte uma carta e puxe o gatilho' : 'rende pedras e itens',
+        x + l / 2,
+        y + a / 2 + 16,
+      );
+      ctx.textBaseline = 'top';
+      return;
+    }
 
     if (!arrastando) {
       ctx.save();
@@ -499,9 +675,10 @@ export class PainelPc {
     texto: string,
     sobMira: boolean,
     cor: string = COR.texto,
+    ligado = false,
   ) {
     const { ctx } = this.placa;
-    cartao(ctx, x, y, l, a, { sobMira }, RAIO.pequeno);
+    cartao(ctx, x, y, l, a, { sobMira, ativo: ligado }, RAIO.pequeno);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -520,6 +697,7 @@ export class PainelPc {
     sobMira: boolean,
     naMao: boolean,
     doTime: boolean,
+    marcado = false,
   ) {
     const { ctx } = this.placa;
 
@@ -553,17 +731,60 @@ export class PainelPc {
       y,
       l,
       a,
-      { sobMira, ativo: naMao, apagado: desmaiado, acento: TIPOS[carta.especie.tipo].cor },
+      { sobMira, ativo: naMao || marcado, apagado: desmaiado, acento: TIPOS[carta.especie.tipo].cor },
       RAIO.pequeno,
     );
 
+    // A MARCA da seleção: uma faixa vermelha por cima da carta inteira e um
+    // visto no canto. A faixa existe porque a caixinha sozinha é pequena
+    // demais para se ver de dois metros num painel de 24 cartas — o que tem de
+    // dar para ler de longe é QUANTAS estão marcadas, não onde o visto está.
+    if (marcado) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x, y, l, a, RAIO.pequeno);
+      ctx.fillStyle = 'rgba(255, 96, 96, 0.22)';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = COR.ruim;
+      ctx.stroke();
+      ctx.restore();
+
+      // O visto no canto de CIMA, e o nome anda para o lado. Embaixo ele caía
+      // em cima da barra de vida e da pílula do tipo — e a barra de vida é a
+      // informação que decide quem fica.
+      const cx = x + 26;
+      const cy = y + 26;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+      ctx.fillStyle = COR.ruim;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#ffffff';
+      ctx.moveTo(cx - 6, cy);
+      ctx.lineTo(cx - 2, cy + 5);
+      ctx.lineTo(cx + 7, cy - 6);
+      ctx.stroke();
+    }
+
+    const recuo = marcado ? 34 : 0;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.font = fonte(28, 700);
     ctx.fillStyle = desmaiado ? COR.textoApagado : carta.exemplar.shiny ? '#ffe08a' : COR.texto;
     // Cortado com reticências em vez de comprimido: `maxWidth` do canvas espreme
     // a letra, e um "Charmeleon" achatado a 60% fica pior do que "Charmele…".
-    nomeComBrilho(ctx, carta.especie.nome, carta.exemplar.shiny, x + 14, y + 26, 28, l - 78);
+    nomeComBrilho(
+      ctx,
+      carta.especie.nome,
+      carta.exemplar.shiny,
+      x + 14 + recuo,
+      y + 26,
+      28,
+      l - 78 - recuo,
+    );
 
     ctx.textAlign = 'right';
     ctx.font = fonte(24, 700);
@@ -642,6 +863,8 @@ export class PainelPc {
       chaveDestaque,
       this.pegou,
       this.pagina,
+      this.modoSelecao ? 'sel' : 'arr',
+      [...this.marcados].sort((a, b) => a - b).join('.'),
       this.dex?.todos
         .map((e) => `${e.id}:${Math.ceil(e.hp)}:${this.dex!.nivelDe(e)}`)
         .join(',') ?? '',

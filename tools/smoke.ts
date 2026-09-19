@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { BORDA_COLISAO, MARGEM_DA_BOLA, Pokemon } from '../src/creature';
 import { avaliar, genesDe, poderDeCombate, totalDosGenes } from '../src/avaliacao';
+import { PainelPc } from '../src/pc';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
@@ -6377,6 +6378,116 @@ console.log('\n65. a avaliação é do indivíduo, e não muda');
   console.log(
     `   avaliação: genes estáveis · média ${media.toFixed(2)}/15 · ${perfeitos} perfeitos em 3000 · ` +
       `PC do Charmander vai de ${fraco} (N18 zerado) a ${alto} (N40)`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n66. o PC solta vários de uma vez, e sem embaralhar os índices');
+{
+  const dex = new Dex();
+  dex.limpar();
+  dex.receberInicial('charmander', 18);
+  for (const id of ['pidgey', 'rattata', 'caterpie', 'weedle', 'zubat', 'geodude']) {
+    dex.registrarCaptura(id, 10, 14, false);
+  }
+  const antes = dex.todos.map((e) => e.id);
+  checar(antes.length === 7, `a coleção do teste tem ${antes.length}, e devia ter 7`);
+
+  // Um canvas de mentira, e só para este bloco — o mesmo dublê do teste do
+  // aviso, pelo mesmo motivo e desfeito no fim. O que se afirma aqui é a
+  // LÓGICA da seleção; quem confere pixel é `npm run paineis`.
+  const ctx2d = new Proxy(
+    {},
+    {
+      get: (_a, prop) => (prop === 'measureText' ? () => ({ width: 10 }) : () => {}),
+      set: () => true,
+    },
+  );
+  const global = globalThis as unknown as { document?: unknown };
+  global.document = {
+    createElement: () => ({ width: 1, height: 1, getContext: () => ctx2d }),
+  };
+
+  const pc = new PainelPc();
+  pc.definirDex(dex);
+  const espiado = pc as unknown as {
+    destacado: { tipo: string; indice?: number } | null;
+    marcados: Set<number>;
+  };
+
+  // O botão liga o modo, e ligar não marca ninguém.
+  espiado.destacado = { tipo: 'selecionar' };
+  checar(pc.comecarArrasto() === 'selecao', 'o botão de selecionar não respondeu');
+  checar(pc.modoSelecao, 'o modo seleção não ligou');
+  checar(pc.quantosMarcados === 0, 'ligar o modo já marcou alguém');
+
+  // Marcar e desmarcar pela mesma carta.
+  espiado.destacado = { tipo: 'time', indice: 1 };
+  checar(pc.comecarArrasto() === 'marcou', 'não marcou a carta apontada');
+  checar(pc.comecarArrasto() === 'desmarcou', 'apontar a mesma carta de novo não desmarcou');
+  checar(pc.quantosMarcados === 0, 'desmarcar deixou a marca');
+
+  // E no modo seleção o gatilho NÃO pega: `pegou` tem de continuar vazio,
+  // senão o arrasto e a marca disputam o mesmo gesto.
+  checar(pc.comecarArrasto() === 'marcou', 'a terceira puxada não marcou');
+  checar(pc.pegou === -1, 'o modo seleção pegou o bicho em vez de marcar');
+
+  // Marca três dos sete — índices 1, 2 e 5 na lista crua.
+  espiado.marcados.clear();
+  for (const i of [1, 2, 5]) {
+    espiado.destacado = { tipo: 'time', indice: i };
+    pc.comecarArrasto();
+  }
+  checar(pc.quantosMarcados === 3, `marcou ${pc.quantosMarcados}, e eram 3`);
+  const esperadoFora = [antes[1], antes[2], antes[5]];
+  const esperadoDentro = antes.filter((id) => !esperadoFora.includes(id));
+
+  espiado.destacado = { tipo: 'soltar' };
+  checar(pc.comecarArrasto() === 'soltouVarios', 'soltar os marcados não respondeu');
+
+  const depois = dex.todos.map((e) => e.id);
+  checar(depois.length === 4, `sobraram ${depois.length}, e deviam sobrar 4`);
+  // A armadilha inteira está aqui: soltar do menor para o maior índice faria
+  // o segundo `soltar` mirar em quem andou para trás, e sairiam os bichos
+  // errados. Ver `soltarMarcados`.
+  checar(
+    depois.join(',') === esperadoDentro.join(','),
+    `saíram os errados: ficaram [${depois.join(', ')}], e deviam ficar [${esperadoDentro.join(', ')}]`,
+  );
+  checar(pc.quantosMarcados === 0, 'a marca sobreviveu ao soltar');
+
+  // A despedida conta quantos foram e junta os itens numa lista só.
+  const despedida = pc.despedida;
+  checar(despedida !== null, 'soltar vários não deixou despedida');
+  checar(despedida?.quantos === 3, `a despedida disse ${despedida?.quantos}, e foram 3`);
+  checar((despedida?.itens.length ?? 0) > 0, 'soltar três não rendeu item nenhum');
+  const ids = despedida?.itens.map((i) => i.id) ?? [];
+  checar(new Set(ids).size === ids.length, `a despedida repetiu item: ${ids.join(', ')}`);
+
+  // O ÚLTIMO não sai, e a recusa não engole os outros: marcando os quatro que
+  // sobraram, três saem e um fica.
+  pc.despedida = null;
+  espiado.marcados.clear();
+  for (let i = 0; i < 4; i++) {
+    espiado.destacado = { tipo: 'time', indice: i };
+    pc.comecarArrasto();
+  }
+  espiado.destacado = { tipo: 'soltar' };
+  checar(pc.comecarArrasto() === 'soltouVarios', 'marcar todos devia soltar os que dá');
+  checar(dex.todos.length === 1, `sobrou ${dex.todos.length}, e o último não sai`);
+  const segunda = pc.despedida as { quantos: number } | null;
+  checar(segunda?.quantos === 3, `disse ${segunda?.quantos} soltos, e foram 3`);
+
+  // Cancelar limpa.
+  espiado.destacado = { tipo: 'selecionar' };
+  pc.comecarArrasto();
+  checar(!pc.modoSelecao, 'cancelar não desligou o modo');
+  checar(pc.quantosMarcados === 0, 'cancelar deixou marcas para trás');
+
+  delete global.document;
+  console.log(
+    `   PC: modo seleção marca e solta em lote · 7 → 4 → 1 · o último fica · ` +
+      `${ids.length} tipos de item numa despedida só`,
   );
 }
 
