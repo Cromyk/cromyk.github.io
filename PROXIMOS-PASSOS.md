@@ -60,7 +60,7 @@ três selvagens em campo, com o painel do pulso aberto, e com a mochila aberta.
 Esta fase é nova e é a que mais rende. Ela não adiciona nada ao jogo: ela tira
 coisas do caminho.
 
-### 1.1 Mão nua não joga — e isso é um bug, não uma escolha
+### 1.1 ✅ Mão nua não joga — e isso é um bug, não uma escolha (feito em 19/09)
 
 Com hand tracking, o `XRGripSpace` do three fica **invisível e com a matriz na
 identidade** (é o ramo `else` do `WebXRController.update`: com `inputSource.hand`
@@ -81,11 +81,22 @@ controle, o grip space; de mão nua, a junta `wrist` — e pendurar as três coi
 nele. `Mao.posicaoMundo()` já faz exatamente essa escolha para medir; o que
 falta é um OBJETO que siga a mesma regra.
 
-- **Esforço:** médio-baixo. Um `THREE.Group` por mão, atualizado no laço que já
-  existe, e três trocas de pai.
+**Feito.** `src/pulso.ts` e `Mao.pulso`: um grupo por mão que segue o grip
+space quando há controle e é DERIVADO das juntas quando não há. A derivação não
+converte a orientação da junta `wrist` (que usa outra convenção) — ela mede,
+com a mesma régua de `src/glove.ts`: a direção dos dedos e a largura da mão. O
+produto vetorial dos dois resolve o sinal sozinho, porque ele sai pelo dorso na
+direita e pela palma na esquerda, que é exatamente a assimetria do grip space.
+
 - **Como saber que funcionou:** largue os controles no meio de uma sessão. O
   cinto continua no braço, a Pokédex continua nas costas, e dá para pegar uma
   bola fechando o punho.
+- **O que o teste já garante** (seção 33 do smoke): dedos em −Z, +X no dorso da
+  direita e na palma da esquerda, base destra, e mão degenerada não escreve por
+  cima da pose boa.
+- **O que sobra para o headset:** se a pose derivada cai alguns centímetros
+  fora do punho de verdade, o cinto fica adiantado ou atrasado no antebraço. É
+  o mesmo tipo de ajuste que a calibração da mão resolve para o desenho.
 
 ### 1.2 O gesto do relógio dispara quando não deveria
 

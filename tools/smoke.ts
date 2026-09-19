@@ -64,6 +64,7 @@ import { classificarPelaAltura } from '../src/room';
 import { ALTURA_DE_ABRACO, Colo, alcanceDoColo, cabeNoColo, pontoDoColo } from '../src/colo';
 import { Tablet, ALCANCE_TABLET } from '../src/tablet';
 import { FOGO_POR_ESPECIE, temFogo } from '../src/fogo';
+import { poseDoPulso } from '../src/pulso';
 import { forcaDeToque, pulsoDeToque } from '../src/toque';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
@@ -3046,6 +3047,100 @@ console.log('\n32. o fogo de quem não tem osso');
     `   fogo: ${Object.keys(FOGO_POR_ESPECIE).length} espécies · ` +
       `${new Set(comAncora).size} delas por âncora medida, sem osso`,
   );
+}
+
+
+// --- 33. o punho de mão nua ---
+//
+// Com hand tracking o `XRGripSpace` do three fica invisível e com a matriz na
+// identidade — o three posa as juntas e não toca no grip. O cinto de pokébolas,
+// o item na mão e a Pokédex eram filhos dele: quem largasse os controles
+// perdia os três, sem mensagem nenhuma.
+//
+// `poseDoPulso` deriva a pose do grip a partir das juntas. O risco inteiro está
+// no SINAL: uma troca põe o cinto do lado de dentro do braço, e isso só
+// apareceria no headset. Estas verificações montam as duas mãos em pose
+// conhecida e conferem a convenção — dedos em −Z, palma em +X na esquerda e em
+// −X na direita, que é o que src/glove.ts documenta e o cinto assume.
+console.log('\n33. o punho de mão nua');
+{
+  /**
+   * Uma mão de mentira em pose conhecida: palma para BAIXO, dedos apontando
+   * para −Z do mundo. É a pose da mão que se olha de cima.
+   *
+   * Nessa pose, para a mão DIREITA, o polegar (e o indicador) ficam do lado −X
+   * e o mínimo do lado +X; na ESQUERDA é o contrário. O resto sai disso.
+   */
+  const maoDeMentira = (lado: 'left' | 'right') => {
+    const sinal = lado === 'right' ? -1 : 1;
+    return {
+      punho: new THREE.Vector3(0, 1.2, 0),
+      meioBase: new THREE.Vector3(0, 1.2, -0.03),
+      meioPonta: new THREE.Vector3(0, 1.2, -0.18),
+      indicadorBase: new THREE.Vector3(sinal * 0.02, 1.2, -0.03),
+      minimoBase: new THREE.Vector3(-sinal * 0.02, 1.2, -0.03),
+    };
+  };
+
+  for (const lado of ['left', 'right'] as const) {
+    const pos = new THREE.Vector3();
+    const giro = new THREE.Quaternion();
+    checar(poseDoPulso(maoDeMentira(lado), pos, giro), `a mão ${lado} de mentira não derivou pose`);
+
+    checar(pos.distanceTo(new THREE.Vector3(0, 1.2, 0)) < 1e-9, `o punho ${lado} saiu do lugar`);
+
+    // −Z do grip é para onde os dedos apontam. Na pose de mentira, isso é −Z do
+    // mundo.
+    const frente = new THREE.Vector3(0, 0, -1).applyQuaternion(giro);
+    checar(
+      frente.distanceTo(new THREE.Vector3(0, 0, -1)) < 1e-6,
+      `os dedos da mão ${lado} não apontam para onde deviam: ${frente.toArray().map((v) => v.toFixed(2))}`,
+    );
+
+    // +X do grip sai pelo DORSO na direita e pela PALMA na esquerda. Com a
+    // palma para baixo, o dorso é +Y e a palma é −Y.
+    const eixoX = new THREE.Vector3(1, 0, 0).applyQuaternion(giro);
+    const esperado = lado === 'right' ? 1 : -1;
+    checar(
+      Math.abs(eixoX.y - esperado) < 1e-6,
+      `o +X da mão ${lado} aponta para y=${eixoX.y.toFixed(2)} e devia ser ${esperado} — ` +
+        'o cinto nasceria do lado errado do braço',
+    );
+
+    // E a base tem de ser destra e ortonormal: uma base espelhada inverteria a
+    // geometria inteira do que for pendurado nela.
+    const eixoY = new THREE.Vector3(0, 1, 0).applyQuaternion(giro);
+    const eixoZ = new THREE.Vector3(0, 0, 1).applyQuaternion(giro);
+    const destra = new THREE.Vector3().crossVectors(eixoX, eixoY);
+    checar(destra.distanceTo(eixoZ) < 1e-6, `a base da mão ${lado} saiu espelhada`);
+  }
+
+  // Mão degenerada devolve false e NÃO escreve: um cinto um quadro atrasado é
+  // melhor do que um cinto que pisca para a origem do quarto.
+  const parado = new THREE.Vector3(9, 9, 9);
+  const giroParado = new THREE.Quaternion();
+  const degenerada = {
+    punho: new THREE.Vector3(),
+    meioBase: new THREE.Vector3(),
+    meioPonta: new THREE.Vector3(),
+    indicadorBase: new THREE.Vector3(),
+    minimoBase: new THREE.Vector3(),
+  };
+  checar(!poseDoPulso(degenerada, parado, giroParado), 'uma mão degenerada devolveu pose');
+  checar(parado.x === 9, 'a mão degenerada escreveu por cima da pose boa');
+
+  // As duas mãos giradas de verdade: o punho segue o ponto da junta, seja onde
+  // for. É o que faz o cinto acompanhar o braço.
+  const longe = maoDeMentira('left');
+  longe.punho.set(1.3, 0.8, -2);
+  for (const k of ['meioBase', 'meioPonta', 'indicadorBase', 'minimoBase'] as const) {
+    longe[k].add(new THREE.Vector3(1.3, -0.4, -2));
+  }
+  const pos2 = new THREE.Vector3();
+  checar(poseDoPulso(longe, pos2, new THREE.Quaternion()), 'a mão longe da origem não derivou');
+  checar(pos2.distanceTo(new THREE.Vector3(1.3, 0.8, -2)) < 1e-9, 'o punho não seguiu a junta');
+
+  console.log('   punho de mão nua: dedos em −Z, +X no dorso da direita e na palma da esquerda');
 }
 
   console.log(

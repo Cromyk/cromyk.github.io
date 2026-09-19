@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Luva } from './glove';
 import { Placa } from './hud';
+import { JUNTAS_DO_PULSO, poseDoPulso, type JuntasDoPulso } from './pulso';
 import {
   INTERVALO_DE_TOQUE_MS,
   PULSO_DE_TOQUE_MS,
@@ -37,6 +38,18 @@ export class Mao {
   readonly indice: number;
   readonly alvo: THREE.XRTargetRaySpace; // direção de mira
   readonly punho: THREE.XRGripSpace; // onde a esfera fica
+  /**
+   * O punho NOS DOIS MODOS — é nele que se pendura o que anda com a mão.
+   *
+   * `punho` é o grip space, e o grip space não existe com hand tracking: o
+   * three só posa as juntas nesse modo e deixa o grip invisível, na identidade.
+   * O cinto, os itens e a Pokédex eram filhos dele e sumiam quando alguém
+   * largava os controles. Este grupo segue o grip quando há controle e é
+   * derivado das juntas quando não há. Ver src/pulso.ts.
+   *
+   * Vive na CENA, e não pendurado em coisa nenhuma: ele É a referência.
+   */
+  readonly pulso = new THREE.Group();
   /** As 25 juntas, quando o jogador está de mão nua. */
   readonly rastreada: THREE.XRHandSpace;
   lado: 'left' | 'right' | 'none' = 'none';
@@ -127,6 +140,51 @@ export class Mao {
     luva.definirModo(comJuntas);
     if (!comJuntas) luva.definirDedos(this.gatilho, Math.max(this.grip, this.segurando ? 1 : 0), dt);
     return comJuntas;
+  }
+
+  /**
+   * Põe o `pulso` na pose do punho, venha ela do controle ou das juntas.
+   *
+   * Roda cedo no quadro, antes de qualquer um que leia a matriz de mundo do que
+   * está pendurado nele — o cinto mede slots, a Pokédex mede as costas, e os
+   * dois precisam da pose DESTE quadro.
+   *
+   * Quando não dá para derivar (rastreamento com lixo num quadro), a pose
+   * anterior fica: um cinto um quadro atrasado é melhor do que um cinto que
+   * pisca para a origem do quarto.
+   */
+  atualizarPulso(): boolean {
+    if (this.semControle) {
+      const juntas = (this.rastreada as unknown as { joints?: Record<string, THREE.Object3D> })
+        .joints;
+      if (juntas) {
+        const pontos: THREE.Vector3[] = [];
+        for (const nome of JUNTAS_DO_PULSO) {
+          const junta = juntas[nome];
+          if (!junta) return false;
+          pontos.push(junta.getWorldPosition(new THREE.Vector3()));
+        }
+        const medida: JuntasDoPulso = {
+          punho: pontos[0],
+          meioBase: pontos[1],
+          meioPonta: pontos[2],
+          indicadorBase: pontos[3],
+          minimoBase: pontos[4],
+        };
+        const deu = poseDoPulso(medida, this.pulso.position, this.pulso.quaternion);
+        this.pulso.visible = deu;
+        return deu;
+      }
+      return false;
+    }
+
+    // Com controle é uma cópia: o grip space já É a convenção que o resto do
+    // jogo assume.
+    this.punho.updateMatrixWorld();
+    this.pulso.position.setFromMatrixPosition(this.punho.matrixWorld);
+    this.punho.getWorldQuaternion(this.pulso.quaternion);
+    this.pulso.visible = true;
+    return true;
   }
 
   /**

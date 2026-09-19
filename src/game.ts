@@ -435,7 +435,7 @@ export class Jogo {
       mao.alvo.addEventListener('selectstart', () => this.gatilhoDesceu(mao));
       mao.alvo.addEventListener('selectend', () => this.gatilhoSubiu(mao));
 
-      this.cena.add(mao.alvo, mao.punho, mao.rastreada);
+      this.cena.add(mao.alvo, mao.punho, mao.rastreada, mao.pulso);
       this.maos.push(mao);
     }
 
@@ -1499,7 +1499,7 @@ export class Jogo {
 
     const isca = new ItemNaMao(tipo);
     // Sem headset a luva mora na camera, e e nela que a isca precisa ficar.
-    (this.modoPlano && this.luvaPlana ? this.luvaPlana.grupo : mao.punho).add(isca.grupo);
+    (this.modoPlano && this.luvaPlana ? this.luvaPlana.grupo : mao.pulso).add(isca.grupo);
     this.itemNaMao.set(mao.indice, isca);
     mao.sentir('pegou');
     audio.tilintar();
@@ -3834,6 +3834,7 @@ export class Jogo {
     for (const mao of this.maos) {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
+      mao.atualizarPulso();
       mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
     }
 
@@ -3940,6 +3941,7 @@ export class Jogo {
       for (const mao of this.maos) {
         if (!mao.conectada) continue;
         mao.amostrar(agora);
+        mao.atualizarPulso();
         mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
       }
       return;
@@ -3952,6 +3954,7 @@ export class Jogo {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
       mao.amostrarBotoes();
+      mao.atualizarPulso();
       mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
       // A memória de ter saído do painel, para guardar e pegar não serem o
       // mesmo gesto. Ver saiuDoPainel.
@@ -4690,6 +4693,9 @@ export class Jogo {
       if (!mao.conectada) continue;
       mao.amostrar(agora);
       mao.amostrarBotoes();
+      // O punho antes de tudo: o cinto, o item na mão e a Pokédex são filhos
+      // dele, e os três medem contra a pose DESTE quadro.
+      mao.atualizarPulso();
       mao.atualizarLuva(dt, this.ajustes.maoRecuo, this.giroDaMao);
       this.sinaisDaMaoNua(mao);
       this.botoesDaMao(mao);
@@ -4773,7 +4779,7 @@ export class Jogo {
       const lado = mao.lado;
       if ((lado === 'left' || lado === 'right') && !this.cintos.has(lado)) {
         const cinto = new Cinto(lado);
-        mao.punho.add(cinto.grupo);
+        mao.pulso.add(cinto.grupo);
         this.cintos.set(lado, cinto);
       }
     }
@@ -4917,7 +4923,7 @@ export class Jogo {
       this.tablet.naMaoDe === null
         ? null
         : (this.maos.find((m) => m.indice === this.tablet.naMaoDe) ?? null);
-    this.tablet.atualizar(dt, this.camera, quemSegura?.punho ?? null, this.sala);
+    this.tablet.atualizar(dt, this.camera, quemSegura?.pulso ?? null, this.sala);
 
     // A mão que vai às costas SENTE a Pokédex chegando.
     //

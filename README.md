@@ -108,7 +108,12 @@ o grip: a cadeia de ossos é montada em tempo de execução a partir da pose de
 repouso e o eixo em que cada junta dobra é **medido no arquivo**, não chutado.
 Com *hand tracking* ligado a mesma malha passa a seguir as suas vinte e cinco
 juntas de verdade — fechar o punho faz o papel do GRIP, já que mão nua não tem
-botão. Se o arquivo não estiver lá, a luva montada em código assume o lugar.
+botão. E o **cinto, os itens e a Pokédex continuam no lugar**: até 19/09 os três
+eram filhos do grip space do WebXR, que só existe quando há controle na mão, e
+sumiam sem aviso para quem largasse os controles. Agora eles penduram num punho
+derivado das juntas (ver `src/pulso.ts`), medido com a mesma régua que alinha a
+luva — a direção dos dedos e a largura da mão, cujo produto vetorial resolve o
+sinal sozinho nas duas mãos. Se o arquivo não estiver lá, a luva montada em código assume o lugar.
 
 `npm run fogo` mede onde a chama de cada Pokémon de fogo fica e confere a
 tabela: os rips NOMEIAM o fogo (`FireCoreA_mat`, `FireStenA`, e um `Hair` no
