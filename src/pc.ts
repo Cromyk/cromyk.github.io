@@ -118,6 +118,8 @@ export class PainelPc {
   private destacado: AlvoPc | null = null;
   private pagina = 0;
   private abertura = 0;
+  /** A que distância do dedo ficou o botão mais perto. Ver `alcancado`. */
+  private distanciaDaMao = Infinity;
   private assinatura = '';
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
   private dex: Dex | null = null;
@@ -873,6 +875,53 @@ export class PainelPc {
       this.assinatura = assinatura;
       this.desenhar();
     }
+  }
+
+  /**
+   * O botão mais perto da PONTA DO DEDO, para a mão poder apertar sem mirar.
+   *
+   * ## Por que o PC também ganha isto
+   *
+   * *"A mão também é um objeto e precisa interagir com os botões e menu"* —
+   * playtest de 19/09. O PC é o painel mais próximo de um menu de verdade que
+   * o jogo tem: ele aparece a um metro à frente, fica parado, e é todo botão.
+   * Ele nasceu inteiro no raycast, e para um painel que está ao alcance do
+   * braço isso é apontar para uma coisa em que dá para encostar.
+   *
+   * Devolve o alvo e deixa a distância em `distanciaDoDedo`, que é o que a
+   * cutucada precisa para ter histerese. Ver src/cutucar.ts.
+   */
+  alcancado(ponto: THREE.Vector3, alcance = 0.07): AlvoPc | null {
+    this.distanciaDaMao = Infinity;
+    if (!this.aberto || this.abertura < 0.6) return null;
+
+    let melhor: AlvoPc | null = null;
+    const centro = new THREE.Vector3();
+    for (const alvo of this.alvos) {
+      alvo.getWorldPosition(centro);
+      const d = centro.distanceTo(ponto);
+      if (d < this.distanciaDaMao) {
+        this.distanciaDaMao = d;
+        melhor = alvo.userData.pc as AlvoPc;
+      }
+    }
+    return this.distanciaDaMao <= alcance ? melhor : null;
+  }
+
+  /** A que distância ficou o botão que o último `alcancado` achou. */
+  get distanciaDoDedo(): number {
+    return this.distanciaDaMao;
+  }
+
+  /**
+   * Põe a mira num alvo sem raycast — é como a cutucada aciona um botão que
+   * o dedo encostou, reusando `comecarArrasto` inteiro em vez de repetir a
+   * cascata dele. Devolve o que estava destacado antes, para repor.
+   */
+  fixarDestaque(alvo: AlvoPc | null): AlvoPc | null {
+    const antes = this.destacado;
+    this.destacado = alvo;
+    return antes;
   }
 
   /** Onde a mira está pousada, para o jogo saber se o gatilho tem o que fazer. */

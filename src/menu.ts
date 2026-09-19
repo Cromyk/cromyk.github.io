@@ -1668,6 +1668,20 @@ export class PainelTime {
     return melhor ? this.conteudoDe(melhor.tipo, melhor.indice) : null;
   }
 
+  /**
+   * A que distância ficou a carta que o último `alcancado` achou.
+   *
+   * Existe para a CUTUCADA: encostar o dedo num botão precisa de uma
+   * distância, e não de um sim-ou-não, porque o limiar de entrar e o de sair
+   * são diferentes de propósito. Ver src/cutucar.ts.
+   *
+   * `Infinity` quando não havia nada por perto — que é o valor certo para
+   * "saiu", e não zero.
+   */
+  get distanciaDoDedo(): number {
+    return this.distanciaDaMao;
+  }
+
   /** A carta mais próxima de um ponto, dentro do alcance. */
   private alvoMaisPerto(
     ponto: THREE.Vector3,

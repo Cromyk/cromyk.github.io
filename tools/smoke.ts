@@ -853,28 +853,45 @@ console.log('13. a animação mexe os ossos, e só mexe os que deve');
   //    braço deixado no alto;
   // 2. o ócio MEXE — ao longo de dois segundos o braço percorre uma faixa
   //    visível, em vez de congelar onde o gesto o largou.
+  //
+  // Oito segundos, e não dois: a onda lenta do ócio tem componentes de 0,9 e
+  // 1,17 rad/s — períodos de 7,0 e 5,4 s. Numa janela de dois segundos, quanto
+  // do vaivém aparece depende de onde o relógio do bicho estava quando o gesto
+  // acabou, e o relógio começa em `Math.random() * 30`. Media 1,7° numa
+  // execução e 0,9° na seguinte, sem nada ter mudado. Oito segundos cobrem
+  // mais de uma volta inteira da componente mais lenta.
+  //
+  // E os quadros de GESTO ficam de fora. `variacoesDeOcio` dispara um olhar ou
+  // um aceno espontâneo a cada cinco a treze segundos, e um aceno dentro da
+  // janela mede oitenta graus de braço — que é o gesto, não o ócio. É a mesma
+  // armadilha do teste 26, e aqui ela se resolve pela pergunta em vez do
+  // sorteio preso: mede-se só o que acontece com `gestoAtivo` nulo.
   let menor = Infinity;
   let maior = -Infinity;
   let sobrou = 0;
-  for (let i = 0; i < 144; i++) {
+  let medidos = 0;
+  for (let i = 0; i < 576; i++) {
     bicho.atualizar(1 / 72, jogador);
+    if (bicho.animador.gestoAtivo !== null) continue;
     const d = desvioX(braco, repousoBraco);
     sobrou = Math.abs(d);
     menor = Math.min(menor, d);
     maior = Math.max(maior, d);
+    medidos++;
   }
+  checar(medidos > 200, `só ${medidos} quadros de ócio em 8 s — o bicho gesticulou o tempo todo`);
   const faixa = maior - menor;
   checar(
     sobrou < pico * 0.35,
     `o braço não voltou do aceno (sobraram ${(sobrou * 57.3).toFixed(1)}° de um pico de ${(pico * 57.3).toFixed(1)}°)`,
   );
   checar(
-    faixa > 0.02 && faixa < 0.6,
-    `o braço parado percorreu ${(faixa * 57.3).toFixed(1)}° em 2 s — fora da faixa do ócio`,
+    faixa > 0.03 && faixa < 0.6,
+    `o braço parado percorreu ${(faixa * 57.3).toFixed(1)}° em 8 s — fora da faixa do ócio`,
   );
   console.log(
     `   aceno: pico de ${(pico * 57.3).toFixed(0)}° no braço, acabou no quadro ${terminouEm}, ` +
-      `e o ócio devolve um vaivém de ${(faixa * 57.3).toFixed(1)}°`,
+      `e o ócio devolve um vaivém de ${(faixa * 57.3).toFixed(1)}° em 8 s`,
   );
 
   // --- desmaiado não pode gerar NaN nem sumir do quarto ---
@@ -5726,7 +5743,22 @@ console.log('\n58. o corpo reage, e não só oscila');
 
   // --- (5) A CADÊNCIA respira: dois segundos de passada não são iguais ---
   {
+    // O ACASO PRESO, e pelo mesmo motivo do teste 26: o `Animador` sorteia a
+    // semente do ruído e o tempo inicial no construtor, e há sementes em que
+    // dois segundos de ruído caem quase no mesmo valor. O teste falhava
+    // sozinho, uma vez a cada tantas — e um teste de animação que falha só às
+    // vezes é um deploy vermelho esperando o dia certo.
+    const sorteioReal = Math.random;
+    let semente = 0x4a3f19b;
+    Math.random = () => {
+      semente = (semente + 0x6d2b79f5) | 0;
+      let t = Math.imul(semente ^ (semente >>> 15), 1 | semente);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
     const bicho = novo();
+    Math.random = sorteioReal;
+
     const fase = () => (bicho.animador as unknown as { fase: number }).fase;
     const anda = (n: number) => {
       for (let q = 0; q < n; q++) {

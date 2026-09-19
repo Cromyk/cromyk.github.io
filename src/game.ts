@@ -64,7 +64,8 @@ import {
 import { AVISO, forcaDeToque } from './toque';
 import { Evolucao, PromptEvolucao } from './evolucao';
 import type { GestoDeAtaque } from './anima';
-import { PainelTime, type EntradaGolpe } from './menu';
+import { PainelTime, type EntradaGolpe, type Selecao } from './menu';
+import { Cutucador, ENTRADA as CUTUCADA_ENTRADA } from './cutucar';
 import { type Modo } from './modos';
 import {
   Ajustes,
@@ -91,7 +92,7 @@ import {
   MarcaDeContato,
   type FeitioDaMarca, Aura, Efeito, Impacto, NumeroDeDano } from './attacks';
 import { Assinatura, assinaturaDe } from './signature';
-import { PainelPc } from './pc';
+import { PainelPc, type AlvoPc } from './pc';
 import { calar, falar, preparar, temNarracao } from './voz';
 import {
   LEVANTAR_SEGUNDOS,
@@ -238,6 +239,48 @@ interface Selvagem {
   avisou: boolean;
 }
 
+/**
+ * O NOME de um alvo de painel, para a cutucada saber se o dedo trocou de
+ * botão. Ver src/cutucar.ts.
+ *
+ * Tem de ser estável entre quadros e distinto entre botões, e é só isso: é uma
+ * chave de mapa, não um identificador de domínio. Por isso ela sai do que o
+ * alvo JÁ É, sem inventar ids novos que alguém teria de manter em dia.
+ */
+function chaveDaSelecao(s: Selecao): string {
+  switch (s.tipo) {
+    case 'criatura':
+      return `criatura:${s.entrada.exemplar.id}:${s.entrada.exemplar.capturadoEm}`;
+    case 'bola':
+      return `bola:${s.entrada.tipo.id}`;
+    case 'item':
+      return `item:${s.entrada.tipo.id}`;
+    case 'golpe':
+      return `golpe:${s.entrada.golpe.nome}`;
+    case 'modo':
+      return `modo:${s.entrada.id}`;
+    case 'dificuldade':
+      return `dif:${s.entrada.id}`;
+    case 'interruptor':
+      return `chave:${s.entrada.id}`;
+    default:
+      return s.tipo;
+  }
+}
+
+/** O mesmo, para os botões do PC. */
+function chaveDoBotaoDoPc(a: AlvoPc): string {
+  switch (a.tipo) {
+    case 'time':
+    case 'caixa':
+      return `${a.tipo}:${a.indice}`;
+    case 'pagina':
+      return `pagina:${a.direcao}`;
+    default:
+      return a.tipo;
+  }
+}
+
 export class Jogo {
   readonly cena = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -358,6 +401,8 @@ export class Jogo {
   semLimiteDeArea = false;
 
   readonly ajustes = new Ajustes();
+  /** O dedo que aperta botão sem grip. Ver `cutucarPaineis`. */
+  private cutucador = new Cutucador();
   private auras: Aura[] = [];
   /** Golpe escolhido à mão no painel. Só o modo Batalha usa. */
   private golpeArmado: string | null = null;
@@ -737,6 +782,75 @@ export class Jogo {
   private cartaSobAMao(mao: Mao) {
     if (!this.painelTime.aberto) return null;
     return this.painelTime.alcancado(this.pontoDoDedo(mao), Jogo.ALCANCE_PAINEL);
+  }
+
+  /**
+   * O que uma carta do painel do pulso faz quando é acionada.
+   *
+   * Existe extraído porque agora há DOIS caminhos até aqui, e eles precisam
+   * fazer a mesma coisa:
+   *
+   * - **O GRIP** sobre a carta, que é o gesto de sempre — fechar a mão em
+   *   volta do que se quer;
+   * - **A CUTUCADA**, nova: encostar o dedo na carta, sem apertar botão
+   *   nenhum. Ver `cutucarPaineis`.
+   *
+   * `podePegar` é a diferença entre os dois. Fechar a mão numa bola TIRA a
+   * bola; cutucar uma bola só escolhe o tipo, porque um dedo que encosta não é
+   * uma mão que agarra — e sair com a bola na mão por ter passado o dedo perto
+   * do painel seria um arremesso esperando acontecer.
+   */
+  private usarCartaDoPainel(mao: Mao, alcancado: Selecao, podePegar: boolean) {
+    if (alcancado.tipo === 'item') {
+      // Todo item vai PARA A MÃO, inclusive a poção: segurar o frasco e
+      // encostar no bicho é o que um treinador faz, e era estranho que a
+      // fruta fosse uma coisa que se pega e a poção um botão que se aperta.
+      if (podePegar) this.pegarIsca(mao, alcancado.entrada.tipo.id);
+      return;
+    }
+    if (alcancado.tipo === 'modo') {
+      this.escolherModo(alcancado.entrada);
+      return;
+    }
+    if (alcancado.tipo === 'golpe') {
+      this.armarGolpe(alcancado.entrada);
+      return;
+    }
+    if (alcancado.tipo === 'bola') {
+      this.escolherBola(alcancado.entrada.tipo.id);
+      // Escolheu a bola com a mão: ela já sai na mão, sem um segundo grip.
+      if (podePegar && this.dex.bolas(alcancado.entrada.tipo.id) > 0) this.tirarBolaDaCinta(mao);
+      return;
+    }
+    if (alcancado.tipo === 'engrenagem') {
+      this.abrirAjustes();
+      return;
+    }
+    if (alcancado.tipo === 'pc') {
+      this.alternarPc();
+      return;
+    }
+    if (alcancado.tipo === 'mochila') {
+      this.alternarMochila(mao);
+      return;
+    }
+    if (alcancado.tipo === 'chamar') {
+      this.chamarParaPerto(mao);
+      return;
+    }
+    if (alcancado.tipo === 'dificuldade') {
+      this.escolherDificuldade(alcancado.entrada);
+      return;
+    }
+    if (alcancado.tipo === 'interruptor') {
+      this.alternarInterruptor(alcancado.entrada.id);
+      return;
+    }
+    if (alcancado.tipo !== 'criatura') return;
+    // Pegou a bola de um Pokémon do time: ele vira o ativo e a bola DELE
+    // já nasce na mão, pronta para o arremesso.
+    if (!this.escolherDoTime(alcancado.entrada.exemplar)) return;
+    if (podePegar) this.tirarBolaDaCinta(mao);
   }
 
   /**
@@ -1711,56 +1825,7 @@ export class Jogo {
       const alcancado = this.cartaSobAMao(mao);
       if (alcancado) {
         mao.sentir('pegou');
-        if (alcancado.tipo === 'item') {
-          // Todo item vai PARA A MÃO, inclusive a poção: segurar o frasco e
-          // encostar no bicho é o que um treinador faz, e era estranho que a
-          // fruta fosse uma coisa que se pega e a poção um botão que se aperta.
-          this.pegarIsca(mao, alcancado.entrada.tipo.id);
-          return;
-        }
-        if (alcancado.tipo === 'modo') {
-          this.escolherModo(alcancado.entrada);
-          return;
-        }
-        if (alcancado.tipo === 'golpe') {
-          this.armarGolpe(alcancado.entrada);
-          return;
-        }
-        if (alcancado.tipo === 'bola') {
-          this.escolherBola(alcancado.entrada.tipo.id);
-          // Escolheu a bola com a mão: ela já sai na mão, sem um segundo grip.
-          if (this.dex.bolas(alcancado.entrada.tipo.id) > 0) this.tirarBolaDaCinta(mao);
-          return;
-        }
-        if (alcancado.tipo === 'engrenagem') {
-          this.abrirAjustes();
-          return;
-        }
-        if (alcancado.tipo === 'pc') {
-          this.alternarPc();
-          return;
-        }
-        if (alcancado.tipo === 'mochila') {
-          this.alternarMochila(mao);
-          return;
-        }
-        if (alcancado.tipo === 'chamar') {
-          this.chamarParaPerto(mao);
-          return;
-        }
-        if (alcancado.tipo === 'dificuldade') {
-          this.escolherDificuldade(alcancado.entrada);
-          return;
-        }
-        if (alcancado.tipo === 'interruptor') {
-          this.alternarInterruptor(alcancado.entrada.id);
-          return;
-        }
-        if (alcancado.tipo !== 'criatura') return;
-        // Pegou a bola de um Pokémon do time: ele vira o ativo e a bola DELE
-        // já nasce na mão, pronta para o arremesso.
-        if (!this.escolherDoTime(alcancado.entrada.exemplar)) return;
-        this.tirarBolaDaCinta(mao);
+        this.usarCartaDoPainel(mao, alcancado, true);
         return;
       }
     }
@@ -6210,6 +6275,74 @@ export class Jogo {
       this.pc.mudouDestaque = false;
       audio.clique();
     }
+
+    this.cutucarPaineis(dt);
+  }
+
+  /**
+   * A MÃO COMO OBJETO: o dedo encosta no botão e o botão obedece.
+   *
+   * *"A mão também é um objeto e precisa interagir com os botões e menu"* —
+   * playtest de 19/09. O jogo já media a proximidade da mão aos painéis, mas
+   * só para ACENDER a carta: usar exigia fechar o GRIP em cima dela. Isso é
+   * defensável para pegar uma pokébola — agarrar é fechar a mão — e é errado
+   * para uma engrenagem, um interruptor e o botão de fechar o PC.
+   *
+   * Aqui os dois painéis de botão do jogo passam a aceitar a encostada. O
+   * caminho do grip continua intacto e continua sendo o único que PEGA coisa:
+   * um dedo que passa raspando no painel não pode sair com a sua Bola Lacuna
+   * na mão. Ver `usarCartaDoPainel`, que recebe essa diferença como argumento.
+   *
+   * Quem cuida do ruído — a distância treme, e um limiar simples dispararia
+   * dezenas de vezes na mesma encostada — é src/cutucar.ts.
+   */
+  private cutucarPaineis(dt: number) {
+    this.cutucador.passar(dt);
+
+    for (const mao of this.maos) {
+      if (!mao.conectada) {
+        this.cutucador.soltar(mao.indice);
+        continue;
+      }
+      // Mão ocupada não cutuca: quem está com a pokébola na mão está indo
+      // arremessar, e passar perto do painel no caminho não é escolher nada.
+      if (this.maoCheia(mao)) {
+        this.cutucador.cutucou(mao.indice, null, Infinity);
+        continue;
+      }
+
+      const dedo = this.pontoDoDedo(mao);
+
+      // O PC primeiro: ele é um móvel à frente do corpo, e quando está aberto
+      // é onde a mão está. O painel do pulso, com o PC aberto, está atrás dele.
+      if (this.pc.aberto) {
+        const botao = this.pc.alcancado(dedo);
+        const chave = botao ? chaveDoBotaoDoPc(botao) : null;
+        if (this.cutucador.cutucou(mao.indice, chave, this.pc.distanciaDoDedo) && botao) {
+          // Reusa a cascata inteira de `comecarArrasto` pondo a mira no botão:
+          // repetir aqui o que ela faz seria dois lugares para consertar.
+          const antes = this.pc.fixarDestaque(botao);
+          this.acionarPc(mao);
+          // Só repõe se o PC continua aberto: o botão de fechar já fez o que
+          // tinha de fazer, e repor a mira num painel fechado é lixo de estado.
+          if (this.pc.aberto) this.pc.fixarDestaque(antes);
+        }
+        continue;
+      }
+
+      if (!this.painelTime.aberto) {
+        this.cutucador.cutucou(mao.indice, null, Infinity);
+        continue;
+      }
+
+      const carta = this.painelTime.alcancado(dedo, CUTUCADA_ENTRADA + 0.02);
+      const chave = carta ? chaveDaSelecao(carta) : null;
+      if (this.cutucador.cutucou(mao.indice, chave, this.painelTime.distanciaDoDedo) && carta) {
+        mao.sentir('marcou');
+        audio.clique();
+        this.usarCartaDoPainel(mao, carta, false);
+      }
+    }
   }
 
   private atualizarSelvagens(dt: number) {
@@ -7108,6 +7241,9 @@ export class Jogo {
     this.bolaNaMao.clear();
     this.achados.descartar();
     this.centro.desplantar();
+    // O dedo esquece onde estava: voltar à sessão com uma mão "ainda dentro"
+    // de um botão que não existe mais seria um clique fantasma na volta.
+    this.cutucador.limpar();
 
     // E o mapa, que é a causa de tudo isto. Ver `Sala.esquecerMedidas`.
     this.sala.esquecerMedidas();
