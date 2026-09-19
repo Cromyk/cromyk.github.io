@@ -21,6 +21,8 @@ import {
   CINTURA_MINIMA_DO_CHAO,
   Cinto,
   ZONA_MORTA_DO_RUMO,
+  posicaoDoSlot,
+  rumoDoCinto,
 } from '../src/cinto';
 import { assinaturaDe } from '../src/signature';
 import { aindaVale, calar, falar, selo } from '../src/voz';
@@ -5800,9 +5802,11 @@ console.log('\n60. o cinto está na cintura, e as duas mãos alcançam');
     naCintura.grupo.updateMatrixWorld(true);
     naCintura.definirEstoque(() => 5);
 
-    // Uma mão de cada lado do corpo, na altura da cintura.
-    const esquerda = new THREE.Vector3(-0.17, 1, 0.17);
-    const direita = new THREE.Vector3(0.17, 1, 0.17);
+    // Uma mão de cada lado do corpo, na altura da cintura e À FRENTE dela.
+    // Com a cabeça olhando para −Z (rumo 0), a frente do corpo é −Z: ver
+    // `posicaoDoSlot`, e o teste 61, que é sobre exatamente este sinal.
+    const esquerda = new THREE.Vector3(-0.17, 1, -0.17);
+    const direita = new THREE.Vector3(0.17, 1, -0.17);
     checar(naCintura.slotSob(esquerda) !== null, 'a mão esquerda não alcança o cinto');
     checar(naCintura.slotSob(direita) !== null, 'a mão direita não alcança o cinto');
     // E elas pegam bolas DIFERENTES: a fileira tem lados.
@@ -5818,6 +5822,43 @@ console.log('\n60. o cinto está na cintura, e as duas mãos alcançam');
     checar(
       naCintura.forcaDaMao(new THREE.Vector3(0, 1.6, -1), new THREE.Vector3(0, 1.6, -1)) === 0,
       'a mão longe do corpo sente o cinto',
+    );
+  }
+
+  // (6) O CINTO ESTÁ NA FRENTE DO CORPO, E O ARCO ABRE PARA FORA.
+  //
+  // Pedido do playtest de 19/09, à noite: *"o cinto está fazendo uma curva
+  // para DENTRO do corpo, precisa ser para fora do corpo"*. Medindo, era pior
+  // do que a curva: o cinto inteiro estava DEZESSETE CENTÍMETROS ATRÁS da
+  // cintura, porque o rumo que o jogo passa põe o +Z local nas costas e a
+  // fileira era montada em +Z.
+  //
+  // Este teste compõe as DUAS metades da conta — o rumo e o arranjo — que é o
+  // que nenhum dos testes acima fazia: eles recebiam o rumo pronto, e por isso
+  // um cinto nas costas passava por todos eles.
+  {
+    const olhar = new THREE.Vector3(0, 0, -1);
+    const frente = olhar.clone();
+    const rumo = rumoDoCinto(olhar);
+    const grupo = new THREE.Group();
+    grupo.rotation.y = rumo;
+    grupo.updateMatrixWorld(true);
+
+    const emFrente: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const mundo = posicaoDoSlot(i).applyMatrix4(grupo.matrixWorld);
+      emFrente.push(mundo.dot(frente));
+    }
+    checar(
+      emFrente.every((d) => d > 0.05),
+      `o cinto está atrás do corpo: os slots caem a ${emFrente.map((d) => d.toFixed(2)).join(', ')} m na frente`,
+    );
+    // O arco: as PONTAS mais longe do corpo do que o meio, e não o contrário.
+    const meio = (emFrente[1] + emFrente[2]) / 2;
+    const ponta = (emFrente[0] + emFrente[3]) / 2;
+    checar(
+      ponta > meio + 0.02,
+      `o arco do cinto encurva para dentro: ponta a ${ponta.toFixed(3)} m e meio a ${meio.toFixed(3)} m`,
     );
   }
 

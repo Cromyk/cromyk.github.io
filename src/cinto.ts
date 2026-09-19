@@ -108,6 +108,55 @@ export const CINTURA_MINIMA_DO_CHAO = 0.38;
 export const CINTURA_A_FRENTE = 0.17;
 
 /**
+ * O quanto a ponta da fileira avança em relação ao meio, em metros.
+ *
+ * A fileira não é reta: ela abre num arco raso, e o arco aponta para FORA do
+ * corpo — as bolas das pontas ficam mais longe da barriga do que as do meio.
+ * Essa é a forma que o braço descreve. A mão não alcança a anca esquerda pelo
+ * mesmo raio com que alcança o umbigo: ela varre um arco, e uma fileira reta
+ * (ou pior, encurvada para dentro) põe as bolas das pontas dentro do corpo,
+ * onde a mão nunca chega e o olho nunca vê.
+ */
+export const CURVA_DO_ARCO = 0.05;
+
+/**
+ * Onde fica cada slot, em coordenadas do grupo do cinto.
+ *
+ * ## Dois erros que estavam aqui, e que só o headset mostrava
+ *
+ * **O cinto estava nas costas.** O grupo é girado por `rotation.y = rumo`, e o
+ * rumo vem de `Math.atan2(-olhar.x, -olhar.z)` (ver `posicionar` e a chamada em
+ * src/game.ts): esse ângulo põe o **+Z local apontando para TRÁS** do jogador.
+ * Com a fileira em `z = +0,17`, as quatro bolas ficavam dezessete centímetros
+ * atrás da cintura — dentro do corpo de quem olhava para baixo para pegá-las.
+ *
+ * **E o arco encurvava para o lado errado.** O `- x²` fazia as pontas
+ * recuarem em relação ao meio; somado ao erro de sinal do Z, o resultado era
+ * uma fileira que mergulhava para dentro da barriga nas duas extremidades.
+ *
+ * A conta é feita aqui, numa função pura, e não solta no construtor, porque é
+ * exatamente o tipo de coisa que `tools/smoke.ts` consegue conferir sem
+ * navegador: um sinal trocado num eixo não aparece em teste de lógica nenhum,
+ * mas aparece num teste que pergunta *de que lado do corpo isto está*.
+ *
+ * `rumoDoCinto` está logo acima pelo mesmo motivo: era a outra metade da conta,
+ * e ela morava solta em src/game.ts. Separadas, as duas metades podiam estar
+ * cada uma "certa" e o cinto acabar nas costas — que foi o que aconteceu.
+ */
+export function rumoDoCinto(olhar: THREE.Vector3): number {
+  return Math.atan2(-olhar.x, -olhar.z);
+}
+
+export function posicaoDoSlot(indice: number): THREE.Vector3 {
+  const x = INICIO_SLOT + indice * PASSO_SLOT;
+  // Normalizado pela ponta: no meio a curva é zero, na ponta vale CURVA_DO_ARCO.
+  const meia = INICIO_SLOT * INICIO_SLOT;
+  const arco = meia > 1e-9 ? ((x * x) / meia) * CURVA_DO_ARCO : 0;
+  // −Z é a frente do jogador. Ver o bloco acima.
+  return new THREE.Vector3(x, 0, -(CINTURA_A_FRENTE + arco));
+}
+
+/**
  * Quantos graus a cabeça gira antes de o cinto acompanhar.
  *
  * É o número que decide se a cintura funciona. Preso ao yaw da cabeça, o
@@ -246,15 +295,8 @@ export class Cinto {
       const tipo = BOLAS[i];
 
       const base = new THREE.Group();
-      // Lado a lado na frente da cintura, da esquerda para a direita, e um
-      // palmo à frente do corpo: é onde a mão cai quando o braço relaxa, e é
-      // onde ela chega sem você ter de levantar o outro braço.
-      //
-      // O arco é de raio grande (a fileira encurva de leve para acompanhar o
-      // corpo) porque uma fileira reta na frente da barriga tem as pontas
-      // longe demais: o slot da ponta ficaria a 25 cm do quadril.
-      const x = INICIO_SLOT + i * PASSO_SLOT;
-      base.position.set(x, 0, CINTURA_A_FRENTE - (x * x) / 0.9);
+      const lugar = posicaoDoSlot(i);
+      base.position.copy(lugar);
 
       // Cada uma fora de fase: quatro bolas subindo juntas viram um elevador,
       // e quatro subindo em tempos diferentes viram quatro bolas.

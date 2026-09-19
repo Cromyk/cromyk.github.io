@@ -12,8 +12,10 @@
  *   1. nada fica ABAIXO da origem, que é o punho;
  *   2. nada passa da largura útil do painel.
  *
- *   npx esbuild tools/diag-painel.ts --bundle --platform=node --format=esm \
- *     --outfile=node_modules/.cache/dp.mjs && node node_modules/.cache/dp.mjs
+ *   npm run painel
+ *
+ * A terceira afirmação entrou em 19/09, com a queixa de que *"a barra superior
+ * está MUITO lá em cima"*: a barra de comandos tem de encostar no time.
  */
 import { createCanvas } from '@napi-rs/canvas';
 
@@ -47,20 +49,29 @@ const itens = ITENS.map((tipo) => ({ tipo, quantidade: 2 }));
 const golpes = porId('charmander')!.golpes.slice(0, 4).map((golpe, i) => ({ golpe, armado: i === 0 }));
 const interruptores = INTERRUPTORES.map((i) => ({ id: i.id, nome: i.nome, ligado: true, diz: i.ligadoDiz }));
 
+type Desenhado = { malha: { visible: boolean; position: { x: number; y: number } } };
 const painel = new PainelTime() as unknown as {
   definirConteudo: (...a: unknown[]) => void;
   grupo: { children: Array<{ visible: boolean; position: { x: number; y: number }; scale: { x: number; y: number }; userData: Record<string, unknown> }> };
-  cards: Array<{ malha: { visible: boolean; position: { x: number; y: number } } }>;
-  cardsBola: Array<{ malha: { visible: boolean; position: { x: number; y: number } } }>;
-  cardsItem: Array<{ malha: { visible: boolean; position: { x: number; y: number } } }>;
-  cardsGolpe: Array<{ malha: { visible: boolean; position: { x: number; y: number } } }>;
+  /** O time é bola de luz desde 18/09; a `Holobola` expõe `grupo`, não `malha`. */
+  bolasTime: Array<{ grupo: { visible: boolean; position: { x: number; y: number } } }>;
+  etiquetas: Desenhado[];
+  cardsBola: Desenhado[];
+  cardsItem: Desenhado[];
+  cardsGolpe: Desenhado[];
+  cardsChave: Desenhado[];
+  cardEngrenagem: Desenhado;
+  cardPc: Desenhado;
+  cardMochila: Desenhado;
+  cardChamar: Desenhado;
   titulo: { malha: { position: { x: number; y: number } } };
+  fundo: { position: { y: number }; geometry: { boundingBox: unknown } };
 };
 
 painel.definirConteudo(time, bolas, itens, golpes, MODOS[0].id, 'normal', interruptores);
 
-const LARGURA = { cards: 0.092, cardsBola: 0.069, cardsItem: 0.05, cardsGolpe: 0.143 };
-const ALTURA = { cards: 0.114, cardsBola: 0.06, cardsItem: 0.046, cardsGolpe: 0.05 };
+const LARGURA = { etiquetas: 0.074, cardsBola: 0.069, cardsItem: 0.042, cardsGolpe: 0.118 };
+const ALTURA = { etiquetas: 0.024, cardsBola: 0.06, cardsItem: 0.038, cardsGolpe: 0.042 };
 
 let baixo = Infinity;
 let esquerda = 0;
@@ -69,7 +80,7 @@ let alto = -Infinity;
 let problemas = 0;
 
 console.log('grupo            x (cm)          y (cm)     cartas');
-for (const grupo of ['cardsGolpe', 'cardsItem', 'cardsBola', 'cards'] as const) {
+for (const grupo of ['cardsGolpe', 'cardsItem', 'cardsBola', 'etiquetas'] as const) {
   const visiveis = painel[grupo].filter((c) => c.malha.visible);
   if (visiveis.length === 0) continue;
   const xs = visiveis.map((c) => c.malha.position.x);
@@ -90,15 +101,39 @@ for (const grupo of ['cardsGolpe', 'cardsItem', 'cardsBola', 'cards'] as const) 
   );
 }
 
+// O topo do conteúdo é a bola de luz mais alta do time — é DELA que a barra de
+// comandos tem de ficar perto. Ver a queixa do playtest de 19/09.
+const topoDoTime = Math.max(
+  ...painel.bolasTime.filter((b) => b.grupo.visible).map((b) => b.grupo.position.y),
+);
+
 const tituloY = painel.titulo.malha.position.y;
-alto = Math.max(alto, tituloY + 0.019);
+const iconeY = painel.cardEngrenagem.malha.position.y;
+alto = Math.max(alto, tituloY + 0.016);
+console.log(`${'ícones'.padEnd(12)} ${''.padStart(16)} ${(iconeY * 100).toFixed(1).padStart(8)}`);
 console.log(`${'título'.padEnd(12)} ${''.padStart(16)} ${(tituloY * 100).toFixed(1).padStart(8)}`);
 
 console.log(`\nlargura total: ${((direita - esquerda) * 100).toFixed(1)} cm  (era 66,0 na fileira de seis)`);
 console.log(`altura: de ${(baixo * 100).toFixed(1)} a ${(alto * 100).toFixed(1)} cm acima do punho`);
+// Medido do TOPO da bola (o raio dela é 2,6 cm), que é a borda que o olho vê.
+const vaoDaBarra = iconeY - (topoDoTime + 0.026);
+console.log(`barra de comandos: ${(vaoDaBarra * 100).toFixed(1)} cm acima do topo do time`);
 
 if (baixo < -0.001) {
   console.log(`FALHOU: ${(baixo * 100).toFixed(1)} cm ABAIXO do punho`);
+  problemas++;
+}
+
+// A queixa era esta: *"a barra superior está MUITO lá em cima"*. Ela vinha de o
+// título seguir o topo da página de AJUSTES, que cresce com cada interruptor.
+// Oito centímetros é o passo de uma linha do painel; acima disso já há um vão
+// vazio no meio do painel.
+if (vaoDaBarra > 0.06) {
+  console.log(`FALHOU: a barra de comandos está ${(vaoDaBarra * 100).toFixed(1)} cm acima do time`);
+  problemas++;
+}
+if (tituloY < iconeY) {
+  console.log('FALHOU: o título não está acima dos comandos');
   problemas++;
 }
 if (direita - esquerda > 0.42) {

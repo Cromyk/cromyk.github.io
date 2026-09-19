@@ -46,7 +46,7 @@ import { Luva } from './glove';
 import { Rastro, aVista, rumoDoRastro } from './rastro';
 import { marcoDe } from './marcos';
 import { fatorDoHorario, nomeDoPeriodo, noturnidade } from './hora';
-import { ALCANCE_SLOT, Cinto } from './cinto';
+import { ALCANCE_SLOT, Cinto, rumoDoCinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
 import { Fotografo, type Foto } from './foto';
 import {
@@ -261,6 +261,9 @@ export class Jogo {
   private rastros = new Map<number, RastroDeIsca>();
   /** Mão do modo sem headset — só para o jogador ver que tem mão. */
   private luvaPlana: Luva | null = null;
+  /** O sol e o plano que recebe a sombra. Ver `montarLuzes` e `atualizarSombras`. */
+  private sol: THREE.DirectionalLight | null = null;
+  private chaoDeSombra: THREE.Mesh | null = null;
   /**
    * A mão que está com o gatilho preso, e desde quando. É a diferença entre
    * tocar o gatilho (atacar) e segurá-lo (marcar para onde ir).
@@ -406,6 +409,31 @@ export class Jogo {
     audio.musicaDeBatalha = this.ajustes.musicaDeBatalha;
   }
 
+  /**
+   * A luz, a sombra e o chão que a recebe.
+   *
+   * ## As sombras estavam presas ao ponto onde a sessão começou
+   *
+   * Três coisas moravam em coordenadas fixas: o sol, a caixa de sombra dele
+   * (oito metros de lado, centrada na ORIGEM) e o plano que recebe a sombra, a
+   * dois milímetros de `y = 0`. Nenhuma das três acompanhava nem você nem o
+   * chão medido — e isso quebra de três maneiras, todas relatadas como "a
+   * sombra está bugada":
+   *
+   * - **Ela some.** Ande quatro metros e você sai da caixa de sombra. Os
+   *   bichos continuam lá, a sombra não. Com o roomscale de 15/09, andar pela
+   *   casa é o jogo.
+   * - **Ela flutua.** O plano que recebe está em `y = 0`, que é a altura dos
+   *   OLHOS no começo da sessão em `local-floor` só por coincidência. Com o
+   *   chão medido por hit-test em outra altura (ver src/room.ts), a mancha
+   *   aparecia no ar, cortando o bicho na canela.
+   * - **Ela corta.** Com "Tamanho real" ligado, um Onix tem 8,8 m e a caixa de
+   *   sombra tinha 8 m de lado.
+   *
+   * Agora as três seguem o jogador, e o plano segue o piso medido. A caixa
+   * ficou com 11 m de lado, que é o que cobre um spawn a 5,5 m mais o corpo de
+   * quem nasceu lá.
+   */
   private montarLuzes() {
     this.cena.add(new THREE.HemisphereLight(0xffffff, 0x505a6b, 1.5));
 
@@ -414,13 +442,20 @@ export class Jogo {
     sol.castShadow = true;
     sol.shadow.mapSize.set(1024, 1024);
     sol.shadow.camera.near = 0.4;
-    sol.shadow.camera.far = 12;
+    sol.shadow.camera.far = 14;
     const c = sol.shadow.camera;
-    c.left = -4;
-    c.right = 4;
-    c.top = 4;
-    c.bottom = -4;
-    this.cena.add(sol);
+    c.left = -5.5;
+    c.right = 5.5;
+    c.top = 5.5;
+    c.bottom = -5.5;
+    // Sem isto, um corpo com esqueleto ganha listras de acne na própria pele:
+    // a malha é deformada no vértice e a profundidade gravada no mapa não bate
+    // com a que o passe de cor calcula. `normalBias` é o que resolve em
+    // modelo animado; o `bias` cru só empurraria a sombra para longe do pé.
+    sol.shadow.bias = -0.0004;
+    sol.shadow.normalBias = 0.02;
+    this.cena.add(sol, sol.target);
+    this.sol = sol;
 
     // Plano invisível que só recebe sombra: é o que cola os Pokémon no seu chão.
     const geo = new THREE.PlaneGeometry(14, 14);
@@ -431,6 +466,32 @@ export class Jogo {
     chao.position.y = 0.002;
     chao.receiveShadow = true;
     this.cena.add(chao);
+    this.chaoDeSombra = chao;
+  }
+
+  /**
+   * Leva o sol, a caixa de sombra e o chão que a recebe junto com você.
+   *
+   * Barato de propósito: três posições por quadro e nenhuma alocação. A caixa
+   * de sombra não é recentrada em `pisoY` cru, e sim no chão SOB VOCÊ, porque é
+   * aí que estão os seus pés e é aí que a sombra tem de cair.
+   */
+  private atualizarSombras() {
+    const chao = this.chaoDeSombra;
+    const sol = this.sol;
+    if (!chao || !sol) return;
+
+    const piso = this.sala.pisoY;
+    chao.position.set(this.posicaoJogador.x, piso + 0.002, this.posicaoJogador.z);
+
+    // O sol mantém a direção — ele é o mesmo sol —, só muda de endereço.
+    sol.position.set(
+      this.posicaoJogador.x + 1.4,
+      piso + 3.2,
+      this.posicaoJogador.z + 1.1,
+    );
+    sol.target.position.set(this.posicaoJogador.x, piso, this.posicaoJogador.z);
+    sol.target.updateMatrixWorld();
   }
 
   private montarMaos() {
@@ -4159,6 +4220,7 @@ export class Jogo {
 
     this.regenerarTime(dt);
     this.atualizarRecargaDeBolas();
+    this.atualizarSombras();
     this.atualizarMaos(dt, agora);
     this.atualizarMochila(dt);
     this.atualizarOuvinte();
@@ -5525,7 +5587,7 @@ export class Jogo {
     // −Z da câmera, que é para onde ela olha: −1 é o teto, 1 é o chão.
     this.camera.getWorldPosition(_cabeca);
     this.camera.getWorldDirection(_olhar);
-    const rumoDaCabeca = Math.atan2(-_olhar.x, -_olhar.z);
+    const rumoDaCabeca = rumoDoCinto(_olhar);
     this.cinto.posicionar(dt, _cabeca, rumoDaCabeca, -_olhar.y, this.sala.pisoY);
 
     // QUALQUER mão destaca, e a que estiver mais perto ganha a vibração. O

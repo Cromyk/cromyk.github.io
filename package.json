@@ -33,7 +33,8 @@
     "rig": "esbuild tools/rig.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rig.mjs --log-level=error --external:./raster.mjs --external:./png.mjs && node --max-old-space-size=4096 node_modules/.cache/rig.mjs",
     "ver:luva": "node tools/ver-luva.mjs",
     "tipos": "tsc --noEmit -p tsconfig.tools.json",
-    "fogo": "node tools/brasa.mjs --material=Hair ponyta magmar rapidash && node tools/diag-fogo.mjs"
+    "fogo": "node tools/brasa.mjs --material=Hair ponyta magmar rapidash && node tools/diag-fogo.mjs",
+    "painel": "esbuild tools/diag-painel.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/dp.mjs --log-level=error --external:@napi-rs/canvas && node node_modules/.cache/dp.mjs"
   },
   "dependencies": {
     "three": "^0.184.0"

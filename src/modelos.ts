@@ -344,18 +344,34 @@ export function instanciar(
     centroDoManifesto.clone().add(meia),
   );
 
-  let sombras = 0;
+  // Sombra só nas malhas GRANDES, e não nas primeiras que aparecerem.
+  //
+  // O limite de seis existe por custo — em MR o headset desenha tudo duas
+  // vezes, e o passe de profundidade cobra de novo. Mas quem eram as seis
+  // saía da ORDEM do traverse, que é a ordem em que o exportador gravou os
+  // nós: num bicho com dez submalhas, sobrava sombra para os olhos, a língua e
+  // os dentes, e o TRONCO ficava de fora. O resultado é uma sombra que não tem
+  // a forma do bicho — a queixa "a sombra está bugada" do playtest de 19/09.
+  //
+  // Ordenar por contagem de vértices põe o corpo na frente de qualquer detalhe
+  // e custa um sort de dez itens uma vez por instância.
+  const malhas: THREE.Mesh[] = [];
   cena.traverse((obj) => {
     const malha = obj as THREE.Mesh;
     if (!malha.isMesh) return;
-    // Sombra só nas primeiras malhas: em MR o headset já desenha tudo duas
-    // vezes, e um bicho com dez submalhas projetando sombra não compensa.
-    malha.castShadow = sombras++ < 6;
+    malha.castShadow = false;
     malha.receiveShadow = false;
     // Malha com esqueleto tem a caixa calculada na pose de bind; sem isto ela
     // some do quadro quando a animação afasta os ossos da caixa original.
     malha.frustumCulled = false;
+    malhas.push(malha);
   });
+  malhas
+    .sort((a, b) => (b.geometry.attributes.position?.count ?? 0) - (a.geometry.attributes.position?.count ?? 0))
+    .slice(0, 6)
+    .forEach((malha) => {
+      malha.castShadow = true;
+    });
 
   // Brilhante sem arquivo próprio: a cor é girada aqui, no exemplar. As 61 que
   // têm o  já vieram com as cores certas e não são tocadas.

@@ -140,11 +140,95 @@ const LARGURA_MODO = 0.122;
 const ALTURA_MODO = 0.056;
 const LARGURA_DIF = 0.122;
 const ALTURA_DIF = 0.05;
-const LARGURA_CHAVE = 0.19;
-const ALTURA_CHAVE = 0.042;
+/**
+ * Os interruptores, em duas colunas.
+ *
+ * Eram doze, em coluna única de 19 cm: a página de ajustes tinha **77
+ * centímetros** de altura saindo do pulso. Passava despercebido enquanto os
+ * cards eram objetos soltos no ar; com a moldura única por trás (ver
+ * `moldura`), setenta e sete centímetros de chapa escura pendurados no braço
+ * seriam a metade do seu quarto tapada.
+ *
+ * Duas colunas cortam isso pela metade. O card fica com a largura de uma carta
+ * de golpe — que é uma medida já usada e já lida no headset —, e o texto de
+ * baixo passa a ser uma linha só.
+ */
+const LARGURA_CHAVE = 0.118;
+const ALTURA_CHAVE = 0.044;
+const CHAVES_POR_LINHA = 2;
 const LADO_ENGRENAGEM = 0.042;
 const LADO_PC = 0.042;
 const ESPACO = 0.012;
+/** Altura da faixa de título, no topo do painel. */
+const ALTURA_TITULO = 0.032;
+/**
+ * Quanto do ângulo até os olhos o painel acompanha, e até onde.
+ *
+ * Meio ângulo, com teto de trinta graus. Acompanhar por inteiro é o `lookAt`
+ * que o playtest de 18/09 rejeitou (*"inclinado para frente, projetando"*);
+ * acompanhar zero é o painel de perfil que o playtest de 19/09 rejeitou
+ * (*"parece uma sombra que impede de ver o menu"*). A metade é a leitura em
+ * ângulo confortável sem que o retângulo deite.
+ */
+const FRACAO_DO_TOMBO = 0.5;
+const TOMBO_MAXIMO = Math.PI * 0.17;
+/** O respiro entre a moldura e o conteúdo dela. */
+const MARGEM_MOLDURA = 0.013;
+
+/**
+ * A cabeça do painel: o título e os quatro comandos, numa faixa só.
+ *
+ * ## O que estava errado
+ *
+ * O relato do playtest de 19/09 foi: *"a barra superior onde tem os ícones de
+ * configuração não está acima dos pokémons, está MUITO lá em cima — precisa ser
+ * um painel único"*.
+ *
+ * A causa estava numa conta: o título seguia
+ * `max(topo da página principal, topo da página de AJUSTES)`. A página de
+ * ajustes é uma lista alta — modo, dificuldade e um interruptor por linha —, e
+ * ela crescia a cada interruptor novo. Então a barra subia junto, mesmo com a
+ * página de ajustes FECHADA, e ficava pairando dez ou quinze centímetros acima
+ * do time, sem nada no meio. Era um painel só no código e dois painéis no olho.
+ *
+ * ## O que ficou
+ *
+ * A cabeça segue o topo da página ABERTA, e só dela. E os quatro comandos
+ * (ajustes, PC, mochila, "vem cá") saíram das colunas laterais — onde ficavam
+ * FORA do corpo do painel — para uma fileira centrada logo abaixo do título e
+ * logo acima do time. Com a moldura única por trás (ver `moldura`), o conjunto
+ * é uma coisa só, que é o que o pedido dizia.
+ */
+const LADO_ICONE = 0.042;
+const VAO_ICONE = 0.008;
+
+/**
+ * Um retângulo de cantos arredondados, como geometria.
+ *
+ * A `Placa` não serve aqui: ela é um canvas de tamanho fixo, e o fundo do
+ * painel muda de altura conforme a página e o conteúdo (quatro golpes a mais
+ * são dois centímetros a mais). Esticar uma placa deformaria os cantos.
+ *
+ * Como o fundo não tem texto nenhum — é uma chapa escura e uma borda —, ele não
+ * precisa de canvas: uma `Shape` custa quatro curvas e redesenha só quando a
+ * medida muda, o que acontece ao trocar de página, não a cada quadro.
+ */
+function moldura(largura: number, altura: number, raio: number): THREE.ShapeGeometry {
+  const r = Math.min(raio, largura / 2, altura / 2);
+  const x = -largura / 2;
+  const y = -altura / 2;
+  const forma = new THREE.Shape();
+  forma.moveTo(x + r, y);
+  forma.lineTo(x + largura - r, y);
+  forma.quadraticCurveTo(x + largura, y, x + largura, y + r);
+  forma.lineTo(x + largura, y + altura - r);
+  forma.quadraticCurveTo(x + largura, y + altura, x + largura - r, y + altura);
+  forma.lineTo(x + r, y + altura);
+  forma.quadraticCurveTo(x, y + altura, x, y + altura - r);
+  forma.lineTo(x, y + r);
+  forma.quadraticCurveTo(x, y, x + r, y);
+  return new THREE.ShapeGeometry(forma, 6);
+}
 
 /** Quantas bolas do time por linha. Três é o que cabe na largura útil. */
 const TIME_POR_LINHA = 3;
@@ -242,7 +326,12 @@ export class PainelTime {
   private cardMochila = new Placa(LADO_PC, LADO_PC, 128);
   private cardChamar = new Placa(LADO_PC, LADO_PC, 128);
   private alvos: THREE.Mesh[] = [];
-  private titulo = new Placa(0.24, 0.032, 448);
+  private titulo = new Placa(LARGURA_PAINEL, ALTURA_TITULO, 448);
+  /** A chapa única por trás de tudo. Ver `moldura` e `ajustarMoldura`. */
+  private fundo: THREE.Mesh;
+  private contorno: THREE.Mesh;
+  /** A medida com que a moldura foi construída, para não refazê-la por quadro. */
+  private medidaDaMoldura = '';
 
   /** Uma por vaga do time; `null` onde a vaga está vazia. */
   private entradas: Array<EntradaTime | null> = [];
@@ -263,6 +352,8 @@ export class PainelTime {
   private mandadoPeloBotao: boolean | null = null;
   /** Relógio próprio, para as bolas flutuarem e girarem. */
   private tempo = 0;
+  /** A inclinação atual, amortecida. Ver `FRACAO_DO_TOMBO`. */
+  private tombo = 0;
   /** Onde o conteúdo da página principal termina, para cima. Ver reposicionar. */
   private topoDaPagina = 0.2;
   private raycaster = new THREE.Raycaster();
@@ -272,7 +363,38 @@ export class PainelTime {
 
   constructor() {
     this.titulo.malha.position.set(0, this.topoDaPagina, 0);
-    this.grupo.add(this.titulo.malha, this.cardEngrenagem.malha, this.cardPc.malha);
+
+    // A moldura vem ANTES de tudo na hierarquia e atrás de tudo em Z: ela é o
+    // fundo, e o resto do painel se desenha por cima dela.
+    const matFundo = new THREE.MeshBasicMaterial({
+      color: 0x080c14,
+      transparent: true,
+      opacity: 0.74,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const matContorno = new THREE.MeshBasicMaterial({
+      color: 0xa8c4ff,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this.descartaveis.push(matFundo, matContorno);
+    this.fundo = new THREE.Mesh(moldura(0.1, 0.1, 0.016), matFundo);
+    this.contorno = new THREE.Mesh(moldura(0.1, 0.1, 0.016), matContorno);
+    this.fundo.position.z = -0.004;
+    this.contorno.position.z = -0.005;
+    this.fundo.renderOrder = 8;
+    this.contorno.renderOrder = 7;
+
+    this.grupo.add(
+      this.contorno,
+      this.fundo,
+      this.titulo.malha,
+      this.cardEngrenagem.malha,
+      this.cardPc.malha,
+    );
     this.grupo.visible = false;
 
     const geoAlvo = new THREE.PlaneGeometry(1, 1);
@@ -564,17 +686,22 @@ export class PainelTime {
       alvo.position.set(lugar.x, lugar.y, 0);
     }
     y += (linhasDeTime - 1) * PASSO_TIME_Y;
-    this.topoDaPagina = y + RAIO_TIME + 0.026;
+    // Um centímetro e meio acima da bola mais alta. Era dois e meio, quando a
+    // barra do título flutuava longe daqui de qualquer jeito; agora ela encosta,
+    // e cada milímetro entre as duas é um vão que se vê.
+    this.topoDaPagina = y + RAIO_TIME + 0.014;
 
     // --- página de ajustes, do topo para baixo dentro do mesmo espaço ---
     //
-    // Ela é uma LISTA, e lista se lê de cima para baixo. O que mudou é só onde
-    // o topo dela fica: antes era um número fixo perto do centro, agora é o
-    // mesmo topo da página principal, para as duas ocuparem a mesma moldura e a
-    // engrenagem não fazer o painel pular de tamanho quando alterna.
+    // Ela é uma LISTA, e lista se lê de cima para baixo. O topo dela é o topo
+    // DELA: encaixá-lo no topo da outra página (que era o que o `max` fazia)
+    // amarrava as duas alturas e empurrava a barra do título para cima na
+    // página principal, onde a lista de ajustes nem está desenhada. Ver
+    // `LADO_ICONE`, que conta essa história inteira.
+    const linhasDeChave = Math.max(1, Math.ceil(this.interruptores.length / CHAVES_POR_LINHA));
     const alturaAjustes =
-      ALTURA_MODO + ALTURA_DIF + this.interruptores.length * (ALTURA_CHAVE + 0.008) + 0.06;
-    const yModo = Math.max(alturaAjustes, this.topoDaPagina - 0.03) - ALTURA_MODO / 2;
+      ALTURA_MODO + ALTURA_DIF + linhasDeChave * (ALTURA_CHAVE + ESPACO * 0.7) + 0.06;
+    const yModo = alturaAjustes - ALTURA_MODO / 2;
     const yDif = yModo - ALTURA_MODO / 2 - ALTURA_DIF / 2 - 0.02;
     const yChaveBase = yDif - ALTURA_DIF / 2 - ALTURA_CHAVE / 2 - 0.022;
 
@@ -588,55 +715,85 @@ export class PainelTime {
       !principal,
     );
 
-    // Os interruptores ficam empilhados, um por linha: eles têm texto longo e
-    // lado a lado ficariam ilegíveis num painel de vinte centímetros.
-    for (let i = 0; i < this.cardsChave.length; i++) {
-      const visivel = !principal && i < this.interruptores.length;
-      this.cardsChave[i].malha.visible = visivel;
-      const alvo = this.alvos[baseChave + i];
-      alvo.visible = visivel;
-      if (!visivel) continue;
-      const y = yChaveBase - i * (ALTURA_CHAVE + 0.008);
-      this.cardsChave[i].malha.position.set(0, y, this.cardsChave[i].malha.position.z);
-      alvo.position.set(0, y, -0.001);
+    // Duas colunas, de cima para baixo. Ver `LARGURA_CHAVE`.
+    this.grade(
+      this.cardsChave,
+      baseChave,
+      this.interruptores.length,
+      LARGURA_CHAVE,
+      ALTURA_CHAVE,
+      yChaveBase,
+      !principal,
+      CHAVES_POR_LINHA,
+      1,
+    );
+
+    // --- a cabeça do painel: os comandos e, acima deles, o título ---
+    //
+    // Ela encosta no conteúdo da página ABERTA. Na principal isso quer dizer
+    // logo acima da última linha de bolas do time — que é onde o playtest
+    // mandou pôr, e onde ela estava deixando de ficar por causa da conta que
+    // acabou de sair daqui.
+    //
+    // Os quatro comandos vêm numa fileira centrada, dentro da largura do
+    // painel: antes eram duas colunas penduradas FORA dele, e duas colunas
+    // soltas ao lado de um retângulo são três objetos, não um.
+    const topoDoConteudo = principal ? this.topoDaPagina : alturaAjustes;
+    const yIcones = topoDoConteudo + LADO_ICONE / 2 + 0.009;
+    const yTitulo = yIcones + LADO_ICONE / 2 + ALTURA_TITULO / 2 + 0.007;
+
+    const passoIcone = LADO_ICONE + VAO_ICONE;
+    // Da esquerda para a direita: PC, mochila, "vem cá", ajustes. A engrenagem
+    // fica na ponta direita, que é onde todo mundo procura opções.
+    const xIcone = (coluna: number) => (coluna - 1.5) * passoIcone;
+
+    this.titulo.malha.position.set(0, yTitulo, 0);
+
+    const porIcone: Array<[Placa, number]> = [
+      [this.cardPc, indiceEngrenagem + 1],
+      [this.cardMochila, indiceEngrenagem + 2],
+      [this.cardChamar, indiceEngrenagem + 3],
+      [this.cardEngrenagem, indiceEngrenagem],
+    ];
+    for (let c = 0; c < porIcone.length; c++) {
+      const [card, indiceAlvo] = porIcone[c];
+      card.malha.position.set(xIcone(c), yIcones, 0);
+      const alvo = this.alvos[indiceAlvo];
+      alvo.visible = true;
+      alvo.position.set(xIcone(c), yIcones, -0.001);
     }
 
-    // A engrenagem fica na linha do título, encostada na direita — o canto onde
-    // ninguém procura um Pokémon e todo mundo procura opções.
-    //
-    // O título coroa o painel, e por isso ele segue o topo do conteúdo em vez
-    // de ficar num número fixo: com a mochila cheia de pedras ou com os golpes
-    // à mostra, o painel cresce, e um título parado acabaria no meio dele.
-    const yTitulo = Math.max(this.topoDaPagina, yModo + ALTURA_MODO / 2 + 0.03);
-    const xEngrenagem = LARGURA_PAINEL / 2 + LADO_ENGRENAGEM / 2 + 0.006;
-    this.titulo.malha.position.y = yTitulo;
-    this.cardEngrenagem.malha.position.set(xEngrenagem, yTitulo, 0);
-    const alvoEngrenagem = this.alvos[indiceEngrenagem];
-    alvoEngrenagem.visible = true;
-    alvoEngrenagem.position.set(xEngrenagem, yTitulo, -0.001);
+    this.ajustarMoldura(yTitulo + ALTURA_TITULO / 2);
+  }
 
-    // O PC fica do lado oposto, encostado na esquerda do título: os dois cantos
-    // da linha de cima são as duas coisas que não são "um bicho do seu time".
-    const xPc = -(LARGURA_PAINEL / 2 + LADO_PC / 2 + 0.006);
-    this.cardPc.malha.position.set(xPc, yTitulo, 0);
-    const alvoPc = this.alvos[indiceEngrenagem + 1];
-    alvoPc.visible = true;
-    alvoPc.position.set(xPc, yTitulo, -0.001);
+  /**
+   * Estica a chapa de fundo para caber o painel inteiro.
+   *
+   * A base é o pulso (y = 0) e o teto é o topo do título. A largura é a do
+   * painel mais uma margem — nada mais mora fora dela desde que os comandos
+   * entraram na fileira do topo.
+   *
+   * A geometria só é refeita quando a MEDIDA muda, e a medida muda ao trocar de
+   * página ou ao ganhar uma linha de golpes. Refazer uma `Shape` por quadro
+   * seria alocar lixo a 90 Hz para desenhar o mesmo retângulo.
+   */
+  private ajustarMoldura(topo: number) {
+    const largura = LARGURA_PAINEL + MARGEM_MOLDURA * 2;
+    const base = -MARGEM_MOLDURA;
+    const altura = topo + MARGEM_MOLDURA - base;
+    const chave = `${largura.toFixed(4)}:${altura.toFixed(4)}`;
+    if (chave === this.medidaDaMoldura) return;
+    this.medidaDaMoldura = chave;
 
-    // E logo abaixo dos dois, uma coluna curta de cada lado: a mochila sob o
-    // PC, o "vem cá" sob a engrenagem. Ficam FORA do corpo do painel de
-    // propósito — a lateral é a faixa dos comandos, e o miolo continua sendo
-    // só o seu time, que foi o pedido do playtest de compactar a informação.
-    const yAbaixo = yTitulo - (LADO_PC + 0.007);
-    this.cardMochila.malha.position.set(xPc, yAbaixo, 0);
-    const alvoMochila = this.alvos[indiceEngrenagem + 2];
-    alvoMochila.visible = true;
-    alvoMochila.position.set(xPc, yAbaixo, -0.001);
-
-    this.cardChamar.malha.position.set(xEngrenagem, yAbaixo, 0);
-    const alvoChamar = this.alvos[indiceEngrenagem + 3];
-    alvoChamar.visible = true;
-    alvoChamar.position.set(xEngrenagem, yAbaixo, -0.001);
+    const centro = base + altura / 2;
+    for (const [malha, folga] of [
+      [this.fundo, 0],
+      [this.contorno, 0.0025],
+    ] as Array<[THREE.Mesh, number]>) {
+      malha.geometry.dispose();
+      malha.geometry = moldura(largura + folga * 2, altura + folga * 2, 0.018 + folga);
+      malha.position.y = centro;
+    }
   }
 
   // ------------------------------------------------------------ desenho
@@ -1220,19 +1377,22 @@ export class PainelTime {
 
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.font = fonte(22, 700);
+      // Duas colunas: o card tem 11,8 cm e o canvas continua com 460 px de
+      // largura, então a letra pode crescer em pixel para manter o mesmo
+      // tamanho em centímetros que ela tinha na coluna larga.
+      ctx.font = fonte(30, 700);
       ctx.fillStyle = COR.texto;
-      ctx.fillText(chave.nome, 18, canvas.height * 0.36);
+      ctx.fillText(textoAjustado(ctx, chave.nome, canvas.width - 110), 20, canvas.height * 0.33);
 
-      ctx.font = fonte(17, 500);
+      ctx.font = fonte(22, 500);
       ctx.fillStyle = COR.textoFraco;
-      ctx.fillText(textoAjustado(ctx, chave.diz, canvas.width - 130), 18, canvas.height * 0.72);
+      ctx.fillText(textoAjustado(ctx, chave.diz, canvas.width - 36), 20, canvas.height * 0.68);
 
       // O interruptor desenhado: trilho e botão, do jeito que todo mundo já sabe
       // ler sem legenda.
-      const l = 54;
-      const a = 28;
-      const x = canvas.width - l - 18;
+      const l = 66;
+      const a = 34;
+      const x = canvas.width - l - 20;
       const y = (canvas.height - a) / 2;
       ctx.beginPath();
       ctx.roundRect(x, y, l, a, a / 2);
@@ -1339,13 +1499,31 @@ export class PainelTime {
       // retângulo tombado lê como um papel caindo — e, pior, a mão que vem
       // pegar uma bola tem de vir de baixo, por um ângulo que ela não vê.
       //
-      // O preço é conhecido: quem abre o painel com o braço muito acima ou
-      // muito abaixo dos olhos passa a ver o painel de esguelha. É o preço
-      // certo. Um painel preso ao corpo não precisa encarar o rosto — precisa
-      // ficar em pé, como um relógio no pulso fica.
+      // O preço era conhecido, e foi cobrado: *"em uma altura, parece uma
+      // sombra que impede de ver o menu do braço"* — playtest de 19/09. Com o
+      // painel rigorosamente vertical e o braço na altura do peito, quem olha
+      // de cima vê o retângulo quase de perfil: uma lasca escura, que de fato
+      // parece uma sombra tapando o painel.
+      //
+      // A correção NÃO é voltar ao `lookAt`, que foi o defeito anterior. É uma
+      // inclinação PARCIAL: ele tomba uma fração do ângulo até os olhos, com
+      // teto de trinta graus. Como o ângulo até os olhos cresce quando o braço
+      // se aproxima do corpo (a distância horizontal encolhe e a vertical não),
+      // isso dá exatamente o que foi pedido — reto com o braço estendido, e
+      // "uma leve inclinação conforme aproxima do corpo".
       const olho = camera.getWorldPosition(new THREE.Vector3());
       const rumo = Math.atan2(olho.x - posicao.x, olho.z - posicao.z);
-      this.grupo.rotation.set(0, rumo, 0);
+      const chao = Math.hypot(olho.x - posicao.x, olho.z - posicao.z);
+      const paraOOlho = Math.atan2(olho.y - posicao.y, Math.max(0.05, chao));
+      const tombo = THREE.MathUtils.clamp(paraOOlho * FRACAO_DO_TOMBO, -TOMBO_MAXIMO, TOMBO_MAXIMO);
+      // Amortecido: o ângulo é medido contra um pulso que treme, e um painel
+      // que corrige a inclinação a cada quadro cintila no canto do olho.
+      this.tombo += (tombo - this.tombo) * Math.min(1, dt * 6);
+      // YXZ: o rumo primeiro, a inclinação depois, no eixo horizontal do
+      // próprio painel. Na ordem padrão (XYZ) o tombo sairia torto quando o
+      // rumo não fosse zero.
+      this.grupo.rotation.order = 'YXZ';
+      this.grupo.rotation.set(-this.tombo, rumo, 0);
     }
     this.grupo.scale.setScalar(0.6 + this.abertura * 0.4);
 
@@ -1541,6 +1719,10 @@ export class PainelTime {
     ])
       card.descartar();
     for (const d of this.descartaveis) d.dispose();
+    // A moldura troca de geometria ao mudar de página; a que estiver de pé
+    // agora não está em `descartaveis`.
+    this.fundo.geometry.dispose();
+    this.contorno.geometry.dispose();
     this.titulo.descartar();
   }
 }
