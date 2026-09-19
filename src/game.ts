@@ -74,6 +74,7 @@ import {
   type PerfilDificuldade,
 } from './ajustes';
 import { PainelDex, type EstadoDex } from './dexpanel';
+import { avaliar, genesDe, poderDeCombate } from './avaliacao';
 import { EscolhaInicial } from './starter';
 import { BOLA_PADRAO, bolaPorId, type TipoBola } from './balls';
 import { BONUS_FRUTA, ITENS, SEGUNDOS_FRUTA, itemPorId } from './itens';
@@ -2800,6 +2801,10 @@ export class Jogo {
       3.2,
     );
 
+    // E a FICHA COMPLETA abre junto: escanear um bicho da sala é a forma mais
+    // direta de perguntar "o que é isso?", e a resposta completa é esta tela.
+    this.painelDex.abrirFicha(especie.id);
+
     // A voz, quando ela existe e está ligada. Sem ficha gravada, o bicho se
     // apresenta — o mesmo caminho da ficha apontada na grade.
     if (this.ajustes.vozDaDex) {
@@ -2818,6 +2823,25 @@ export class Jogo {
    * bicho, que é uma resposta e não um silêncio.
    */
   private narrarDaDex(mao: Mao) {
+    // A FICHA COMPLETA é a tela de cima, e ela intercepta antes de tudo.
+    //
+    // *"Quando apontar e usar ou clicar em algum Pokémon, deve mostrar na tela
+    // da Pokédex a ficha completa do Pokémon com status e avaliação"* —
+    // playtest de 19/09. Com a ficha aberta, o gatilho só faz duas coisas:
+    // volta (apontando o botão) ou lê em voz alta (em qualquer outro lugar).
+    // Nada de virar página nem bater foto por dentro dela.
+    if (this.painelDex.naFicha) {
+      if (this.painelDex.voltarApontado) {
+        this.painelDex.fecharFicha();
+        mao.sentir('pegou');
+        audio.clique();
+        return;
+      }
+      const aberta = this.painelDex.especieDaFicha;
+      if (aberta) this.lerFichaEmVozAlta(aberta, mao);
+      return;
+    }
+
     // As setas primeiro: elas são botão, e botão resolve antes de qualquer
     // leitura. Ver `PainelDex.setaSobAMira`.
     if (this.painelDex.setaSobAMira !== 0) {
@@ -2854,6 +2878,16 @@ export class Jogo {
       return;
     }
 
+    // APONTOU E USOU: a ficha completa abre, e ela lê junto. As duas coisas na
+    // mesma puxada — a tela é o que se vê e a voz é o que se ouve, e separá-las
+    // em dois gestos faria o jogador ter de descobrir qual é qual.
+    this.painelDex.abrirFicha(especie.id);
+    audio.abrirPainel();
+    this.lerFichaEmVozAlta(especie, mao);
+  }
+
+  /** A voz da Pokédex sobre uma espécie. Ver `narrarDaDex`. */
+  private lerFichaEmVozAlta(especie: Especie, mao: Mao) {
     mao.sentir('pegou');
 
     if (!this.ajustes.vozDaDex) {
@@ -5811,7 +5845,11 @@ export class Jogo {
         if (this.analogicoNeutro && Math.abs(x) > 0.7) {
           this.analogicoNeutro = false;
           if (this.painelDex.aberto) {
-            this.painelDex.virarPagina(x > 0 ? 1 : -1);
+            // Com a ficha completa aberta, o analógico FECHA em vez de virar
+            // página: virar página por baixo de uma tela que não é a grade
+            // seria mexer numa coisa que não está à vista.
+            if (this.painelDex.naFicha) this.painelDex.fecharFicha();
+            else this.painelDex.virarPagina(x > 0 ? 1 : -1);
             audio.clique();
             mao.sentir('marcou');
           } else {
@@ -6018,6 +6056,32 @@ export class Jogo {
           capturado: reg.capturados > 0,
           viuShiny: reg.viuShiny,
         });
+      }
+      // E o MELHOR exemplar de cada espécie que você tem, que é o que a ficha
+      // completa mostra. Um passe só pela coleção, e não uma busca por
+      // espécie: são 151 espécies contra as poucas dezenas de bichos que
+      // alguém tem, e a coleção inteira cabe num laço.
+      //
+      // "Melhor" é pelo PODER DE COMBATE, e não pelo nível: dois Pidgeys de
+      // nível 12 não são o mesmo bicho, e o que a avaliação existe para dizer
+      // é justamente qual dos dois vale a pena. Ver src/avaliacao.ts.
+      for (const exemplar of this.dex.todos) {
+        const especie = porId(exemplar.id);
+        const estado = especie ? estados.get(especie.id) : undefined;
+        if (!especie || !estado) continue;
+        const nivel = this.dex.nivelDe(exemplar);
+        const poder = poderDeCombate(especie, nivel, genesDe(exemplar));
+        estado.quantos = (estado.quantos ?? 0) + 1;
+        if (estado.melhor && estado.melhor.poder >= poder) continue;
+        estado.melhor = {
+          nivel,
+          hp: exemplar.hp,
+          hpMax: this.dex.hpMaxDe(exemplar),
+          shiny: exemplar.shiny,
+          afeto: exemplar.afeto ?? 0,
+          poder,
+          avaliacao: avaliar(exemplar),
+        };
       }
       this.painelDex.definirEstados(estados);
     }

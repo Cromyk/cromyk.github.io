@@ -176,8 +176,25 @@ export class Tablet {
     // O símbolo da pokébola, na faixa de cima: uma bolacha branca com a faixa
     // preta no meio e o botão. É meia bola vista de frente, e é o que se
     // reconhece de relance mesmo de cabeça para baixo.
+    //
+    // ## Por que ele SUBIU
+    //
+    // *"A pokébola do frame da Pokédex está atrapalhando a tela, ela precisa
+    // ficar pra cima do frame"* — playtest de 19/09, e estava exatamente
+    // certo. O símbolo é geometria de verdade, com espessura, e ficava em
+    // z = ESPESSURA·0,52; a meia-bolacha vermelha sobe mais 0,8 mm por cima
+    // disso e chegava a z = 1,16 cm — **à frente** do plano da tela, que está
+    // em ESPESSURA·0,6 = 0,96 cm. Ou seja: a bolacha atravessava a tela.
+    //
+    // E atravessava justamente onde há conteúdo, porque a grade da Pokédex
+    // subia até +20,5 cm e a faixa da moldura começa em +15,3 — a primeira
+    // linha de células ficava por baixo do símbolo.
+    //
+    // As duas metades foram consertadas. Aqui, o símbolo encostou no topo da
+    // moldura (0,38 da faixa em vez de 0,55, que são 8 mm para cima); em
+    // src/dexpanel.ts, a tela encolheu para caber embaixo dele. Ver `VIDRO`.
     const simbolo = new THREE.Group();
-    simbolo.position.set(0, ALTURA * 0.5 - TOPO * 0.55, ESPESSURA * 0.52);
+    simbolo.position.set(0, ALTURA * 0.5 - TOPO * 0.38, ESPESSURA * 0.52);
 
     const bolacha = new THREE.Mesh(
       guardar(new THREE.CylinderGeometry(TOPO * 0.34, TOPO * 0.34, 0.004, 24)),

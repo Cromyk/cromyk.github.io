@@ -37,6 +37,7 @@ const [
   { DIFICULDADES, INTERRUPTORES },
   { Dex },
   { COR },
+  { avaliar, genesDe, poderDeCombate },
 ] = await Promise.all([
   import('../src/hud'),
   import('../src/menu'),
@@ -48,6 +49,7 @@ const [
   import('../src/ajustes'),
   import('../src/state'),
   import('../src/estilo'),
+  import('../src/avaliacao'),
 ]);
 
 const { ESPECIES, porId, statsNoNivel } = especies;
@@ -210,9 +212,12 @@ const secoes: Array<{ titulo: string; pecas: Peca[] }> = [];
   secoes.push({ titulo: 'barra de vida e a carga do inimigo', pecas });
 }
 
-// --- PC ---
+// A mesma coleção serve ao PC e à Pokédex: montá-la duas vezes daria dois
+// Charmanders com `capturadoEm` diferentes, e portanto genes diferentes nas
+// duas seções da folha. Ver src/avaliacao.ts.
+const dexDaFolha = new Dex();
 {
-  const dex = new Dex();
+  const dex = dexDaFolha;
   dex.limpar();
   dex.receberInicial('charmander', 18);
   for (const id of ['squirtle', 'bulbasaur', 'pikachu', 'eevee', 'gengar', 'onix', 'lapras', 'snorlax', 'magikarp']) {
@@ -235,15 +240,43 @@ const secoes: Array<{ titulo: string; pecas: Peca[] }> = [];
   ESPECIES.forEach((e, i) => {
     estados.set(e.id, { visto: i % 3 !== 0, capturado: i % 5 === 0, viuShiny: i % 17 === 0 });
   });
+  // E o melhor exemplar de um deles, para a ficha completa ter o que mostrar:
+  // é o bloco da avaliação que esta seção existe para conferir.
+  const charmander = dexDaFolha.todos.find((e) => e.id === 'charmander');
+  const especieCharmander = ESPECIES.find((e) => e.id === 'charmander')!;
+  if (charmander) {
+    const nivel = dexDaFolha.nivelDe(charmander);
+    const estado = estados.get('charmander')!;
+    estado.visto = true;
+    estado.capturado = true;
+    (estado as Record<string, unknown>).quantos = 2;
+    (estado as Record<string, unknown>).melhor = {
+      nivel,
+      hp: dexDaFolha.hpMaxDe(charmander) * 0.62,
+      hpMax: dexDaFolha.hpMaxDe(charmander),
+      shiny: false,
+      afeto: 0.7,
+      poder: poderDeCombate(especieCharmander, nivel, genesDe(charmander)),
+      avaliacao: avaliar(charmander),
+    };
+  }
   painel.definirEstados(estados as never);
   painel.desenharGrade();
   const pecas: Peca[] = [{ canvas: (painel.grade as { canvas: Canvas }).canvas, rotulo: 'grade' }];
-  if (typeof painel.desenharFicha === 'function') {
-    // Zubat: capturado nesta amostra, e noturno — a ficha sai completa e com o
-    // hábito, que é o que esta seção precisa mostrar.
+  if (typeof painel.desenharResumo === 'function') {
+    // Zubat: capturado nesta amostra, e noturno — o resumo sai completo e com
+    // o hábito, que é o que esta seção precisa mostrar.
     (painel as unknown as { destacado: number }).destacado = 40;
-    painel.desenharFicha();
-    pecas.push({ canvas: (painel.ficha as { canvas: Canvas }).canvas, rotulo: 'ficha' });
+    painel.desenharResumo();
+    pecas.push({ canvas: (painel.resumo as { canvas: Canvas }).canvas, rotulo: 'resumo' });
+  }
+  if (typeof painel.desenharFichaCheia === 'function') {
+    (painel as unknown as { fichaDe: string | null }).fichaDe = 'charmander';
+    painel.desenharFichaCheia();
+    pecas.push({
+      canvas: (painel.fichaCheia as { canvas: Canvas }).canvas,
+      rotulo: 'ficha completa',
+    });
   }
   secoes.push({ titulo: 'Pokédex', pecas });
 }

@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { BORDA_COLISAO, MARGEM_DA_BOLA, Pokemon } from '../src/creature';
+import { avaliar, genesDe, poderDeCombate, totalDosGenes } from '../src/avaliacao';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
@@ -6287,6 +6288,95 @@ console.log('\n64. a caixa de colisão é a do modelo, com 2 cm de borda');
     `   colisão: caixa de ${(h * 0.4).toFixed(2)}×${h.toFixed(2)}×${(h * 0.4).toFixed(2)} m + 2 cm · ` +
       `a 8 cm da pele a esfera ainda dizia "acertou" (${pelaEsfera.toFixed(3)} m) · ` +
       `a bola ganha ${MARGEM_DA_BOLA * 100} cm de margem`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n65. a avaliação é do indivíduo, e não muda');
+{
+  const bicho = (id: string, capturadoEm: number, shiny = false) => ({
+    id,
+    xp: 3000,
+    hp: 10,
+    shiny,
+    capturadoEm,
+  });
+
+  // O MESMO bicho, avaliado duas vezes, dá o mesmo resultado. É o contrato
+  // inteiro: os genes não estão salvos, são derivados — e se a derivação não
+  // for estável, o Pikachu de terça vira outro na sexta.
+  const um = bicho('pikachu', 1_700_000_000_000);
+  const a = genesDe(um);
+  const b = genesDe({ ...um });
+  checar(
+    a.hp === b.hp && a.ataque === b.ataque && a.defesa === b.defesa,
+    `os genes mudaram entre duas leituras do mesmo bicho: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`,
+  );
+
+  // Dois bichos DIFERENTES não são o mesmo — nem por espécie, nem por instante.
+  const outraEspecie = genesDe(bicho('bulbasaur', 1_700_000_000_000));
+  const outroInstante = genesDe(bicho('pikachu', 1_700_000_000_001));
+  checar(
+    outraEspecie.hp !== a.hp || outraEspecie.ataque !== a.ataque || outraEspecie.defesa !== a.defesa,
+    'duas espécies capturadas no mesmo milissegundo saíram com os mesmos genes',
+  );
+  checar(
+    outroInstante.hp !== a.hp ||
+      outroInstante.ataque !== a.ataque ||
+      outroInstante.defesa !== a.defesa,
+    'dois bichos capturados com 1 ms de diferença saíram com os mesmos genes',
+  );
+
+  // A faixa é 0–15 em cada, e a distribuição não pode estar presa num canto:
+  // mil bichos têm de cobrir a faixa inteira e ter média perto de 7,5.
+  let soma = 0;
+  let menor = 99;
+  let maior = -1;
+  let perfeitos = 0;
+  for (let i = 0; i < 3000; i++) {
+    const g = genesDe(bicho('eevee', 1_700_000_000_000 + i * 997));
+    for (const v of [g.hp, g.ataque, g.defesa]) {
+      checar(Number.isInteger(v) && v >= 0 && v <= 15, `gene fora da faixa: ${v}`);
+      soma += v;
+      menor = Math.min(menor, v);
+      maior = Math.max(maior, v);
+    }
+    if (totalDosGenes(g) === 45) perfeitos++;
+  }
+  const media = soma / 9000;
+  checar(menor === 0 && maior === 15, `a faixa dos genes ficou em ${menor}..${maior}, e é 0..15`);
+  checar(Math.abs(media - 7.5) < 0.35, `a média dos genes deu ${media.toFixed(2)}, e devia ser ~7,5`);
+  // 1 em 4096 num universo de 3000: zero é o resultado mais provável, e três
+  // já seria sinal de fórmula enviesada.
+  checar(perfeitos <= 3, `${perfeitos} perfeitos em 3000 — a mistura está enviesada`);
+
+  // O PODER cresce com o nível e com os genes, nessa ordem de grandeza.
+  const especie = porId('charmander')!;
+  const fraco = poderDeCombate(especie, 18, { hp: 0, ataque: 0, defesa: 0 });
+  const forte = poderDeCombate(especie, 18, { hp: 15, ataque: 15, defesa: 15 });
+  const alto = poderDeCombate(especie, 40, { hp: 0, ataque: 0, defesa: 0 });
+  checar(forte > fraco, `genes perfeitos (${forte}) não valeram mais que zerados (${fraco})`);
+  checar(alto > forte, `o nível 40 zerado (${alto}) não passou do nível 18 perfeito (${forte})`);
+  // E o gene não pode pesar mais que o nível: um bicho nível 5 perfeito não
+  // pode valer mais que um nível 40 medíocre, senão o número deixa de
+  // significar "quão forte ele é" e passa a significar "que sorte você teve".
+  const baixoPerfeito = poderDeCombate(especie, 5, { hp: 15, ataque: 15, defesa: 15 });
+  checar(
+    baixoPerfeito < alto,
+    `um nível 5 perfeito (${baixoPerfeito}) passou um nível 40 zerado (${alto})`,
+  );
+
+  // E a avaliação traduz isso em estrelas, nas faixas do original.
+  const perfeito = avaliar({ ...um, id: 'x' });
+  checar(
+    perfeito.estrelas >= 0 && perfeito.estrelas <= 4,
+    `saíram ${perfeito.estrelas} estrelas, e a escala é 0..4`,
+  );
+  checar(perfeito.veredito.length > 0 && perfeito.destaque.length > 0, 'a avaliação veio muda');
+
+  console.log(
+    `   avaliação: genes estáveis · média ${media.toFixed(2)}/15 · ${perfeitos} perfeitos em 3000 · ` +
+      `PC do Charmander vai de ${fraco} (N18 zerado) a ${alto} (N40)`,
   );
 }
 
