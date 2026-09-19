@@ -4704,7 +4704,7 @@ export class Jogo {
       const mira = this.miras.get(mao.indice);
 
       if (bola) {
-        const alvo = new THREE.Vector3(0, 0.01, -0.055).applyMatrix4(mao.punho.matrixWorld);
+        const alvo = new THREE.Vector3(0, 0.01, -0.055).applyMatrix4(mao.pulso.matrixWorld);
         bola.raiz.position.copy(alvo);
         if (mira) mira.atualizar(alvo, mao.velocidadeArremesso(agora), this.sala.pisoY, dt);
       } else if (mira) {
@@ -4865,10 +4865,27 @@ export class Jogo {
       })),
     );
 
+    // O painel só abre numa mão VAZIA.
+    //
+    // O gesto que o abre é o de olhar as horas: o dorso do punho esquerdo
+    // encarando o rosto. Acontece que segurar um Pokémon contra o peito com as
+    // duas mãos é, geometricamente, essa mesma pose — então o painel abria
+    // sozinho no meio do abraço, por cima do bicho que você acabou de levantar.
+    //
+    // E o caso geral é maior do que o abraço: com QUALQUER coisa na mão
+    // esquerda — uma pokébola, uma poção, a Pokédex —, virar o pulso para OLHAR
+    // o que você está segurando é o gesto mais natural do mundo, e ele abria um
+    // painel por cima da coisa.
+    //
+    // A mão cheia também não teria o que fazer com o painel: quem alcança as
+    // cartas é a mão OPOSTA, e a que carrega o painel não chega no próprio
+    // antebraço (é a mesma razão de haver um cinto em cada braço).
+    const esquerdaLivre = esquerda && !this.maoCheia(esquerda) ? esquerda : null;
+
     const estavaAberto = this.painelTime.aberto;
     this.painelTime.atualizar(
       dt,
-      esquerda?.punho ?? null,
+      esquerdaLivre?.pulso ?? null,
       direita ? direita.mira() : null,
       this.dex.bolaAtiva,
       this.camera,
@@ -4892,7 +4909,16 @@ export class Jogo {
     // O mostrador pequeno acompanha o mesmo pulso, em pé — e se apaga quando o
     // painel grande abre: os dois no mesmo braço, ao mesmo tempo, era o
     // empilhamento que fazia o conjunto parecer uma torre.
-    this.painelPulso.posicionar(dt, esquerda?.punho ?? null, this.camera, !this.painelTime.aberto);
+    // O mostrador some junto quando a mão esquerda está com um Pokémon: ele
+    // flutua seis centímetros acima do punho, que é exatamente dentro do bicho
+    // que você está segurando.
+    const maoOcupadaPorBicho = esquerda !== undefined && this.colo.tem(esquerda.indice);
+    this.painelPulso.posicionar(
+      dt,
+      esquerda?.pulso ?? null,
+      this.camera,
+      !this.painelTime.aberto && !maoOcupadaPorBicho,
+    );
 
     if (this.painelTime.aberto && !estavaAberto) audio.abrirPainel();
     if (this.painelTime.mudouDestaque) {
@@ -5827,7 +5853,7 @@ export class Jogo {
 
     const esquerda = this.maos.find((m) => m.lado === 'left' && m.conectada);
     const direita = this.maos.find((m) => m.lado === 'right' && m.conectada);
-    const pedindo = pedindoAjuda(esquerda?.punho ?? null, direita?.punho ?? null, this.camera);
+    const pedindo = pedindoAjuda(esquerda?.pulso ?? null, direita?.pulso ?? null, this.camera);
 
     if (!pedindo) {
       this.pedindoAjudaHa = 0;

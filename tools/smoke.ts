@@ -65,6 +65,7 @@ import { ALTURA_DE_ABRACO, Colo, alcanceDoColo, cabeNoColo, pontoDoColo } from '
 import { Tablet, ALCANCE_TABLET } from '../src/tablet';
 import { FOGO_POR_ESPECIE, temFogo } from '../src/fogo';
 import { poseDoPulso } from '../src/pulso';
+import { olhandoORelogio } from '../src/gesto';
 import { forcaDeToque, pulsoDeToque } from '../src/toque';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
@@ -3141,6 +3142,94 @@ console.log('\n33. o punho de mão nua');
   checar(pos2.distanceTo(new THREE.Vector3(1.3, 0.8, -2)) < 1e-9, 'o punho não seguiu a junta');
 
   console.log('   punho de mão nua: dedos em −Z, +X no dorso da direita e na palma da esquerda');
+}
+
+
+// --- 34. o gesto do relógio dispara no abraço (e por isso a guarda existe) ---
+//
+// O painel do pulso abre quando o dorso do punho esquerdo encara o rosto. O
+// problema é que segurar um Pokémon contra o peito com as duas mãos é,
+// geometricamente, essa MESMA pose — então o painel abria sozinho por cima do
+// bicho que você acabou de levantar, e o mesmo valia para virar o pulso e olhar
+// qualquer coisa que estivesse na mão.
+//
+// Estas verificações provam a premissa do conserto: o gesto REALMENTE dispara
+// nessa pose. É por isso que a guarda não pode ser no gesto (apertar o limiar
+// quebraria o gesto de verdade) e sim em quem o consome — `atualizarPaineis` só
+// entrega o punho quando a mão está VAZIA.
+console.log('\n34. o gesto do relógio, e a pose do abraço');
+{
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 1.6, 0);
+  camera.updateMatrixWorld(true);
+
+  /** Um punho numa pose dada, no espaço do mundo. */
+  const punhoEm = (posicao: THREE.Vector3, giro: THREE.Euler) => {
+    const no = new THREE.Object3D();
+    no.position.copy(posicao);
+    no.rotation.copy(giro);
+    no.updateMatrixWorld(true);
+    return no;
+  };
+
+  // A POSE DO ABRAÇO: as duas mãos na altura do peito, a uns 35 cm do rosto,
+  // com as palmas viradas uma para a outra — o que põe o dorso da esquerda
+  // apontando para longe do corpo e, com o braço recolhido, na direção do
+  // rosto. É a pose de quem levantou o companheiro para olhar.
+  //
+  // Na convenção do grip space o dorso da esquerda é −X local. Girar o punho
+  // −90° em torno de Z leva esse −X local a apontar para +Y do mundo... então o
+  // que se quer aqui é o giro que o aponta para a cabeça, que está acima e
+  // atrás da mão.
+  const noPeito = new THREE.Vector3(-0.12, 1.25, -0.3);
+  const paraORosto = new THREE.Vector3().subVectors(camera.position, noPeito).normalize();
+
+  // Monta o punho de modo que o dorso (−X local, na esquerda) fique exatamente
+  // na direção do rosto: é o pior caso, e é o que acontece de verdade quando
+  // alguém segura um bicho contra o peito e olha para ele.
+  const base = new THREE.Matrix4();
+  const eixoX = paraORosto.clone().negate();
+  const auxiliar = Math.abs(eixoX.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const eixoZ = new THREE.Vector3().crossVectors(eixoX, auxiliar).normalize();
+  const eixoY = new THREE.Vector3().crossVectors(eixoZ, eixoX).normalize();
+  base.makeBasis(eixoX, eixoY, eixoZ);
+
+  const punhoDoAbraco = new THREE.Object3D();
+  punhoDoAbraco.position.copy(noPeito);
+  punhoDoAbraco.quaternion.setFromRotationMatrix(base);
+  punhoDoAbraco.updateMatrixWorld(true);
+
+  checar(
+    olhandoORelogio(punhoDoAbraco, 'left', camera, false),
+    'a pose do abraço NÃO dispara o gesto do relógio — se isto falhar, a guarda ' +
+      'de mão cheia virou remendo para um problema que não existe mais',
+  );
+
+  // E o gesto continua funcionando para quem realmente quer abrir: mesma pose,
+  // que é o ponto — não dá para distinguir uma da outra pela geometria.
+  checar(
+    olhandoORelogio(punhoDoAbraco, 'left', camera, true),
+    'o gesto não se mantém aberto na pose em que ele abre',
+  );
+
+  // Braço relaxado ao lado do corpo não abre nada: é a razão de o limiar ser
+  // estreito, e o que impede a guarda de ser resolvida afrouxando o gesto.
+  const relaxado = punhoEm(new THREE.Vector3(-0.25, 0.85, 0), new THREE.Euler(0, 0, 0));
+  checar(
+    !olhandoORelogio(relaxado, 'left', camera, false),
+    'o painel abre com o braço relaxado ao lado do corpo',
+  );
+
+  // Mão longe, esticada para a frente: também não.
+  const esticado = punhoEm(new THREE.Vector3(-0.2, 1.3, -1.1), new THREE.Euler(0, 0, 0));
+  checar(
+    !olhandoORelogio(esticado, 'left', camera, false),
+    'o painel abre com o braço esticado para a frente',
+  );
+
+  console.log(
+    '   relógio: a pose do abraço dispara o gesto — por isso o painel só abre em mão vazia',
+  );
 }
 
   console.log(

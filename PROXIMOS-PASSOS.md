@@ -98,7 +98,7 @@ direita e pela palma na esquerda, que é exatamente a assimetria do grip space.
   fora do punho de verdade, o cinto fica adiantado ou atrasado no antebraço. É
   o mesmo tipo de ajuste que a calibração da mão resolve para o desenho.
 
-### 1.2 O gesto do relógio dispara quando não deveria
+### 1.2 ✅ O gesto do relógio dispara quando não deveria (feito em 19/09)
 
 `olhandoORelogio` abre o painel do pulso quando o dorso do punho esquerdo encara
 o rosto. Segurar um Pokémon contra o peito com as duas mãos é, geometricamente,
@@ -108,9 +108,24 @@ guarda para o cartão de comandos; falta a do painel.
 E o caso geral: com QUALQUER coisa na mão esquerda (bola, item, Pokédex), girar
 o pulso para olhar o que você está segurando abre um painel por cima.
 
-- **Esforço:** baixo. É uma condição a mais em `atualizarPaineis`.
+**Feito.** O painel só abre numa mão VAZIA — `atualizarPaineis` só entrega o
+punho quando `maoCheia` diz que não há nada nela. A guarda ficou em quem CONSOME
+o gesto, e não no gesto: a seção 34 do smoke monta a pose do abraço e mostra que
+ela dispara `olhandoORelogio` de verdade, então apertar o limiar quebraria o
+gesto legítimo sem resolver este caso. E a mão cheia não teria o que fazer com o
+painel de qualquer forma — quem alcança as cartas é a mão oposta.
+
+O mostrador pequeno some junto quando a esquerda está com um Pokémon: ele
+flutua seis centímetros acima do punho, que é dentro do bicho.
+
+**De quebra, o 1.1 ficou completo.** Quatro leitores ainda usavam o grip space
+cru e portanto também morriam de mão nua: a posição da bola segurada, o painel
+do time, o mostrador do pulso e o gesto de pedir ajuda (que estava morto de mão
+nua desde que nasceu). Todos passaram a usar `Mao.pulso`.
+
 - **Como saber que funcionou:** você levanta o companheiro com as duas mãos,
-  olha para ele, e nada abre.
+  olha para ele, e nada abre. E, de mão nua, o painel do time abre girando o
+  pulso — antes ele aparecia na origem do quarto.
 
 ### 1.3 A cascata do GRIP tem duas inversões de prioridade
 

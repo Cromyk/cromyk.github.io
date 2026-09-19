@@ -173,6 +173,9 @@ export class Mao {
         };
         const deu = poseDoPulso(medida, this.pulso.position, this.pulso.quaternion);
         this.pulso.visible = deu;
+        // A matriz de mundo pronta AGORA: o cinto, a bola na mão e os painéis
+        // leem a pose dele no meio do quadro, antes do render.
+        this.pulso.updateMatrixWorld();
         return deu;
       }
       return false;
@@ -184,6 +187,7 @@ export class Mao {
     this.pulso.position.setFromMatrixPosition(this.punho.matrixWorld);
     this.punho.getWorldQuaternion(this.pulso.quaternion);
     this.pulso.visible = true;
+    this.pulso.updateMatrixWorld();
     return true;
   }
 
