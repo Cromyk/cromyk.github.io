@@ -252,6 +252,20 @@ export class Tablet {
     return this.caida;
   }
 
+  /**
+   * De volta às costas, de onde quer que estivesse.
+   *
+   * Existe para a saída da sessão: a Pokédex pode ter ficado no carpete, e o
+   * carpete é um ponto em coordenadas que morrem com a sessão. Ver
+   * `Jogo.aoSairDaSessao`.
+   */
+  guardar() {
+    this.caida = false;
+    this.tempoNoChao = 0;
+    this.velocidade.set(0, 0, 0);
+    this.naMaoDe = null;
+  }
+
   atualizar(
     dt: number,
     camera: THREE.Camera,

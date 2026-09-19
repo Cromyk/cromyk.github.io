@@ -4148,10 +4148,17 @@ console.log('\n45. a luva pisca o que a mão nua não sente');
   // E agora a luva de verdade, quadro a quadro, sem navegador nenhum: o
   // arquivo da mão não baixa aqui, então quem desenha é a luva de reserva — que
   // é exatamente o caminho de quem está sem rede.
-  const calado = console.warn;
-  console.warn = () => {};
+  // O arquivo da mão não baixa no Node, e ele avisa — de forma ASSÍNCRONA, o
+  // que quer dizer que devolver o `console.warn` logo depois do construtor não
+  // adianta: o aviso chega ticks depois, no meio da saída de outro teste. Então
+  // o filtro é por mensagem e fica de pé. Não é um erro escondido: é o caminho
+  // de reserva sendo exercido, que é justamente o que esta seção quer testar.
+  const gritar = console.warn;
+  console.warn = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('não carregou')) return;
+    gritar(...args);
+  };
   const luva = new Luva('left', 0x4aa3ff);
-  console.warn = calado;
 
   // O material do pano, lido da cena: é a prova de que o flash chega ao pixel
   // e não morre num número privado.
@@ -4537,6 +4544,124 @@ console.log('\n48. ficar sem ninguém de pé tem saída, e ela está escrita');
     `   time caído: saída pelo ${saidaDoTimeCaido(true)} quando há Centro, pelo ` +
       `${saidaDoTimeCaido(false)} quando não há · ${comGuarda} cartaz de botão atrás de guarda, ` +
       `${COM_BOTAO_NA_MAO.length} num caminho que só o botão abre`,
+  );
+}
+
+// --- 49. sair e voltar não deixa o quarto no lugar errado ---
+//
+// Sair da realidade mista e entrar de novo abre uma sessão NOVA, com um espaço
+// de referência novo: no `local-floor` a origem nasce onde você está no
+// instante em que entra, virada para onde você estiver olhando. E a página não
+// recarrega nessa volta — o `Jogo` é o mesmo objeto, com o mesmo mapa.
+//
+// Resultado, na segunda entrada: o quarto inteiro deslocado. Selvagens dentro
+// do sofá de verdade, pokébolas no meio do ar, o Centro plantado fora do chão.
+// Nada dá erro, nada avisa, e a única saída era recarregar a página.
+console.log('\n49. sair e voltar não deixa o quarto no lugar errado');
+{
+  // A sondagem encenada da seção 17: um raio que sempre acerta o chão em y = 0.
+  // É o que carimba as CÉLULAS — a parte do mapa que só existe aqui dentro e
+  // que nada reescreve, e portanto a que não tem salvação depois da sessão.
+  (globalThis as Record<string, unknown>).XRRay = class {};
+  const sessao = {
+    requestReferenceSpace: async () => ({}),
+    requestHitTestSource: async () => ({ cancel() {} }),
+  };
+  const frame = {
+    getHitTestResults: () => [{ getPose: () => ({ transform: { position: { y: 0 } } }) }],
+  };
+  const espaco = {} as XRReferenceSpace;
+
+  const sala = new Sala(new THREE.Group());
+  await sala.prepararSondagem(sessao as unknown as XRSession);
+  const jogador = new THREE.Vector3(0, 1.6, 0);
+
+  // Mede o chão a passos, como a sondagem faz enquanto você anda.
+  for (let passo = 0; passo < 8; passo++) {
+    jogador.x += 1.1;
+    sala.atualizar(frame as unknown as XRFrame, espaco, jogador);
+  }
+  // E um móvel, como o Space Setup entrega.
+  sala.superficies = [
+    ...sala.superficies,
+    {
+      centro: new THREE.Vector3(2, 0.74, 0),
+      meiaLargura: 0.5,
+      meiaProfundidade: 0.5,
+      rotacaoY: 0,
+      rotulo: 'other',
+      altura: 0.74,
+      area: 1,
+      movel: 'mesa',
+    },
+  ];
+
+  const antes = sala.mapeadas;
+  checar(antes > 1, `andar oito passos mapeou ${antes} superfícies — o teste não vale nada`);
+  checar(sala.pousoPerto(jogador, ['mesa'], 12) !== null, 'a mesa não entrou no mapa');
+
+  // A sessão acabou. As coordenadas morreram com ela.
+  sala.esquecerMedidas();
+
+  checar(sala.mapeadas === 0, `sobraram ${sala.mapeadas} superfícies do mundo anterior`);
+  checar(sala.superficies.length === 0, 'a lista achatada ficou com as superfícies velhas');
+  checar(sala.temDadosReais === false, 'a sala continua achando que tem dados reais do aparelho');
+  checar(sala.pisoY === 0, `o piso ficou em ${sala.pisoY} — no espaço novo, y = 0 é o seu chão`);
+  checar(sala.pousoPerto(jogador, ['mesa'], 12) === null, 'a mesa do mundo anterior ainda é achada');
+
+  // E a sala volta a funcionar do zero: o fallback assume, e o jogo tem chão
+  // onde nascer enquanto o quarto é remedido.
+  sala.usarFallback(jogador);
+  checar(sala.pontoDeSpawn(jogador) !== null, 'depois de esquecer, não há mais onde nascer');
+
+  // Medir de novo repovoa: esquecer não é quebrar.
+  for (let passo = 0; passo < 4; passo++) {
+    jogador.z += 1.1;
+    sala.atualizar(frame as unknown as XRFrame, espaco, jogador);
+  }
+  checar(sala.mapeadas > 0, 'a sala não volta a mapear depois de esquecer');
+
+  // --- e o jogo pede isso na saída ---
+  const fonte = readFileSync('src/game.ts', 'utf8');
+  const corpoDe = (nome: string, arquivo = fonte): string => {
+    const cabeca = arquivo.indexOf(`${nome}(`);
+    if (cabeca < 0) return '';
+    const i = arquivo.indexOf('{', cabeca);
+    let nivel = 0;
+    for (let j = i; j < arquivo.length; j++) {
+      if (arquivo[j] === '{') nivel++;
+      else if (arquivo[j] === '}') {
+        nivel--;
+        if (nivel === 0) return arquivo.slice(i, j + 1);
+      }
+    }
+    return '';
+  };
+
+  const saida = corpoDe('aoSairDaSessao');
+  checar(saida.length > 200, 'não achei aoSairDaSessao — o jogo não limpa nada ao sair');
+  // Tudo o que tem lugar no quarto tem de ir embora junto com o espaço.
+  for (const [o_que, chamada] of [
+    ['o mapa do quarto', 'this.sala.esquecerMedidas()'],
+    ['o Centro plantado', 'this.centro.desplantar()'],
+    ['os itens em cima dos móveis', 'this.achados.descartar()'],
+    ['o companheiro em campo', 'this.removerCompanheiro()'],
+    ['os selvagens', 'this.removerSelvagem('],
+    ['a Pokédex caída', 'this.tablet.guardar()'],
+  ] as const) {
+    checar(saida.includes(chamada), `${o_que} sobrevive à saída da sessão`);
+  }
+  // E o que é SEU fica: a vida do bicho em campo é a única que não está salva.
+  checar(saida.includes('this.dex.definirHp('), 'sair com o bicho machucado o devolveria inteiro');
+
+  const principal = readFileSync('src/main.ts', 'utf8');
+  checar(
+    principal.includes('jogo.aoSairDaSessao()'),
+    'o evento de fim de sessão não avisa o jogo — a limpeza existe e ninguém a chama',
+  );
+
+  console.log(
+    `   ${antes} superfícies medidas · 0 depois de sair · e o mapa volta a crescer na entrada seguinte`,
   );
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);

@@ -6254,6 +6254,64 @@ export class Jogo {
     );
   }
 
+  /**
+   * A sessão acabou: esquece tudo o que estava preso ao ESPAÇO.
+   *
+   * ## O bug que isto conserta
+   *
+   * Sair da realidade mista e entrar de novo abre uma sessão nova, com um
+   * espaço de referência novo — no `local-floor`, a origem nasce onde você
+   * está no instante em que entra, com a direção para onde estiver olhando.
+   * E a página NÃO recarrega nessa volta: o `Jogo` é o mesmo objeto, com o
+   * mesmo mapa, os mesmos bichos e o mesmo Centro, todos em coordenadas que
+   * deixaram de existir.
+   *
+   * O que se via, na segunda entrada: o quarto inteiro deslocado. Selvagens
+   * dentro do sofá de verdade, o seu companheiro parado num canto que não é
+   * mais canto nenhum, pokébolas caídas no meio do ar, o Centro plantado
+   * fora do chão. Nada disso dá erro, nada disso avisa, e a única saída era
+   * recarregar a página — o que ninguém adivinha que precisa fazer.
+   *
+   * ## O que fica e o que vai
+   *
+   * Fica tudo o que é SEU: o time, a Pokédex, os itens, a vida de cada um, o
+   * que estava em campo. Esse estado é salvo e não tem coordenada nenhuma.
+   *
+   * Vai tudo o que tem POSIÇÃO no quarto — e vai porque a posição é que
+   * morreu, não a coisa. O companheiro volta ao seu lado na entrada seguinte
+   * (`restaurarCampo`), o Centro escolhe um móvel novo, os selvagens nascem
+   * de novo, e o quarto é remedido do zero enquanto você anda.
+   */
+  aoSairDaSessao() {
+    // A vida do bicho em campo é a única coisa dele que não está salva: o HP
+    // do corpo só vira estado quando ele volta para a bola. Sem isto, sair
+    // com ele machucado e voltar devolveria um bicho inteiro.
+    const c = this.companheiro;
+    if (c && c.viva && this.exemplarEmCampo) this.dex.definirHp(this.exemplarEmCampo, c.hp);
+
+    // Os bichos, os corpos e tudo o que tem lugar no quarto.
+    for (const selvagem of [...this.selvagens]) this.removerSelvagem(selvagem.pokemon);
+    if (this.companheiro) this.removerCompanheiro();
+    for (const bola of [...this.bolas]) bola.descartar(this.cena);
+    this.bolas.length = 0;
+    this.bolaNaMao.clear();
+    this.achados.descartar();
+    this.centro.desplantar();
+
+    // E o mapa, que é a causa de tudo isto. Ver `Sala.esquecerMedidas`.
+    this.sala.esquecerMedidas();
+
+    // A Pokédex volta para as costas: ela pode ter ficado no carpete de um
+    // quarto que o jogo não sabe mais onde fica.
+    this.tablet.guardar();
+
+    // O relógio do próximo selvagem recomeça junto com o resto: sem isto, o
+    // primeiro nasce no quadro seguinte ao da entrada, antes de haver chão
+    // medido para ele nascer em cima.
+    this.proximoSpawn = 3;
+    this.timeEstavaCaido = false;
+  }
+
   aoEntrarNaSessao() {
     this.proximoSpawn = 3;
     void this.restaurarCampo();

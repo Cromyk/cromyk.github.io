@@ -169,6 +169,45 @@ export class Sala {
   }
 
   /**
+   * Esquece TUDO o que foi medido, porque as coordenadas deixaram de valer.
+   *
+   * ## O bug
+   *
+   * Sair da realidade mista e entrar de novo abre uma sessão NOVA, e com ela
+   * um espaço de referência novo: no `local-floor`, a origem nasce onde você
+   * está no momento em que entra — outra posição e outra direção. Tudo o que
+   * a sala mediu na sessão anterior está carimbado em coordenadas que não
+   * existem mais.
+   *
+   * O jogo não recarrega a página nessa volta (o `Jogo` é o mesmo objeto), e
+   * o resultado é um quarto inteiro fora do lugar: o chão medido a passos
+   * aponta para onde você NÃO está, os bichos nascem dentro do sofá de
+   * verdade, e o Centro fica plantado no ar.
+   *
+   * Os planos e a malha se consertariam sozinhos — eles são relidos do quadro
+   * —, mas as chaves são os objetos `XRPlane`/`XRMesh` da sessão MORTA, que
+   * nunca mais aparecem: ficam ali para sempre, ocupando o mapa com fantasmas
+   * que o runtime já esqueceu.
+   *
+   * As células do hit-test são o caso sem salvação: elas SÓ existem aqui, e
+   * nada as reescreve. Esquecer é a única correção possível.
+   */
+  esquecerMedidas() {
+    this.planos.clear();
+    this.paredes.clear();
+    this.malhas.clear();
+    this.celulas.clear();
+    this.sintetica = null;
+    this.temDadosReais = false;
+    // O piso volta a zero e não ao último valor: no espaço novo, y = 0 é o
+    // seu chão por definição, e é o melhor palpite que existe até o primeiro
+    // raio descer.
+    this.pisoY = 0;
+    this.listaSuja = true;
+    this.recompor();
+  }
+
+  /**
    * Um piso à volta do jogador, usado enquanto o aparelho não disser nada.
    *
    * Ele ACOMPANHA você: sem isso, quem joga numa aba do navegador — ou num

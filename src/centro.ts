@@ -177,6 +177,24 @@ export class Centro {
   }
 
   /**
+   * Esquece o móvel: ele será escolhido de novo na próxima entrada.
+   *
+   * O lugar dele é um ponto em coordenadas do espaço de referência, e sair da
+   * sessão faz esse espaço deixar de valer — ver `Sala.esquecerMedidas`. Um
+   * Centro que continua plantado num ponto do mundo anterior fica no ar, ou
+   * dentro de uma parede, e cura você de longe sem que nada explique.
+   *
+   * Perder o lugar aqui não é perda nenhuma: o comentário da classe já diz que
+   * ele se muda sozinho na próxima sessão se o móvel ficar ruim.
+   */
+  desplantar() {
+    this.colocado = false;
+    this.recarga = 0;
+    this.chamado = 0;
+    this.grupo.visible = false;
+  }
+
+  /**
    * O Centro CHAMA, com esta força (0 a 1).
    *
    * Escrito pelo jogo a cada quadro e consumido no próprio quadro — como o

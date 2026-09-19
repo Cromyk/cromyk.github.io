@@ -128,6 +128,11 @@ async function entrarXR(automatico = false) {
     audio.iniciar();
 
     sessao.addEventListener('end', () => {
+      // Antes da tela de saída: o espaço de referência morreu com a sessão, e
+      // tudo o que o jogo mediu nele deixou de valer. Sem isto, entrar de novo
+      // sem recarregar a página devolve o quarto inteiro fora do lugar. Ver
+      // `Jogo.aoSairDaSessao`.
+      jogo.aoSairDaSessao();
       ui.style.display = 'grid';
       botaoEntrar.disabled = false;
       botaoEntrar.textContent = 'entrar em realidade mista';

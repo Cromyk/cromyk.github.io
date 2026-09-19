@@ -676,10 +676,56 @@ Dois detalhes que a implementação obrigou:
   perto (a guarda, e não o método: uma lista de exceções deixaria a linha voltar
   a ser incondicional sem ninguém notar, que foi como ela chegou até aqui).
 
+### 5.4 ✅ Sair e voltar deixava o quarto no lugar errado (feito em 19/09)
+
+Sair da realidade mista e entrar de novo abre uma sessão **nova**, e com ela um
+espaço de referência novo: no `local-floor`, a origem nasce onde você está no
+instante em que entra, virada para onde você estiver olhando. E a página **não
+recarrega** nessa volta — o `Jogo` é o mesmo objeto, com o mesmo mapa, os
+mesmos bichos e o mesmo Centro, todos carimbados em coordenadas que deixaram
+de existir.
+
+O que se via na segunda entrada: o quarto inteiro deslocado. Selvagens dentro
+do sofá de verdade, o companheiro parado num canto que não é mais canto
+nenhum, pokébolas caídas no meio do ar, o Centro plantado fora do chão. Nada
+dá erro, nada avisa, e a única saída era recarregar a página — o que ninguém
+adivinha que precisa fazer.
+
+Parte disso já tinha sido notada e resolvida pela metade: a sondagem do chão
+compara a sessão para pedir uma fonte nova (*"sair e voltar abre uma sessão
+NOVA, e a fonte da anterior morreu com ela"*). O mapa que essa sondagem enche
+nunca foi limpo junto.
+
+Agora existe `Jogo.aoSairDaSessao`, chamada do evento de fim em `main.ts`:
+
+- **o mapa é esquecido** (`Sala.esquecerMedidas`) — células, planos, malha,
+  paredes, piso e o fallback. Os planos e a malha se consertariam sozinhos, mas
+  as chaves são os objetos `XRPlane`/`XRMesh` da sessão morta, que nunca mais
+  aparecem: ficariam ali para sempre, com fantasmas que o runtime já esqueceu.
+  As células do hit-test são o caso sem salvação — elas só existem ali, e nada
+  as reescreve;
+- **o Centro se desplanta**, e escolhe um móvel novo na entrada seguinte;
+- **os selvagens, o companheiro, as bolas caídas, os itens em cima dos móveis e
+  a Pokédex no carpete** vão embora — porque o que morreu foi a posição deles,
+  não eles;
+- **fica tudo o que é seu**: time, Pokédex, itens, vida. Esse estado é salvo e
+  não tem coordenada nenhuma. A única vida que não estava salva é a do bicho em
+  campo — o HP do corpo só vira estado quando ele volta para a bola —, e agora
+  ela é gravada na saída.
+
+- **Esforço:** médio.
+- **Como saber que funcionou:** saia da realidade mista e entre de novo **sem
+  recarregar a página**. O quarto é remedido do zero, o seu Pokémon volta ao
+  seu lado com a vida que tinha, e nada fica dentro da parede.
+- **Conferido em:** `npm test`, seção 49 — oito passos mapeiam, esquecer zera,
+  a mesa do mundo anterior deixa de ser achada, o piso volta a zero, e medir de
+  novo repovoa. Mais as seis coisas que a saída tem de soltar e a chamada em
+  `main.ts`, sem a qual a limpeza existiria e ninguém a chamaria.
+
 ## O que depende de você
 
 Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2, 4 e os itens 5.1 e 5.3, quinze itens.
+feito** — fases 1, 2, 4 e os itens 5.1, 5.3 e 5.4, dezesseis itens.
 
 O que resta depende de você:
 
