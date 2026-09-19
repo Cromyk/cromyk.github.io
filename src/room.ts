@@ -715,6 +715,42 @@ export class Sala {
   }
 
   /**
+   * Um lugar EM CIMA de um móvel, para o companheiro ir por conta própria.
+   *
+   * O mapa do quarto sempre serviu para duas coisas: fazer os selvagens
+   * nascerem em lugares que fazem sentido e impedir que alguém atravesse o
+   * sofá. Nenhuma delas é o bicho USANDO o quarto — e um companheiro que sobe
+   * na sua mesa para ficar na sua altura, ou que se enrosca no sofá quando está
+   * acabado, é a diferença entre um pet e um cursor que te segue.
+   *
+   * Devolve a MAIOR superfície do tipo pedido dentro do alcance, e não uma
+   * sorteada: é onde ele cabe com folga, e escolher a maior faz o
+   * comportamento parecer decisão em vez de acaso. A margem tira as bordas —
+   * um bicho pousado na quina de uma mesa lê como bug, não como escolha.
+   */
+  pousoPerto(
+    perto: THREE.Vector3,
+    tipos: readonly TipoDeMovel[],
+    distMax = 3.5,
+    margem = 0.22,
+  ): { ponto: THREE.Vector3; rotulo: string; tipo: TipoDeMovel } | null {
+    let melhor: Superficie | null = null;
+    for (const s of this.superficies) {
+      if (!s.movel || !tipos.includes(s.movel)) continue;
+      if (!this.cobre(s, perto, distMax)) continue;
+      // Precisa sobrar superfície depois da margem, senão não há onde pousar.
+      if (s.meiaLargura <= margem || s.meiaProfundidade <= margem) continue;
+      if (!melhor || s.area > melhor.area) melhor = s;
+    }
+    if (!melhor) return null;
+    return {
+      ponto: new THREE.Vector3(melhor.centro.x, melhor.altura, melhor.centro.z),
+      rotulo: melhor.rotulo,
+      tipo: melhor.movel!,
+    };
+  }
+
+  /**
    * Um ponto atrás de um móvel, visto de onde o jogador está — item 3.3.
    *
    * O bicho assustado fugia em linha reta numa direção sorteada, quatro metros

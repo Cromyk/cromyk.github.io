@@ -257,7 +257,7 @@ denuncia uma pose inventada é o exagero.
 - **Como saber que funcionou:** levantado com as duas mãos, ele parece estar
   sendo segurado — pernas recolhidas, corpo relaxado — e não de pé no ar.
 
-### 2.2 Ele repara no seu quarto
+### 2.2 ✅ Ele repara no seu quarto (feito em 19/09)
 
 O mapa do quarto hoje serve para nascer e para não atravessar o sofá. Um
 companheiro que **usa** o quarto é outra coisa: dorme no sofá quando está com
@@ -267,9 +267,35 @@ quando leva um susto.
 `Sala.inventario()` já sabe dizer o que existe, e `classificarPelaAltura`
 distingue assento de mesa de bancada.
 
-- **Esforço:** médio-alto.
-- **Como saber que funcionou:** você olha para o lado e ele está deitado no seu
-  sofá, sem você ter mandado.
+**Feito.** `Sala.pousoPerto` devolve a MAIOR superfície do tipo pedido dentro
+do alcance (a maior, e não uma sorteada: é onde ele cabe com folga, e escolher a
+maior faz o comportamento parecer decisão em vez de acaso), e `usandoOQuarto`
+no companheiro decide quando ir.
+
+Duas razões para ele sair do seu lado, e elas não têm o mesmo peso:
+
+- **acabado** — abaixo de um terço da vida ele procura um assento ou uma mesa e
+  fica lá até se recuperar. É o único caso em que ele desobedece a distância de
+  "fica ao meu lado": um bicho machucado que continua trotando ao seu lado não
+  está machucado.
+- **curioso** — com a vida cheia, de vez em quando (e só às vezes, de propósito)
+  ele sobe na mesa ou na cadeira mais perto e fica de 8 a 16 segundos.
+
+Toda ordem SUA ganha da iniciativa dele: chamar, mandar ir, pegar no colo e
+atacar largam o móvel. Sem isso você o chamaria, ele viria, e voltaria para a
+mesa no quadro seguinte.
+
+A decisão não roda por quadro — varrer as superfícies do quarto 72 vezes por
+segundo para decidir uma coisa que muda a cada meio minuto seria a conta mais
+cara do arquivo pelo motivo mais bobo.
+
+A seção 39 do smoke mede pela ALTURA e não pela proximidade (passar perto da
+mesa não é estar em cima dela — foi o próprio teste que pegou isso), e cobre os
+cinco casos: a sala escolhe o móvel certo, ele sobe sozinho, acabado ele vai
+descansar, chamado ele não volta, e sem móvel nenhum o jogo é o de antes.
+
+- **Como saber que funcionou:** você olha para o lado e ele está em cima da sua
+  mesa, sem você ter mandado.
 
 ### 2.3 Fotografia
 

@@ -27,6 +27,17 @@ export interface Terreno {
    * como fugia antes.
    */
   esconderijo?(quem: THREE.Vector3, jogador: THREE.Vector3): THREE.Vector3 | null;
+  /**
+   * Um lugar EM CIMA de um móvel perto de um ponto. Ver `pousoPerto`.
+   *
+   * Opcional pela mesma razão do esconderijo: um terreno sem móveis é um chão
+   * liso, e um bicho sem móvel nenhum continua andando ao seu lado como antes.
+   */
+  pousoPerto?(
+    perto: THREE.Vector3,
+    tipos: readonly ('assento' | 'mesa' | 'bancada' | 'alto')[],
+    distMax?: number,
+  ): { ponto: THREE.Vector3; rotulo: string; tipo: string } | null;
 }
 
 export type Estado =
@@ -167,6 +178,17 @@ export class Pokemon {
   private readonly berco: THREE.Vector3;
   /** Ponto marcado por você no chão. Enquanto existir, ele vai até lá. */
   private destinoComandado: THREE.Vector3 | null = null;
+  /**
+   * O móvel que ele escolheu SOZINHO — o sofá, a sua mesa, a cadeira.
+   *
+   * Diferente do `posto` (que é uma ordem sua) e do `destinoComandado` (que é
+   * o gatilho segurado): isto é iniciativa dele. Ver `talvezUsarOQuarto`.
+   */
+  private repouso: THREE.Vector3 | null = null;
+  /** Quanto tempo ainda vale ficar lá. Zerado, ele volta para o seu lado. */
+  private tempoDeRepouso = 0;
+  /** Até a próxima vez que ele pensa em subir em alguma coisa. */
+  private proximaIdeia = 12;
   /**
    * Onde ele foi mandado FICAR.
    *
@@ -450,6 +472,9 @@ export class Pokemon {
 
   /** Dispara a animação de ataque. O dano em si é resolvido pela batalha. */
   atacar(alvo: Pokemon, recarga: number, gesto: GestoDeAtaque = 'investida') {
+    // Briga tira ele do móvel: um companheiro que ataca de cima da sua mesa
+    // parece bug, não personagem.
+    this.largarORepouso();
     if (!this.podeAtacar) return false;
     this.alvo = alvo;
     this.mirando = null;
@@ -757,8 +782,11 @@ export class Pokemon {
 
   /** Vem até um ponto — a mão estendida com uma fruta, por exemplo. */
   chamarPara(ponto: THREE.Vector3) {
-    // Chamar desfaz o "fica aí": é a ordem contrária, e ela tem de ganhar.
+    // Chamar desfaz o "fica aí": é a ordem contrária, e ela tem de ganhar. E
+    // desfaz também o móvel que ele escolheu sozinho — senão você o chama, ele
+    // vem, e volta para a mesa no quadro seguinte.
     this.posto = null;
+    this.largarORepouso();
     this.destino.set(ponto.x, this.pisoY, ponto.z);
     this.olharPara = ponto.clone();
     this.impulso(1.8);
@@ -778,6 +806,7 @@ export class Pokemon {
     // O posto antigo morre aqui: quem recebe uma ordem nova não guarda a velha.
     // O novo só nasce quando ele CHEGAR (ver o estado 'indo').
     this.posto = null;
+    this.largarORepouso();
     // A altura do destino e guardada: apontar para a mesa manda ele PARA a
     // mesa, e o apoio sobe junto conforme ele chega (ver o estado 'indo').
     this.destinoComandado = ponto.clone();
@@ -837,6 +866,7 @@ export class Pokemon {
   cancelarComando() {
     this.destinoComandado = null;
     this.posto = null;
+    this.largarORepouso();
     if (this.estado === 'indo') this.estado = 'ocioso';
   }
 
@@ -913,6 +943,7 @@ export class Pokemon {
     this.velY = 0;
     this.noChao = false;
     this.destinoComandado = null;
+    this.largarORepouso();
     return true;
   }
 
@@ -1102,6 +1133,95 @@ export class Pokemon {
   }
 
   /** Passeio do selvagem, ou acompanhar o treinador no caso do companheiro. */
+  /**
+   * Ele repara no seu quarto — e usa.
+   *
+   * O mapa do cômodo sempre serviu para duas coisas: fazer os selvagens
+   * nascerem onde faz sentido e impedir que alguém atravesse o sofá. Nenhuma
+   * delas é o COMPANHEIRO usando o quarto, e é isso que separa um pet de um
+   * cursor que te segue.
+   *
+   * Duas razões para ele sair do seu lado, e elas não têm o mesmo peso:
+   *
+   * - **acabado** — abaixo de um terço da vida ele procura onde se enroscar: um
+   *   assento, uma cama, o sofá. Fica até se recuperar, e é o único caso em que
+   *   ele desobedece a distância de "fica ao meu lado". Um bicho machucado que
+   *   continua trotando ao seu lado não está machucado.
+   * - **curioso** — de vez em quando, com a vida cheia, ele sobe na mesa ou na
+   *   cadeira mais perto e fica ali um tempo. É o que faz alguém olhar para o
+   *   lado e dizer "ele subiu na mesa" sem ter mandado nada.
+   *
+   * A decisão NÃO é por quadro: varrer as superfícies do quarto sessenta vezes
+   * por segundo para tomar uma decisão que muda a cada meio minuto seria a
+   * conta mais cara do arquivo pelo motivo mais bobo. Ver `proximaIdeia`.
+   *
+   * Devolve true quando ele está indo ou já está no móvel — aí o resto do
+   * comportamento livre não roda, e é isso que o faz ficar lá em vez de voltar
+   * para o seu lado no quadro seguinte.
+   */
+  private usandoOQuarto(dt: number, jogador: THREE.Vector3): boolean {
+    // Já está usando: fica, olha para você, e o tempo corre.
+    if (this.repouso) {
+      this.tempoDeRepouso -= dt;
+      const perto =
+        Math.hypot(
+          this.raiz.position.x - this.repouso.x,
+          this.raiz.position.z - this.repouso.z,
+        ) < 0.35;
+      // Longe demais do jogador ele desiste: o companheiro não fica para trás
+      // num cômodo enquanto você anda pela casa.
+      const doJogador = Math.hypot(
+        this.raiz.position.x - jogador.x,
+        this.raiz.position.z - jogador.z,
+      );
+      if (this.tempoDeRepouso <= 0 || doJogador > 5) {
+        this.largarORepouso();
+        return false;
+      }
+      this.destino.copy(this.repouso);
+      this.olharPara = jogador;
+      // Chegou: um pulinho de vez em quando, como quem se ajeita no lugar.
+      if (perto && this.noChao) {
+        this.proximoPulo -= dt;
+        if (this.proximoPulo <= 0) {
+          this.proximoPulo = entre(this.rng, 3, 6);
+          this.impulso(0.8);
+        }
+      }
+      return true;
+    }
+
+    this.proximaIdeia -= dt;
+    if (this.proximaIdeia > 0) return false;
+    this.proximaIdeia = entre(this.rng, 14, 26);
+
+    const acabado = this.hpFracao < 0.34;
+    // Acabado ele procura onde DEITAR — o que é baixo. Curioso ele procura onde
+    // ficar na SUA altura, que é o que torna a coisa visível.
+    const tipos = acabado
+      ? (['assento', 'mesa'] as const)
+      : (['mesa', 'assento', 'bancada'] as const);
+    // Com a vida cheia isto é raro de propósito: um companheiro que sobe na
+    // mesa toda vez que pode vira um bicho que nunca está ao seu lado.
+    if (!acabado && this.rng() > 0.45) return false;
+
+    const achado = this.terreno?.pousoPerto?.(jogador, tipos, acabado ? 4 : 3);
+    if (!achado) return false;
+
+    this.repouso = achado.ponto.clone();
+    this.tempoDeRepouso = acabado ? 30 : entre(this.rng, 8, 16);
+    this.destino.copy(this.repouso);
+    this.impulso(1.6);
+    return true;
+  }
+
+  /** Ele desiste do móvel e volta a ser o bicho que anda do seu lado. */
+  private largarORepouso() {
+    this.repouso = null;
+    this.tempoDeRepouso = 0;
+    this.proximaIdeia = entre(this.rng, 14, 26);
+  }
+
   private comportamentoLivre(dt: number, jogador: THREE.Vector3, distJogador: number) {
     if (this.papel === 'companheiro') {
       // Recebendo carinho ele não sai do lugar. Sem isto, a regra de "fica a
@@ -1143,6 +1263,10 @@ export class Pokemon {
         this.olharPara = this.alvo && !this.alvo.desmaiado ? this.alvo.centro : jogador;
         return;
       }
+
+      // O quarto é dele também: de vez em quando ele sobe na sua mesa, e com
+      // pouca vida ele vai se enroscar no sofá. Ver `talvezUsarOQuarto`.
+      if (this.usandoOQuarto(dt, jogador)) return;
 
       // Fica ao lado do jogador, sem colar nele.
       const paraJogador = new THREE.Vector3(

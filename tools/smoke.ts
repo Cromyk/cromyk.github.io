@@ -3591,6 +3591,126 @@ console.log('\n38. a pose de estar sendo segurado');
   );
 }
 
+
+// --- 39. o companheiro usa o quarto ---
+//
+// O mapa do cômodo servia para duas coisas: fazer os selvagens nascerem onde
+// faz sentido e impedir que alguém atravesse o sofá. Nenhuma delas é o
+// COMPANHEIRO usando o quarto — e é isso que separa um pet de um cursor que te
+// segue.
+console.log('\n39. o companheiro usa o quarto');
+{
+  // (1) A SALA ESCOLHE O MÓVEL CERTO: a maior do tipo pedido, dentro do
+  // alcance, com superfície sobrando depois da margem.
+  const sala = new Sala(new THREE.Group());
+  const movel = (
+    x: number,
+    z: number,
+    altura: number,
+    meia: number,
+    tipo: 'assento' | 'mesa' | 'bancada' | 'alto',
+  ) => ({
+    centro: new THREE.Vector3(x, altura, z),
+    meiaLargura: meia,
+    meiaProfundidade: meia,
+    rotacaoY: 0,
+    rotulo: 'other',
+    altura,
+    area: meia * meia * 4,
+    movel: tipo,
+  });
+
+  sala.superficies = [
+    movel(0.6, -1, 0.45, 0.3, 'assento'),
+    movel(-0.5, -1.2, 0.74, 0.5, 'mesa'),
+    // Uma mesa maior, porém LONGE: não pode ganhar da que está perto.
+    movel(8, 8, 0.74, 1.2, 'mesa'),
+    // E uma do tamanho da margem: não cabe bicho nenhum.
+    movel(0.2, -0.8, 0.74, 0.15, 'mesa'),
+  ];
+
+  const jogador = new THREE.Vector3(0, 1.6, 0);
+  const mesa = sala.pousoPerto(jogador, ['mesa'], 3);
+  checar(mesa !== null, 'a sala não achou a mesa que está a um metro do jogador');
+  checar(
+    mesa !== null && Math.abs(mesa.ponto.x + 0.5) < 1e-6,
+    'a sala escolheu a mesa errada — devia ser a maior DENTRO do alcance',
+  );
+  checar(
+    mesa !== null && Math.abs(mesa.ponto.y - 0.74) < 1e-6,
+    'o ponto de pouso não ficou na altura do tampo',
+  );
+
+  const assento = sala.pousoPerto(jogador, ['assento'], 3);
+  checar(assento?.tipo === 'assento', 'a sala não distinguiu assento de mesa');
+
+  checar(sala.pousoPerto(jogador, ['alto'], 3) === null, 'a sala inventou um móvel que não existe');
+  checar(
+    sala.pousoPerto(new THREE.Vector3(20, 1.6, 20), ['mesa'], 3) === null,
+    'a sala ofereceu um móvel a vinte metros de distância',
+  );
+
+  // (2) O COMPANHEIRO VAI, e fica.
+  const terreno = {
+    alturaEm: (p: THREE.Vector3) =>
+      // O tampo só existe em cima da mesa; fora dela, chão.
+      Math.abs(p.x + 0.5) < 0.5 && Math.abs(p.z + 1.2) < 0.5 ? 0.74 : 0,
+    pousoPerto: (perto: THREE.Vector3, tipos: readonly string[]) =>
+      sala.pousoPerto(perto, tipos as readonly ('assento' | 'mesa' | 'bancada' | 'alto')[], 3),
+  };
+
+  const rodar = (bicho: Pokemon, segundos: number) => {
+    const quadros = Math.round(segundos * 72);
+    let subiu = false;
+    for (let i = 0; i < quadros; i++) {
+      bicho.atualizar(1 / 72, jogador, terreno);
+      // Em CIMA, e não perto: o tampo está a 74 cm e o chão a zero.
+      if (bicho.raiz.position.y > 0.5) subiu = true;
+    }
+    return subiu;
+  };
+
+  const sadio = nascer(porId('charmander')!, 'companheiro');
+  checar(rodar(sadio, 70), 'o companheiro nunca subiu na mesa em setenta segundos de ócio');
+
+  // (3) ACABADO, ele procura onde se enroscar — e é o único caso em que ele
+  // desobedece a distância de "fica ao meu lado".
+  const acabado = nascer(porId('charmander')!, 'companheiro');
+  acabado.hp = Math.max(1, Math.floor(acabado.hpMax * 0.2));
+  checar(rodar(acabado, 40), 'o companheiro acabado não foi descansar em lugar nenhum');
+
+  // (4) A SUA ORDEM GANHA. Chamado, ele larga o móvel e vem — e não volta para
+  // lá no quadro seguinte.
+  const chamado = nascer(porId('charmander')!, 'companheiro');
+  chamado.hp = Math.max(1, Math.floor(chamado.hpMax * 0.2));
+  rodar(chamado, 20);
+  chamado.chamarPara(new THREE.Vector3(2, 0, 2));
+  let voltouParaOMovel = false;
+  for (let i = 0; i < 72 * 8; i++) {
+    chamado.atualizar(1 / 72, jogador, terreno);
+    // Os três primeiros segundos não contam: ele ESTAVA em cima da mesa quando
+    // foi chamado, e descer de lá leva tempo. O que se afirma é que ele não
+    // volta, não que ele teleporta.
+    if (i > 72 * 3 && chamado.raiz.position.y > 0.5) voltouParaOMovel = true;
+  }
+  checar(!voltouParaOMovel, 'chamado, ele voltou para a mesa — a ordem do jogador tem de ganhar');
+
+  // (5) SEM MÓVEL NENHUM nada muda: um terreno liso é o jogo de antes.
+  const soChao = { alturaEm: () => 0 };
+  const semQuarto = nascer(porId('charmander')!, 'companheiro');
+  for (let i = 0; i < 72 * 30; i++) semQuarto.atualizar(1 / 72, jogador, soChao);
+  const doJogador = Math.hypot(
+    semQuarto.raiz.position.x - jogador.x,
+    semQuarto.raiz.position.z - jogador.z,
+  );
+  checar(
+    doJogador < 2,
+    `sem móveis, o companheiro foi parar a ${doJogador.toFixed(1)} m de você`,
+  );
+
+  console.log('   quarto: ele sobe na mesa sozinho, descansa quando acabado, e larga tudo se você chamar');
+}
+
   console.log(
     `   ${PEDRAS.length} pedras, ${pares} evoluções · ` +
       `${EVOLUI_SO_COM_PEDRA.size} espécies saíram da evolução por nível`,
