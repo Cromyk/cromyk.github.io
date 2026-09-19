@@ -11,6 +11,8 @@
  */
 import * as THREE from 'three';
 import { Pokemon } from '../src/creature';
+import { Luva, PISO_DO_FLASH_MS, RESPIRO_DE_PULSO_MS, filaDePiscadas } from '../src/glove';
+import { TATO } from '../src/hands';
 import { NA_MAO, Pokebola, corrigirRumo } from '../src/orb';
 import { Sala } from '../src/room';
 import {
@@ -4078,5 +4080,136 @@ console.log('\n44. a bola do cinto para de trocar sozinha');
   console.log(`   Eevee: ${caminhos.join(' · ')}`);
 }
 
+
+// --- 45. a luva pisca o que a mão nua não sente ---
+//
+// Vibrar depende do atuador do gamepad, e uma fonte de hand tracking não tem
+// gamepad: de mão nua TODO `sentir()` cai no vazio. Metade do vocabulário do
+// jogo — pegou, recusado, acertou, levou, marcou — simplesmente não existe
+// para quem larga os controles.
+//
+// O flash da luva substitui a vibração herdando a FORMA dela, que é o que a
+// própria tabela de TATO diz distinguir um padrão do outro. Forma é tabela: dá
+// para conferir sem headset e sem WebGL.
+console.log('\n45. a luva pisca o que a mão nua não sente');
+{
+  // 'recusado' é o único de duas batidas, e é de propósito.
+  const naoFila = filaDePiscadas(TATO.recusado);
+  checar(naoFila.length === 2, `o 'não' virou ${naoFila.length} flashes, e não dois`);
+  checar(naoFila[0].em === 0, 'o primeiro flash não sai na hora');
+
+  // O espaçamento é o MESMO da vibração: mesma constante, dos dois lados.
+  const esperado = (TATO.recusado[0][1] + RESPIRO_DE_PULSO_MS) / 1000;
+  checar(
+    Math.abs(naoFila[1].em - esperado) < 1e-9,
+    `o segundo flash sai em ${naoFila[1].em}s, e a segunda vibração em ${esperado}s`,
+  );
+
+  // Cada um dos cinco padrões vira exatamente os seus pulsos, na ordem — e
+  // nenhum flash dura menos que o piso, senão ele não chega a virar imagem.
+  for (const [nome, pulsos] of Object.entries(TATO)) {
+    const fila = filaDePiscadas(pulsos);
+    checar(fila.length === pulsos.length, `'${nome}' mudou de forma no flash`);
+    for (let i = 0; i < fila.length; i++) {
+      checar(fila[i].forca === pulsos[i][0], `'${nome}': o flash ${i} mudou de força`);
+      checar(fila[i].segundos > 0, `'${nome}': o flash ${i} não dura nada`);
+    }
+  }
+
+  // O piso vale onde ele não brigar com a batida seguinte.
+  for (const nome of ['pegou', 'acertou', 'levou', 'marcou'] as const) {
+    const [unico] = filaDePiscadas(TATO[nome]);
+    checar(
+      unico.segundos * 1000 >= PISO_DO_FLASH_MS - 1e-9,
+      `'${nome}' pisca por ${(unico.segundos * 1000).toFixed(0)} ms — menos que um quadro e meio`,
+    );
+  }
+
+  // E 'levou' continua o mais arrastado dos cinco: o piso levanta os curtos,
+  // não achata os longos.
+  const duracao = (nome: keyof typeof TATO) => filaDePiscadas(TATO[nome])[0].segundos;
+  for (const nome of ['pegou', 'acertou', 'marcou', 'recusado'] as const) {
+    checar(duracao('levou') > duracao(nome), `'levou' não ficou mais longo que '${nome}'`);
+  }
+
+  // As duas batidas do 'não' não se encostam: sobra escuro entre elas.
+  const escuro = naoFila[1].em - (naoFila[0].em + naoFila[0].segundos);
+  checar(escuro > 0.04, `sobram ${(escuro * 1000).toFixed(0)} ms de escuro entre as duas batidas`);
+
+  // A escala é o volume, e não a forma: com controle na mão o flash é reforço.
+  const fraco = filaDePiscadas(TATO.recusado, 0.35);
+  checar(fraco.length === naoFila.length, 'a escala mudou a forma');
+  checar(Math.abs(fraco[0].forca - naoFila[0].forca * 0.35) < 1e-9, 'a escala não escalou');
+  checar(fraco[0].em === naoFila[0].em, 'a escala mexeu no tempo');
+
+  // E agora a luva de verdade, quadro a quadro, sem navegador nenhum: o
+  // arquivo da mão não baixa aqui, então quem desenha é a luva de reserva — que
+  // é exatamente o caminho de quem está sem rede.
+  const calado = console.warn;
+  console.warn = () => {};
+  const luva = new Luva('left', 0x4aa3ff);
+  console.warn = calado;
+
+  // O material do pano, lido da cena: é a prova de que o flash chega ao pixel
+  // e não morre num número privado.
+  let pano: THREE.MeshStandardMaterial | null = null;
+  luva.grupo.traverse((o) => {
+    const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+    if (m && m.isMeshStandardMaterial && m.color.getHex() === 0xf5f6fa) pano = m;
+  });
+  checar(pano !== null, 'não achei o material da luva na cena');
+  const repouso = pano ? (pano as THREE.MeshStandardMaterial).emissiveIntensity : NaN;
+
+  const picos = (padrao: keyof typeof TATO) => {
+    luva.piscar(TATO[padrao]);
+    let contados = 0;
+    let aceso = false;
+    let maior = 0;
+    // Meio segundo a 72 Hz: cabe o padrão mais longo com folga.
+    for (let q = 0; q < 36; q++) {
+      luva.atualizarBrilho(1 / 72);
+      const b = luva.brilhoAtual;
+      maior = Math.max(maior, b);
+      if (!aceso && b > 0.05) {
+        aceso = true;
+        contados++;
+      } else if (aceso && b <= 0.001) {
+        aceso = false;
+      }
+    }
+    return { contados, maior };
+  };
+
+  const nao = picos('recusado');
+  checar(nao.contados === 2, `o 'não' acendeu ${nao.contados} vezes na luva, e não duas`);
+  const sim = picos('pegou');
+  checar(sim.contados === 1, `o 'pegou' acendeu ${sim.contados} vezes, e não uma`);
+  checar(
+    picos('acertou').maior > picos('marcou').maior,
+    'o golpe não brilhou mais que a confirmação mais leve',
+  );
+
+  // Terminado o padrão, a luva volta EXATAMENTE ao repouso: um flash que não
+  // apaga vira uma mão permanentemente mais clara a cada pokébola pega.
+  for (let q = 0; q < 60; q++) luva.atualizarBrilho(1 / 72);
+  checar(luva.brilhoAtual === 0, 'a luva ficou acesa depois do padrão');
+  checar(
+    pano !== null && (pano as THREE.MeshStandardMaterial).emissiveIntensity === repouso,
+    'o emissivo não voltou ao repouso',
+  );
+
+  // O flash NÃO some quando a mão está nua: quem o atualiza é o quadro, e não
+  // `definirDedos` — que só roda quando há controle. Este era o furo.
+  luva.definirModo(true);
+  luva.piscar(TATO.pegou);
+  luva.atualizarBrilho(1 / 72);
+  checar(luva.brilhoAtual > 0.05, 'de mão nua o flash não acendeu');
+
+  luva.descartar();
+  console.log(
+    `   flash: 'não' em ${nao.contados} batidas a ${(esperado * 1000).toFixed(0)} ms ` +
+      `· repouso ${repouso} · pico ${nao.maior.toFixed(2)}`,
+  );
+}
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

@@ -46,6 +46,76 @@ import { clone as clonarComEsqueleto } from 'three/examples/jsm/utils/SkeletonUt
 const BRANCO = 0xf5f6fa;
 const SOMBRA_LUVA = 0xc9cfdd;
 
+/**
+ * O respiro entre dois pulsos do mesmo padrão, em milissegundos.
+ *
+ * Dois pulsos colados viram um só — tanto na vibração quanto no flash —, e o
+ * padrão de DUAS batidas deixa de ser distinguível do de uma. É o mesmo
+ * número dos dois lados de propósito: o flash existe para herdar a FORMA da
+ * vibração, e uma forma com espaçamento diferente é outra forma.
+ */
+export const RESPIRO_DE_PULSO_MS = 45;
+
+/**
+ * O mínimo que um flash dura, em milissegundos.
+ *
+ * A pele e o olho não têm o mesmo relógio. `pegou` vibra por 35 ms e isso se
+ * sente muito bem — mas 35 ms a 72 Hz são DOIS QUADROS E MEIO: o flash
+ * acenderia e apagaria antes de virar imagem, e o padrão mais usado do jogo
+ * seria invisível justamente no modo em que ele é o único sinal.
+ *
+ * Setenta milissegundos são cinco quadros a 72 Hz. É o menor tempo em que
+ * um brilho ainda se lê como um brilho, e não como um cintilo.
+ */
+export const PISO_DO_FLASH_MS = 70;
+
+/**
+ * A sequência de flashes que um padrão de TATO vira: quando cada um sai, com
+ * que força, e por quanto tempo fica visível.
+ *
+ * Separada da luva porque é a FORMA — a única coisa que o olho precisa
+ * aprender junto com a mão —, e forma se confere com uma tabela, sem headset
+ * e sem WebGL. Ver tools/smoke.ts.
+ *
+ * ## Por que a duração do flash não é a da vibração
+ *
+ * Ela é esticada até `PISO_DO_FLASH_MS` para existir na tela, e depois
+ * CORTADA a pouco mais da metade do intervalo até o flash seguinte. Sem o
+ * corte, esticar `recusado` faria as duas batidas se sobreporem — e o único
+ * padrão de dois do jogo viraria um flash longo, que é exatamente o que ele
+ * existe para não ser. Com o corte, sobram uns 47 ms de escuro entre elas: o
+ * mesmo respiro que a mão sente.
+ *
+ * O que a duração NÃO faz é mudar de acordo com a força. O decaimento é
+ * proporcional (ver `Luva.atualizarBrilho`), então um `marcou` de força 0,25
+ * e um `acertou` de 0,85 ficam acesos o mesmo tanto — com brilhos
+ * diferentes. Se a taxa fosse fixa, o padrão mais fraco seria também o mais
+ * curto, e as duas diferenças se somariam até o mais leve sumir.
+ */
+export function filaDePiscadas(
+  pulsos: ReadonlyArray<readonly [number, number]>,
+  escala = 1,
+): Array<{ em: number; forca: number; segundos: number }> {
+  const fila: Array<{ em: number; forca: number; segundos: number }> = [];
+  let atraso = 0;
+  for (let i = 0; i < pulsos.length; i++) {
+    const [forca, ms] = pulsos[i];
+    const ateOProximo = i + 1 < pulsos.length ? ms + RESPIRO_DE_PULSO_MS : Infinity;
+    const visivel = Math.min(Math.max(ms, PISO_DO_FLASH_MS), ateOProximo * 0.55);
+    fila.push({ em: atraso / 1000, forca: forca * escala, segundos: visivel / 1000 });
+    atraso += ms + RESPIRO_DE_PULSO_MS;
+  }
+  return fila;
+}
+
+/**
+ * O emissivo de repouso da luva.
+ *
+ * É daqui que o flash parte e é para cá que ele volta: `Luva.piscar` soma em
+ * cima deste número e decai até ele de novo.
+ */
+const BRILHO_BASE = 0.14;
+
 /** Os dedos, da base para a ponta, com os nomes exatos da especificação. */
 const DEDOS: readonly (readonly string[])[] = [
   ['thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip'],
@@ -139,15 +209,30 @@ export function prepararMaos() {
   void moldeDaMao('right');
 }
 
-/** Pinta a malha da mão com o material do jogo, no lugar do cinza do arquivo. */
-function vestir(raiz: THREE.Object3D, descartaveis: THREE.Material[]) {
+/**
+ * Pinta a malha da mão com o material do jogo, no lugar do cinza do arquivo.
+ *
+ * Devolve o material criado porque cada variante da mão tem o SEU — a
+ * articulada e a rastreada são dois clones com dois materiais —, e quem faz a
+ * luva piscar precisa acender o que está visível, não o outro. Ver
+ * `Luva.piscar`.
+ */
+function vestir(
+  raiz: THREE.Object3D,
+  descartaveis: THREE.Material[],
+): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({
     color: BRANCO,
     roughness: 0.58,
     metalness: 0.04,
     // Em passthrough a luz da cena é inventada e a do seu quarto não chega:
     // sem um pouco de emissivo a mão fica cinza no escuro.
-    emissive: new THREE.Color(SOMBRA_LUVA).multiplyScalar(0.14),
+    //
+    // O fator mora na INTENSIDADE e não na cor — é o mesmo resultado (o shader
+    // multiplica os dois), mas deixa uma alavanca de um número só para o flash
+    // mexer sem tocar na cor da luva. Ver `Luva.piscar`.
+    emissive: new THREE.Color(SOMBRA_LUVA),
+    emissiveIntensity: BRILHO_BASE,
   });
   descartaveis.push(material);
 
@@ -160,7 +245,10 @@ function vestir(raiz: THREE.Object3D, descartaveis: THREE.Material[]) {
     // do quadro quando os dedos saem da caixa original.
     malha.frustumCulled = false;
   });
+
+  return material;
 }
+
 
 // ------------------------------------------------------------- mão posada
 
@@ -192,11 +280,13 @@ export class MaoArticulada {
   private eixos = new Map<string, THREE.Vector3>();
   private fechado = new Map<string, number>();
   private descartaveis: THREE.Material[] = [];
+  /** O material desta cópia da mão. Ver `brilhar`. */
+  private pele: THREE.MeshStandardMaterial | null = null;
   private giro = new THREE.Quaternion();
 
   constructor(molde: THREE.Object3D, lado: 'left' | 'right', corDaFaixa: number) {
     const cena = clonarComEsqueleto(molde) as THREE.Object3D;
-    vestir(cena, this.descartaveis);
+    this.pele = vestir(cena, this.descartaveis);
 
     cena.updateMatrixWorld(true);
     cena.traverse((obj) => {
@@ -370,6 +460,12 @@ export class MaoArticulada {
     }
   }
 
+  /** Acende a luva: 0 é o repouso, 1 é o pico do flash. Ver `Luva.piscar`. */
+  brilhar(quanto: number) {
+    if (!this.pele) return;
+    this.pele.emissiveIntensity = BRILHO_BASE + quanto * 1.5;
+  }
+
   /**
    * Empurra a mão desenhada para trás, na direção do antebraço.
    *
@@ -439,10 +535,22 @@ class MaoRastreada {
 
   private juntas = new Map<string, THREE.Object3D>();
   private descartaveis: THREE.Material[] = [];
+  private pele: THREE.MeshStandardMaterial | null = null;
+
+  /**
+   * Acende a luva rastreada.
+   *
+   * É o ÚNICO sinal que sobra de mão nua: sem gamepad não há atuador, e toda
+   * vibração é descartada em silêncio.
+   */
+  brilhar(quanto: number) {
+    if (!this.pele) return;
+    this.pele.emissiveIntensity = BRILHO_BASE + quanto * 1.5;
+  }
 
   constructor(molde: THREE.Object3D) {
     const cena = clonarComEsqueleto(molde) as THREE.Object3D;
-    vestir(cena, this.descartaveis);
+    this.pele = vestir(cena, this.descartaveis);
     cena.traverse((obj) => {
       if (obj.name) this.juntas.set(obj.name, obj);
     });
@@ -500,6 +608,8 @@ class LuvaDeCodigo {
   private dedos: Dedo[] = [];
   private polegar: Dedo | null = null;
   private descartaveis: Array<THREE.BufferGeometry | THREE.Material> = [];
+  /** O material do pano da luva, para o flash. Ver `Luva.piscar`. */
+  private pele: THREE.MeshStandardMaterial;
 
   constructor(
     readonly lado: 'left' | 'right',
@@ -517,9 +627,13 @@ class LuvaDeCodigo {
         color: BRANCO,
         roughness: 0.62,
         metalness: 0.04,
-        emissive: new THREE.Color(SOMBRA_LUVA).multiplyScalar(0.12),
+        // O mesmo repouso da luva de malha, pela mesma alavanca: o flash mexe
+        // só na intensidade e não na cor.
+        emissive: new THREE.Color(SOMBRA_LUVA),
+        emissiveIntensity: BRILHO_BASE,
       }),
     );
+    this.pele = luva;
     const faixa = guardar(
       new THREE.MeshStandardMaterial({
         color: corDaFaixa,
@@ -637,6 +751,17 @@ class LuvaDeCodigo {
     dedo.juntas[2].rotation.y = sentido * q * 0.7;
   }
 
+  /**
+   * Acende a luva de reserva.
+   *
+   * Ela pisca como as outras de propósito: o flash é o vocabulário tátil de
+   * quem joga de mão nua, e ele não pode depender de um arquivo de noventa
+   * quilobytes ter baixado.
+   */
+  brilhar(quanto: number) {
+    this.pele.emissiveIntensity = BRILHO_BASE + quanto * 1.5;
+  }
+
   descartar() {
     this.grupo.removeFromParent();
     for (const d of this.descartaveis) d.dispose();
@@ -672,6 +797,11 @@ export class Luva {
   private ultimoGrip = 0;
   /** Recuo pedido pelos ajustes, guardado para valer quando a mão carregar. */
   private recuoPedido = 0;
+  /** O flash da luva: ver `piscar`. */
+  private brilho = 0;
+  private quedaDoBrilho = 8;
+  private relogioDoBrilho = 0;
+  private filaDeBrilho: Array<{ em: number; forca: number; segundos: number }> = [];
   /** Giro pedido pela calibração, pelo mesmo motivo. */
   private giroPedido = new THREE.Vector3();
 
@@ -728,6 +858,74 @@ export class Luva {
     if (x === this.giroPedido.x && y === this.giroPedido.y && z === this.giroPedido.z) return;
     this.giroPedido.set(x, y, z);
     this.articulada?.ajustarGiro(x, y, z);
+  }
+
+  /**
+   * A luva PISCA no lugar da vibração que não existe.
+   *
+   * ## Por que isto é necessário
+   *
+   * Vibrar depende do atuador do gamepad, e uma fonte de hand tracking não tem
+   * gamepad: **todo `sentir()` é descartado em silêncio quando você larga os
+   * controles**. Metade do vocabulário do jogo — pegou, recusado, acertou,
+   * levou, marcou — simplesmente não existe para quem joga de mão nua.
+   *
+   * ## Herdar a FORMA, e não a força
+   *
+   * A tabela de vibração diz, por escrito, que o que distingue um padrão do
+   * outro é a FORMA e não a intensidade: `recusado` é o único de duas batidas
+   * justamente para o não ser inconfundível de olhos fechados. Então o flash
+   * copia a sequência inteira — duas batidas viram dois flashes, com o mesmo
+   * intervalo —, e é isso que faz o olho aprender o mesmo vocabulário que a
+   * mão já aprendeu.
+   *
+   * ## Por que uma fila, e não `setTimeout`
+   *
+   * O decaimento acontece no `dt` do quadro. Com `setTimeout`, o flash duraria
+   * tempos diferentes conforme a taxa de quadros — e num headset que cai de 90
+   * para 60 o não ficaria mais longo justamente quando o jogo está mais
+   * apertado.
+   */
+  piscar(pulsos: ReadonlyArray<readonly [number, number]>, escala = 1) {
+    // Um padrão novo preempta o anterior, igual à vibração: o `pulse` do
+    // gamepad também não soma, substitui.
+    this.relogioDoBrilho = 0;
+    this.filaDeBrilho = filaDePiscadas(pulsos, escala);
+  }
+
+  /** O flash agora, de 0 a 1. Existe para a folha de conferência poder ver. */
+  get brilhoAtual(): number {
+    return this.brilho;
+  }
+
+  /**
+   * Consome a fila e decai o brilho. Chamado uma vez por quadro.
+   *
+   * Fica FORA de `definirDedos` de propósito: aquele só roda quando NÃO há
+   * juntas, isto é, com controle na mão. De mão nua os dedos vêm posados do
+   * rastreamento e `definirDedos` nunca é chamado — o flash ficaria parado
+   * exatamente no modo em que ele é o único sinal que existe.
+   */
+  atualizarBrilho(dt: number) {
+    this.relogioDoBrilho += dt;
+    while (this.filaDeBrilho.length > 0 && this.filaDeBrilho[0].em <= this.relogioDoBrilho) {
+      const pulso = this.filaDeBrilho.shift()!;
+      this.brilho = Math.max(this.brilho, pulso.forca);
+      // A taxa é PROPORCIONAL à força, e não fixa: assim o tempo aceso é o que
+      // `filaDePiscadas` mandou, independente de o padrão ser forte ou fraco.
+      // Com taxa fixa, `marcou` — o mais leve — seria também o mais curto, e as
+      // duas diferenças se somariam até ele sumir.
+      this.quedaDoBrilho = pulso.forca / Math.max(0.02, pulso.segundos);
+    }
+    if (this.brilho > 0) {
+      this.brilho = Math.max(0, this.brilho - dt * this.quedaDoBrilho);
+      // As três, sem perguntar qual está visível: acender a escondida não
+      // custa nada além de um número, e perguntar custa um if que erra quando
+      // a mão troca de modo no meio do flash.
+      this.articulada?.brilhar(this.brilho);
+      this.rastreada?.brilhar(this.brilho);
+      this.reserva.brilhar(this.brilho);
+    }
   }
 
   definirDedos(gatilho: number, grip: number, dt: number) {

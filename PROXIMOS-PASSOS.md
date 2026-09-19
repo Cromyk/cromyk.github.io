@@ -489,20 +489,39 @@ passo, o teste diz quantos milímetros de imunidade sobraram.
 - **Como saber que funcionou:** aproxime a mão do cinto e pare. A bola acesa
   não pisca entre duas.
 
-### 4.5 A luva pisca no lugar da vibração, de mão nua
+### 4.5 ✅ A luva pisca no lugar da vibração, de mão nua (feito em 19/09)
 
-Não existe vibração com hand tracking: o atuador vive no gamepad do controle, e
-uma fonte de mão nua não tem um. Todo `sentir()` é descartado em silêncio — o
-que quer dizer que metade do vocabulário tátil do jogo não existe para quem
-larga os controles.
+Não existia vibração com hand tracking: o atuador vive no gamepad do controle,
+e uma fonte de mão nua não tem um. Todo `sentir()` era descartado em silêncio —
+metade do vocabulário tátil do jogo não existia para quem larga os controles.
 
-A saída é a luva PISCAR herdando a FORMA do padrão: `recusado`, que é o único
-de duas batidas, vira dois flashes. A forma é o que a tabela de vibração diz
-importar mais do que a força.
+Agora a luva PISCA herdando a FORMA do padrão (`Luva.piscar`): `recusado`, o
+único de duas batidas, vira dois flashes com o mesmo respiro de 45 ms da
+vibração — a constante passou a ser uma só, `RESPIRO_DE_PULSO_MS`, usada pelos
+dois lados.
+
+Três coisas que o item não previa e a implementação achou:
+
+- **`definirDedos` só roda com controle na mão.** Pendurar o flash ali o
+  deixaria parado exatamente no modo em que ele é o único sinal. Quem o
+  atualiza é o quadro (`atualizarLuva`), antes do `if`.
+- **35 ms de flash não viram imagem.** `pegou` vibra por 35 ms e isso se sente
+  bem, mas são dois quadros e meio a 72 Hz. Todo flash tem piso de 70 ms
+  (`PISO_DO_FLASH_MS`), cortado a 55% do intervalo até a batida seguinte para
+  que as duas de `recusado` não se encostem — sobram 47 ms de escuro.
+- **O decaimento é proporcional à força.** Com taxa fixa, `marcou` seria o mais
+  fraco E o mais curto, e as duas diferenças se somariam até ele sumir.
+
+O flash vale nas três luvas — articulada, rastreada e a de reserva de código —,
+a 100% sem controle e a 35% com ele, onde é só reforço de canto de olho. O
+emissivo saiu da cor para a intensidade, que é o mesmo pixel no repouso com uma
+alavanca de um número só.
 
 - **Esforço:** médio-baixo.
 - **Como saber que funcionou:** de mão nua, de olhos no bicho, você percebe que
   o jogo recusou o gesto.
+- **Conferido em:** `npm test`, seção 45 — a forma dos cinco padrões, o piso, o
+  escuro entre as duas batidas, a volta ao repouso e o flash de mão nua.
 
 ### 4.6 O achado no chão se pega sozinho
 

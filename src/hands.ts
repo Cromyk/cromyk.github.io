@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Luva } from './glove';
+import { Luva, RESPIRO_DE_PULSO_MS } from './glove';
 import { Placa } from './hud';
 import { JUNTAS_DO_PULSO, poseDoPulso, type JuntasDoPulso } from './pulso';
 import {
@@ -166,6 +166,9 @@ export class Mao {
       this.semControle &&
       luva.usarJuntas(this.rastreada as unknown as THREE.Object3D & { joints?: Record<string, THREE.Object3D> });
     luva.definirModo(comJuntas);
+    // Antes do if: o flash da luva vale nos DOIS modos, e de mão nua é o único
+    // que existe. Ver `Luva.piscar`.
+    luva.atualizarBrilho(dt);
     if (!comJuntas) {
       luva.definirDedos(
         this.gatilho,
@@ -436,13 +439,20 @@ export class Mao {
    */
   sentir(padrao: Tato) {
     const pulsos = TATO[padrao];
+    // A luva pisca a MESMA forma. Sem controle é o único sinal que resta — uma
+    // fonte de hand tracking não tem gamepad, e todo o resto desta função cai
+    // no vazio —, então lá o flash vale inteiro. Com controle na mão ele é só
+    // reforço de canto de olho: a 35%, não compete com a vibração que já está
+    // dizendo a mesma coisa.
+    this.luva?.piscar(pulsos, this.semControle ? 1 : 0.35);
     let atraso = 0;
     for (const [forca, ms] of pulsos) {
       if (atraso === 0) this.vibrar(forca, ms);
       else setTimeout(() => this.vibrar(forca, ms), atraso);
       // Um respiro entre os pulsos, senão dois pulsos colados viram um só e o
-      // padrão de duas batidas deixa de ser distinguível do de uma.
-      atraso += ms + 45;
+      // padrão de duas batidas deixa de ser distinguível do de uma. O MESMO
+      // número que o flash da luva usa, e por isso vem de lá.
+      atraso += ms + RESPIRO_DE_PULSO_MS;
     }
     // E a textura do toque cala em volta do padrão. Um `pulse` novo preempta o
     // anterior, então sem isto a vibração contínua de encostar comeria o
