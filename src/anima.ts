@@ -329,6 +329,36 @@ export class Animador {
   /** Quanto abaixar cada braço para desfazer a T-pose do arquivo. */
   private relaxoE = 0;
   private relaxoD = 0;
+  /**
+   * O ângulo mínimo que cada braço tem de ficar ABERTO para não entrar no
+   * corpo. Ver `medirBracos`.
+   */
+  private aberturaE = 0;
+  private aberturaD = 0;
+  /**
+   * O quanto este bicho é FOFO, de 0 a 1 — e o que isso quer dizer aqui é uma
+   * coisa medida: **braço curto em relação ao tronco**.
+   *
+   * O pedido do playtest de 19/09 foi *"pokémons fofos andam com os braços
+   * esticados para fora fazendo uma corrida fofa"*, e a pergunta séria é como
+   * o código sabe quem é fofo sem uma tabela de 151 linhas. A resposta é a
+   * proporção: Pikachu, Bulbasaur, Jigglypuff e Squirtle têm bracinhos que não
+   * chegam à metade do tronco, e é exatamente por isso que eles não conseguem
+   * balançar os braços ao correr — a criança que corre de braços abertos corre
+   * assim pelo mesmo motivo. Machamp, Hitmonlee e Kadabra têm braço comprido e
+   * correm como gente.
+   *
+   * Zero para quem tem braço de gente, um para quem tem cotoco.
+   */
+  private fofura = 0;
+  /**
+   * Quanto a mão está fechada, de 0 a 1 — e a mola que a leva até lá.
+   *
+   * Uma mão que abre e fecha de um quadro para o outro é um estalo; fechar é
+   * um movimento com duração, e a duração é o que faz o punho parecer que tem
+   * músculo atrás.
+   */
+  private fechoDaMao = 0;
 
   constructor(corpo: Corpo) {
     this.rig = new Rig(corpo.corpo);
@@ -340,37 +370,132 @@ export class Animador {
     // A pose emprestada primeiro: medir a T-pose antes dela mediria a pose de
     // bind, que e justamente a que se esta trocando.
     this.emprestarPose(corpo);
-    this.medirTPose();
+    this.medirBracos(corpo);
   }
 
   /**
-   * Descobre se o modelo veio em T-pose e, se veio, quanto baixar cada braço.
+   * Mede os braços: a T-pose do arquivo, o quanto eles têm de ficar ABERTOS
+   * para não entrar no corpo, e o quanto este bicho é fofo.
    *
-   * Charmander é o caso: o arquivo dele não tem clipe nenhum e a pose de bind
-   * tem os braços abertos na horizontal, como um avião. Sem isto ele passeia
-   * pelo quarto assim — e não é defeito da animação, é a pose em que o modelo
-   * foi salvo, que a animação estava somando sem desfazer.
+   * ## O que já estava aqui
    *
-   * A medida é a direção do braço em repouso: horizontal demais quer dizer
-   * T-pose. Quem já chega com o braço caído — Squirtle, Pikachu — mede vertical
-   * e não ganha correção nenhuma.
+   * A T-pose. Charmander é o caso: o arquivo dele não tem clipe nenhum e a
+   * pose de bind tem os braços abertos na horizontal, como um avião. Sem
+   * desfazer isso ele passeia pelo quarto assim, e não é defeito da animação —
+   * é a pose em que o modelo foi salvo, que a animação estava somando sem
+   * desfazer. A medida é a direção do braço em repouso: horizontal demais quer
+   * dizer T-pose.
+   *
+   * ## O que estava errado
+   *
+   * O fator era 0,82 — abaixa 82% do caminho até a vertical, deixando 18% de
+   * abertura. Dezoito por cento de noventa graus são dezesseis graus, e
+   * dezesseis graus de abertura num Snorlax põem o braço DENTRO da barriga.
+   * Foi o relato de 19/09: *"o braço não entra dentro do corpo nem fica colado
+   * no corpo o tempo todo"*. As duas metades da queixa são a mesma medida
+   * errada: uma fração fixa não sabe a largura de ninguém.
+   *
+   * ## O que passa a valer
+   *
+   * Uma conta de trigonometria com três medidas que o modelo já tem: onde
+   * nasce o ombro, que comprimento tem o braço, e que largura tem o corpo
+   * (`Corpo.meiaCaixa`, a caixa da pose desenhada). O braço pendurado reto sai
+   * do ombro e cai; para a mão passar RENTE à silhueta, ele precisa abrir
+   *
+   *   sen α = (meia largura + folga − distância do ombro ao eixo) / comprimento
+   *
+   * e é esse α que vira o piso da abertura. Num bicho magro a conta dá
+   * negativo, o piso é zero e o braço desce reto como antes. Num Snorlax ela
+   * dá quarenta graus, e o braço fica de fora — que é onde ele estaria.
    */
-  private medirTPose() {
-    const medir = (chave: 'bracoE' | 'bracoD') => {
-      const direcao = this.rig.direcaoDe(chave);
-      if (!direcao) return 0;
-      // Só o plano horizontal importa: um braço apontando para a frente não é
-      // T-pose, é um braço apontando para a frente.
-      const horizontal = Math.abs(direcao.x);
-      if (horizontal < 0.55 || direcao.y < -0.5) return 0;
-      // Abaixa até quase colar no corpo — quase, porque braço colado no tronco
-      // é pose de soldado, não de bicho. O sinal segue o lado para onde ele
-      // aponta: girar em +Z leva +X para cima e −X para baixo.
-      const quanto = Math.asin(THREE.MathUtils.clamp(horizontal, 0, 1)) * 0.82;
-      return -Math.sign(direcao.x) * quanto;
+  private medirBracos(corpo: Corpo) {
+    const meiaLargura = corpo.meiaCaixa?.x ?? 0;
+    // A folga é a espessura do próprio braço, estimada: um vigésimo da altura.
+    // Sem ela a mão raspa na silhueta em vez de ficar do lado de fora dela.
+    const folga = Math.max(0.01, corpo.altura * 0.05);
+
+    const medir = (
+      chaveBraco: 'bracoE' | 'bracoD',
+      chaveMao: 'maoE' | 'maoD',
+      chaveOmbro: 'ombroE' | 'ombroD',
+    ) => {
+      const direcao = this.rig.direcaoDe(chaveBraco);
+
+      // --- a T-pose, como antes ---
+      let relaxo = 0;
+      let sinal = 0;
+      if (direcao) {
+        // Só o plano horizontal importa: um braço apontando para a frente não
+        // é T-pose, é um braço apontando para a frente.
+        const horizontal = Math.abs(direcao.x);
+        if (horizontal >= 0.55 && direcao.y >= -0.5) {
+          sinal = -Math.sign(direcao.x);
+          relaxo = sinal * Math.asin(THREE.MathUtils.clamp(horizontal, 0, 1));
+        }
+      }
+
+      // --- a abertura mínima, pela largura do corpo ---
+      const ombro = this.rig.pontoDe(chaveOmbro) ?? this.rig.pontoDe(chaveBraco);
+      const mao = this.rig.pontoDe(chaveMao);
+      const quadril = this.rig.pontoDe('quadril') ?? this.rig.pontoDe('tronco');
+      let abertura = 0;
+      if (ombro && mao && quadril && meiaLargura > 1e-4) {
+        const comprimento = ombro.distanceTo(mao);
+        // A distância do ombro ao eixo do corpo, no horizontal. `quadril` dá o
+        // eixo: ele é o único osso que está no meio em todos os 151.
+        const doEixo = Math.hypot(ombro.x - quadril.x, ombro.z - quadril.z);
+        if (comprimento > 1e-4) {
+          const precisa = meiaLargura + folga - doEixo;
+          // O TETO de 0,6 rad (34°) não é conforto de número: é anatomia. Num
+          // bicho cujo corpo é muito mais largo do que o braço é comprido —
+          // Snorlax, Golem, Cloyster —, a conta pede noventa graus, e noventa
+          // graus é a T-pose que este mesmo método existe para desfazer.
+          // Braço que não alcança o lado de fora fica o mais aberto que dá, e
+          // o resto da silhueta o esconde de qualquer jeito.
+          abertura = Math.min(0.6, Math.asin(THREE.MathUtils.clamp(precisa / comprimento, 0, 1)));
+        }
+      }
+
+      // Se o arquivo não disse de que lado o braço aponta (braço já caído), o
+      // lado vem da chave: o esquerdo abre para −X, o direito para +X. Girar
+      // em +Z (FRENTE) leva +X para cima, então abrir o braço esquerdo é um
+      // giro positivo e o direito, negativo.
+      if (sinal === 0) sinal = chaveBraco === 'bracoE' ? 1 : -1;
+
+      // O relaxo desce o braço até o PISO da abertura, nunca abaixo dele.
+      // `relaxo` e `abertura*sinal` têm o mesmo sinal por construção, então
+      // subtrair encurta a descida na medida exata.
+      const descida = Math.max(0, Math.abs(relaxo) - abertura);
+      return {
+        relaxo: sinal * descida,
+        // Quem já chega com o braço caído e tem corpo largo GANHA abertura: o
+        // relaxo dele é zero e o braço está dentro da barriga desde o arquivo.
+        abertura: relaxo === 0 ? sinal * abertura : 0,
+      };
     };
-    this.relaxoE = medir('bracoE');
-    this.relaxoD = medir('bracoD');
+
+    const e = medir('bracoE', 'maoE', 'ombroE');
+    const d = medir('bracoD', 'maoD', 'ombroD');
+    this.relaxoE = e.relaxo;
+    this.relaxoD = d.relaxo;
+    this.aberturaE = e.abertura;
+    this.aberturaD = d.abertura;
+
+    this.fofura = this.medirFofura();
+  }
+
+  /** Braço curto em relação ao tronco. Ver `fofura`. */
+  private medirFofura(): number {
+    const ombro = this.rig.pontoDe('ombroE') ?? this.rig.pontoDe('bracoE');
+    const mao = this.rig.pontoDe('maoE');
+    const cabeca = this.rig.pontoDe('cabeca') ?? this.rig.pontoDe('peito');
+    const quadril = this.rig.pontoDe('quadril') ?? this.rig.pontoDe('tronco');
+    if (!ombro || !mao || !cabeca || !quadril) return 0;
+    const tronco = cabeca.distanceTo(quadril);
+    if (tronco < 1e-5) return 0;
+    const braco = ombro.distanceTo(mao) / tronco;
+    // 0,45 do tronco para baixo é cotoco; 0,95 para cima é braço de gente.
+    return THREE.MathUtils.clamp((0.95 - braco) / 0.5, 0, 1);
   }
 
   private mapearClipes(corpo: Corpo) {
@@ -551,6 +676,7 @@ export class Animador {
     this.aplicarGesto(ctx);
     this.encararComACabeca(dt, ctx);
     this.relaxarBracos();
+    this.animarMaos(dt, ctx);
 
     // Onde há clipe assado para o que está acontecendo, ele manda e a pose
     // procedural só tempera. Onde não há, ela é a animação inteira.
@@ -686,6 +812,32 @@ export class Animador {
         this.rig.girar('tronco', LADO, cansaco * 0.16 * pParado);
         this.rig.girar('cabeca', LADO, cansaco * 0.2 * pParado);
       }
+
+      // --- os braços PARADOS não ficam parados ---
+      //
+      // Metade da queixa de 19/09 era *"nem fica colado no corpo o tempo
+      // todo"*, e a outra metade não é a pose: é o tempo. Um braço que fica
+      // exatamente no mesmo ângulo por trinta segundos é um braço de manequim,
+      // por melhor que seja o ângulo.
+      //
+      // Três ondas lentas, uma por eixo, com períodos que não são múltiplos
+      // (0,9 · 1,17 · 0,63) — assim o conjunto nunca fecha e o olho não acha
+      // o compasso. E os dois lados andam DESENCONTRADOS, com π/3 entre eles:
+      // dois braços sincronizados são uma marionete de um fio só.
+      //
+      // O eixo FRENTE é o que abre e fecha em relação ao corpo, e ele é o que
+      // mais importa aqui: é o que impede a mão de encostar no tronco.
+      const solto = pParado * (1 - cansaco * 0.6);
+      const balanco = (fase: number) => Math.sin(t * 0.9 + fase) * 0.055 + Math.sin(t * 1.17 + fase * 1.7) * 0.03;
+      const abre = (fase: number) => 0.04 + Math.sin(t * 0.63 + fase) * 0.045;
+      this.rig.girar('bracoE', LADO, balanco(0) * solto);
+      this.rig.girar('bracoD', LADO, balanco(Math.PI / 3) * solto);
+      this.rig.girar('bracoE', FRENTE, abre(0.4) * solto);
+      this.rig.girar('bracoD', FRENTE, -abre(1.9) * solto);
+      this.rig.girar('antebracoE', LADO, -(0.05 + balanco(0.8) * 0.9) * solto);
+      this.rig.girar('antebracoD', LADO, -(0.05 + balanco(2.1) * 0.9) * solto);
+      this.rig.girar('maoE', LADO, balanco(1.3) * 1.4 * solto);
+      this.rig.girar('maoD', LADO, balanco(2.6) * 1.4 * solto);
     }
 
     // --- passada: andar e correr são o mesmo ciclo em amplitudes diferentes ---
@@ -750,6 +902,44 @@ export class Animador {
       // E a mão acompanha com atraso, como uma coisa pendurada na ponta.
       this.rig.girar('maoE', LADO, Math.sin(f + Math.PI - 0.8) * bracos * 0.45);
       this.rig.girar('maoD', LADO, Math.sin(f - 0.8) * bracos * 0.45);
+
+      // --- A CORRIDA FOFA ---
+      //
+      // *"Pokémons fofos andam com os braços esticados para fora fazendo uma
+      // corrida fofa"* — playtest de 19/09. Quem é fofo sai de uma medida e
+      // não de uma tabela: braço curto em relação ao tronco. Ver `fofura`.
+      //
+      // São três coisas ao mesmo tempo, e as três importam:
+      //
+      // 1. **Os braços ABREM para fora** e ficam lá — até 50° de abertura no
+      //    pico da corrida. É a pose inteira: um bicho de bracinho curto não
+      //    balança o braço ao correr porque não tem alavanca para isso, então
+      //    ele estica.
+      // 2. **Eles TREMEM,** rápido e pouco, no dobro da cadência da passada.
+      //    Braço aberto e parado é um avião de papel; o tremor é o que faz
+      //    virar corridinha.
+      // 3. **O cotovelo ESTICA.** O `antebraco` acima dobra proporcional ao
+      //    balanço; aqui ele é desfeito na medida da fofura, porque "esticado"
+      //    é literal.
+      //
+      // O peso é `pCorrer` mais um terço de `pAndar`: andando a pose aparece
+      // insinuada, correndo ela é a corrida inteira.
+      const fofo = this.fofura * (pCorrer + pAndar * 0.35);
+      if (fofo > 0.01) {
+        const tremor = Math.sin(f * 2) * 0.16;
+        const aberto = 0.88 * fofo;
+        this.rig.girar('bracoE', FRENTE, aberto + tremor * fofo);
+        this.rig.girar('bracoD', FRENTE, -aberto + tremor * fofo);
+        // Um pouco para TRÁS também, que é o que separa "braço aberto" de
+        // "braço esticado para fora correndo".
+        this.rig.girar('bracoE', LADO, -0.3 * fofo);
+        this.rig.girar('bracoD', LADO, -0.3 * fofo);
+        this.rig.girar('antebracoE', LADO, (0.75 * bracos + 0.1) * fofo);
+        this.rig.girar('antebracoD', LADO, (0.75 * bracos + 0.1) * fofo);
+        // E o corpo dá uma saltitada a mais: o passo de quem corre com o
+        // braço aberto é curto e alto.
+        this.oscilacao += Math.abs(Math.sin(f)) * 0.018 * fofo;
+      }
 
       // Quadril: sobe duas vezes por ciclo (um por pé) e torce uma vez só.
       this.rig.girar('quadril', CIMA, senoE * amplitude * 0.28);
@@ -1239,9 +1429,72 @@ export class Animador {
    * num braço que já está onde deveria. Pondo antes, o balanço do andar giraria
    * em torno do próprio eixo do braço aberto e não moveria nada.
    */
+  /**
+   * A pose de repouso dos braços: desfaz a T-pose e garante que eles fiquem
+   * do lado de FORA do corpo. Ver `medirBracos`.
+   *
+   * O `+ 0.06` é o que responde à outra metade da queixa — *"nem fica colado
+   * no corpo o tempo todo"*. Mesmo num bicho magro, em que a conta da largura
+   * dá zero, o braço não encosta no tronco: fica três graus e meio afastado,
+   * que é onde um braço vivo fica.
+   */
   private relaxarBracos() {
     if (this.relaxoE) this.rig.girar('bracoE', FRENTE, this.relaxoE);
     if (this.relaxoD) this.rig.girar('bracoD', FRENTE, this.relaxoD);
+    // O braço esquerdo abre com giro positivo em FRENTE e o direito com
+    // negativo — `aberturaE` é sempre ≥ 0 e `aberturaD` sempre ≤ 0, por
+    // construção em `medirBracos`. O piso de 0,06 rad segue o mesmo sinal.
+    this.rig.girar('bracoE', FRENTE, this.aberturaE + 0.06);
+    this.rig.girar('bracoD', FRENTE, this.aberturaD - 0.06);
+  }
+
+  /**
+   * As MÃOS: elas fecham.
+   *
+   * ## O que estava parado
+   *
+   * Tudo. O `Rig` mapeava `maoE` e `maoD` — o osso do punho — e mais nada
+   * abaixo dele, e as falanges ficavam na pose de bind para sempre. Um
+   * Charmander dava um Megassoco com a mão ABERTA; um Machop fazia Golpe de
+   * Caratê de palma espalmada. Os ossos sempre estiveram no arquivo: vinte e
+   * duas espécies têm `LFingerA`/`LFingerB`/`LFingerC` com duas falanges cada,
+   * e quinze têm um `LFinger` só. Ver `Dedo` em src/rig.ts.
+   *
+   * ## Quando uma mão fecha
+   *
+   * - **Socando, arranhando ou se jogando**: punho, e ele fecha ANTES do
+   *   impacto — a mão já chega fechada, como a de quem vai bater. O envelope
+   *   do gesto dá o recuo e o disparo; o punho acompanha o recuo, que é a
+   *   parte em que o braço está indo para trás.
+   * - **Correndo**: meio fechada. Ninguém corre de mão espalmada.
+   * - **Parada**: quase aberta, abrindo e fechando de leve com a respiração —
+   *   é a mesma razão do braço que não fica no mesmo ângulo.
+   * - **Desmaiada**: mão mole, aberta.
+   * - **No colo e no carinho**: aberta, que é o que "não estou fazendo nada"
+   *   quer dizer com a mão.
+   *
+   * A mola de 12/s é o que separa "fechou" de "piscou fechado".
+   */
+  private animarMaos(dt: number, ctx: Contexto) {
+    if (!this.rig.temDedos) return;
+
+    let alvo = 0.12 + Math.sin(this.tempo * 1.1 + this.semente) * 0.06;
+
+    if (ctx.desmaiado) {
+      alvo = 0;
+    } else if (this.gesto && ehAtaque(this.gesto) && this.gesto !== 'sopro') {
+      // `aura` é só olhar feio: cerra o punho e segura. Os outros batem, e aí
+      // o punho está fechado no recuo e ainda fechado no impacto.
+      const { recolher, disparo } = this.envelope(this.gestoT);
+      alvo = Math.min(1, 0.35 + Math.max(recolher, Math.abs(disparo)) * 0.75);
+    } else if (this.gesto === 'cafune' || this.gesto === 'acenar') {
+      alvo = 0.05;
+    } else {
+      alvo = Math.max(alvo, this.pesos.correndo * 0.55 + this.pesos.andando * 0.28);
+    }
+
+    this.fechoDaMao += (alvo - this.fechoDaMao) * Math.min(1, dt * 12);
+    this.rig.fecharDedos(this.fechoDaMao);
   }
 
   /** Onde a mão precisa chegar para o carinho valer: a cabeça, não o centro. */

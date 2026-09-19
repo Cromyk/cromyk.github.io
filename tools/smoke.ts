@@ -11,7 +11,7 @@
  */
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { Pokemon } from '../src/creature';
+import { BORDA_COLISAO, MARGEM_DA_BOLA, Pokemon } from '../src/creature';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
@@ -178,6 +178,11 @@ function corpoFalso(altura: number): Corpo {
     boca,
     altura,
     raio: altura * 0.5,
+    // Um corpo de mentira mede uma caixa de mentira, e ela precisa ser
+    // plausivel: 40% da altura de largura e de profundidade e onde a de verdade
+    // ficaria para um bicho tipico. Ver Corpo.meiaCaixa.
+    meiaCaixa: new THREE.Vector3(altura * 0.2, altura * 0.5, altura * 0.2),
+    centroCaixa: new THREE.Vector3(0, altura * 0.5, 0),
     mixer: null,
     acoes: new Map(),
     // Sem GLB não há pose para remedir: a caixa deste corpo já é a certa.
@@ -301,6 +306,11 @@ function esqueletoDe(nomes: string[], altura = 0.6) {
     boca,
     altura,
     raio: altura * 0.5,
+    // Um corpo de mentira mede uma caixa de mentira, e ela precisa ser
+    // plausivel: 40% da altura de largura e de profundidade e onde a de verdade
+    // ficaria para um bicho tipico. Ver Corpo.meiaCaixa.
+    meiaCaixa: new THREE.Vector3(altura * 0.2, altura * 0.5, altura * 0.2),
+    centroCaixa: new THREE.Vector3(0, altura * 0.5, 0),
     mixer: null,
     acoes: new Map(),
     // Este esqueleto é montado à mão aqui: não há pose de arquivo para remedir.
@@ -824,12 +834,45 @@ console.log('13. a animação mexe os ossos, e só mexe os que deve');
     pico = Math.max(pico, Math.abs(desvioX(braco, repousoBraco)));
     if (terminouEm < 0 && bicho.animador.gestoAtivo === null) terminouEm = i;
   }
-  const sobrou = Math.abs(desvioX(braco, repousoBraco));
   checar(pico > 0.3, `o aceno mal levantou o braço (pico ${(pico * 57.3).toFixed(1)}°)`);
   checar(terminouEm >= 60 && terminouEm <= 85, `o gesto acabou no quadro ${terminouEm}, não perto de 72`);
-  checar(sobrou < 0.08, `o braço não voltou ao lugar (sobraram ${(sobrou * 57.3).toFixed(1)}°)`);
+
+  // --- e ele volta para o ÓCIO, que não é uma pose parada ---
+  //
+  // Este trecho já exigiu `|desvio| < 0.08` contra a pose de repouso do
+  // arquivo, e passou a falhar de propósito: desde o playtest de 19/09 o braço
+  // parado NÃO fica no mesmo ângulo — *"nem fica colado no corpo o tempo
+  // todo"*. Há um balanço lento e permanente, e exigir que ele assente em zero
+  // seria exigir de volta o braço de manequim.
+  //
+  // O que continua tendo de valer são as duas coisas de verdade:
+  //
+  // 1. o gesto VOLTA — o que sobra dele é uma fração pequena do pico, e não um
+  //    braço deixado no alto;
+  // 2. o ócio MEXE — ao longo de dois segundos o braço percorre uma faixa
+  //    visível, em vez de congelar onde o gesto o largou.
+  let menor = Infinity;
+  let maior = -Infinity;
+  let sobrou = 0;
+  for (let i = 0; i < 144; i++) {
+    bicho.atualizar(1 / 72, jogador);
+    const d = desvioX(braco, repousoBraco);
+    sobrou = Math.abs(d);
+    menor = Math.min(menor, d);
+    maior = Math.max(maior, d);
+  }
+  const faixa = maior - menor;
+  checar(
+    sobrou < pico * 0.35,
+    `o braço não voltou do aceno (sobraram ${(sobrou * 57.3).toFixed(1)}° de um pico de ${(pico * 57.3).toFixed(1)}°)`,
+  );
+  checar(
+    faixa > 0.02 && faixa < 0.6,
+    `o braço parado percorreu ${(faixa * 57.3).toFixed(1)}° em 2 s — fora da faixa do ócio`,
+  );
   console.log(
-    `   aceno: pico de ${(pico * 57.3).toFixed(0)}° no braço, acabou no quadro ${terminouEm}, voltou ao repouso`,
+    `   aceno: pico de ${(pico * 57.3).toFixed(0)}° no braço, acabou no quadro ${terminouEm}, ` +
+      `e o ócio devolve um vaivém de ${(faixa * 57.3).toFixed(1)}°`,
   );
 
   // --- desmaiado não pode gerar NaN nem sumir do quarto ---
@@ -3647,9 +3690,20 @@ console.log('\n38. a pose de estar sendo segurado');
   /** O giro em torno de X, COM sinal, de um osso contra o repouso dele. */
   const giroEmX = (osso: THREE.Bone, repouso: THREE.Quaternion) => {
     const relativo = repouso.clone().invert().multiply(osso.quaternion);
-    // O sinal do componente x do quaternion é o sentido do giro em torno de X.
-    const angulo = 2 * Math.atan2(Math.hypot(relativo.x, relativo.y, relativo.z), relativo.w);
-    return relativo.x >= 0 ? angulo : -angulo;
+    // A TORÇÃO em torno de X, e não o ângulo total com o sinal de `x`.
+    //
+    // A versão anterior media `2·atan2(|xyz|, w)` — o ângulo do giro inteiro,
+    // seja em que eixo for — e só usava o componente x para decidir o SINAL.
+    // Isso funcionou enquanto a pose de repouso dos braços era zero em todos
+    // os outros eixos. Deixou de funcionar quando o braço passou a ficar
+    // permanentemente ABERTO (ver `medirBracos` em src/anima.ts): com meio
+    // radiano de abertura em Z, o "ângulo total" passou a ser quase todo a
+    // abertura, e o sinal — tirado de um `x` perto de zero — passou a virar de
+    // um quadro para o outro.
+    //
+    // `2·atan2(x, w)` é a torção em torno de X da decomposição swing-twist, que
+    // é o que o teste sempre quis medir.
+    return 2 * Math.atan2(relativo.x, relativo.w);
   };
 
   const posar = (colo: number) => {
@@ -6079,6 +6133,160 @@ console.log('\n62. o Rig acha as asas, as barbatanas e os bigodes');
 
   console.log(
     `   apêndices: asa de ${asa?.tamanho} elos (${asa?.relativo.toFixed(1)} troncos) e bigode de ${pelo?.tamanho}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n63. a mão do bicho fecha');
+{
+  const osso = (nome: string, pai: THREE.Object3D, p: THREE.Vector3) => {
+    const b = new THREE.Bone();
+    b.name = nome;
+    b.position.copy(p);
+    pai.add(b);
+    return b;
+  };
+
+  const corpo = new THREE.Group();
+  const quadril = osso('Hips', corpo, new THREE.Vector3(0, 0, 0));
+  const tronco = osso('Spine1', quadril, new THREE.Vector3(0, 0.5, 0));
+  osso('Head', tronco, new THREE.Vector3(0, 0.5, 0));
+  const braco = osso('LArm', tronco, new THREE.Vector3(-0.2, 0, 0));
+  const mao = osso('LHand', braco, new THREE.Vector3(0, -0.3, 0));
+
+  // Três dedos com duas falanges, do jeito que os rips nomeiam. A curvatura de
+  // repouso é de propósito: é ela que diz em que plano o dedo dobra, e sem ela
+  // o `Rig` teria de adivinhar. Ver `Dedo` em src/rig.ts.
+  for (const letra of ['A', 'B', 'C']) {
+    const base = osso(`LFinger${letra}1`, mao, new THREE.Vector3(0, -0.06, 0.02));
+    const ponta = osso(`LFinger${letra}2`, base, new THREE.Vector3(0, -0.05, 0.02));
+    osso(`LFinger${letra}3`, ponta, new THREE.Vector3(0, -0.03, 0.03));
+  }
+  // E um dedo do lado direito, para o filtro por lado ter o que filtrar.
+  const maoD = osso('RHand', tronco, new THREE.Vector3(0.2, -0.3, 0));
+  const dD = osso('RFingerA1', maoD, new THREE.Vector3(0, -0.06, 0.02));
+  osso('RFingerA2', dD, new THREE.Vector3(0, -0.05, 0.02));
+
+  corpo.updateMatrixWorld(true);
+  const rig = new Rig(corpo);
+
+  checar(rig.temDedos, 'o Rig não achou dedo nenhum num esqueleto que tem quatro');
+  checar(rig.dedos.length === 4, `achou ${rig.dedos.length} dedos, e são quatro`);
+  const esquerdos = rig.dedos.filter((d) => d.lado === -1);
+  checar(esquerdos.length === 3, `a mão esquerda ficou com ${esquerdos.length} dedos, e são três`);
+  checar(
+    esquerdos.every((d) => d.tamanho === 3),
+    `um dedo esquerdo veio com ${esquerdos.map((d) => d.tamanho).join('/')} falanges, e são três`,
+  );
+
+  // Os dedos NÃO podem ter sido confundidos com apêndices: `LFingerA1` casa com
+  // nada em `ehApendice`, mas a ordem de `tomados` é o que garante isso.
+  checar(rig.apendices.length === 0, `os dedos viraram ${rig.apendices.length} apêndices`);
+
+  // Fechar de verdade mexe a falange, e fechar com `lado` mexe SÓ um lado.
+  const angulo = (nome: string) =>
+    corpo.getObjectByName(nome)!.quaternion.angleTo(new THREE.Quaternion());
+  const repousos = new Map<string, THREE.Quaternion>();
+  corpo.traverse((o) => repousos.set(o.name, o.quaternion.clone()));
+  const mexeu = (nome: string) =>
+    corpo.getObjectByName(nome)!.quaternion.angleTo(repousos.get(nome)!);
+
+  rig.limpar();
+  rig.fecharDedos(1, -1);
+  rig.aplicar(1);
+  checar(mexeu('LFingerA1') > 0.4, `a base do dedo fechou só ${mexeu('LFingerA1').toFixed(2)} rad`);
+  checar(
+    mexeu('LFingerA3') > mexeu('LFingerA1'),
+    'a ponta do dedo dobrou menos que a base — o punho sai reto',
+  );
+  checar(mexeu('RFingerA1') < 0.01, 'fechar a mão esquerda fechou a direita junto');
+
+  // E abrir devolve: `limpar` zera o que foi pedido, `aplicar` reescreve.
+  rig.limpar();
+  rig.fecharDedos(0, -1);
+  rig.aplicar(1);
+  checar(mexeu('LFingerA1') < 0.01, 'a mão não abriu de volta');
+
+  console.log(
+    `   dedos: 3 na esquerda (3 falanges) + 1 na direita · punho de ` +
+      `${((0.55 + 2 * 0.22) * 57.3).toFixed(0)}° na última junta · ${angulo('Hips').toFixed(2)} no quadril`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n64. a caixa de colisão é a do modelo, com 2 cm de borda');
+{
+  const especie = porId('bulbasaur')!;
+  const corpo = corpoFalso(especie.altura);
+  // `corpoFalso` mede 40% da altura em largura e profundidade, então a caixa
+  // vai de −0,2·h a +0,2·h no horizontal e de 0 a h na vertical.
+  const bicho = new Pokemon(especie, corpo, new THREE.Vector3(0, 0, -1), 0, 'selvagem', 5);
+  for (let i = 0; i < 40; i++) bicho.atualizar(1 / 72, JOGADOR);
+
+  const h = especie.altura;
+  // O rumo zerado para a conta fechar no papel: a caixa acompanha o bicho, e
+  // um Bulbasaur virado a 45° tem a diagonal dele apontando para o lado — que
+  // é o comportamento CERTO, e é justamente o que uma esfera não sabe fazer.
+  // Aqui o que se está conferindo é a medida, não a orientação.
+  bicho.raiz.rotation.y = 0;
+  corpo.corpo.rotation.set(0, 0, 0);
+  corpo.corpo.position.set(0, 0, 0);
+  corpo.corpo.scale.setScalar(1);
+  bicho.raiz.scale.setScalar(1);
+  bicho.raiz.updateMatrixWorld(true);
+  const centro = bicho.centro;
+
+  // Dentro do corpo: distância zero.
+  checar(
+    bicho.distanciaAoCorpo(centro, BORDA_COLISAO) < 1e-6,
+    'o centro do bicho não está dentro da própria caixa',
+  );
+
+  // Ao lado, na altura do peito. A meia-largura é 0,2·h; a 0,2·h + 10 cm o
+  // ponto está a 10 cm da pele, menos a borda de 2 cm.
+  const aoLado = new THREE.Vector3(centro.x + h * 0.2 + 0.1, centro.y, centro.z);
+  const d = bicho.distanciaAoCorpo(aoLado, BORDA_COLISAO);
+  checar(
+    Math.abs(d - 0.08) < 0.005,
+    `ao lado do bicho a caixa mediu ${d.toFixed(3)} m, e a conta dá 0,08`,
+  );
+
+  // E a ESFERA antiga mediria outra coisa bem diferente: é a comparação que
+  // justifica o trabalho. Num corpo falso o `raio` é meia altura — o mesmo
+  // exagero que o `max(…, alturaAlvo * 0.25)` de src/modelos.ts produz nos
+  // bichos baixos e compridos. O ponto está a 8 cm FORA do bicho e a esfera
+  // ainda o dá como acerto.
+  const pelaEsfera = aoLado.distanceTo(centro) - bicho.raio;
+  checar(
+    pelaEsfera < 0 && d > 0.05,
+    `a esfera deu ${pelaEsfera.toFixed(3)} m e a caixa ${d.toFixed(3)} — as duas concordam, e não deveriam`,
+  );
+
+  // ACIMA da cabeça continua fora: a caixa tem teto, a esfera de `raio` não
+  // saberia dizer.
+  const acima = new THREE.Vector3(centro.x, centro.y + h * 0.5 + 0.2, centro.z);
+  checar(
+    bicho.distanciaAoCorpo(acima, BORDA_COLISAO) > 0.15,
+    'um ponto 20 cm acima da cabeça entrou na caixa',
+  );
+
+  // O SEGMENTO pega o que o ponto perderia: uma bola que atravessa o bicho de
+  // um quadro para o outro tem de contar como acerto.
+  const de = new THREE.Vector3(centro.x - 1, centro.y, centro.z);
+  const ate = new THREE.Vector3(centro.x + 1, centro.y, centro.z);
+  checar(
+    bicho.distanciaDoSegmentoAoCorpo(de, ate, BORDA_COLISAO) < 1e-6,
+    'a bola atravessou o bicho de lado a lado sem encostar',
+  );
+  checar(
+    bicho.distanciaAoCorpo(de, BORDA_COLISAO) > 0.5,
+    'o ponto de partida da bola, a 1 m, já estava dentro da caixa',
+  );
+
+  console.log(
+    `   colisão: caixa de ${(h * 0.4).toFixed(2)}×${h.toFixed(2)}×${(h * 0.4).toFixed(2)} m + 2 cm · ` +
+      `a 8 cm da pele a esfera ainda dizia "acertou" (${pelaEsfera.toFixed(3)} m) · ` +
+      `a bola ganha ${MARGEM_DA_BOLA * 100} cm de margem`,
   );
 }
 

@@ -62,6 +62,37 @@ const _escalaA = new THREE.Vector3();
 const _escalaB = new THREE.Vector3();
 
 /**
+ * A borda que a caixa de colisão ganha por fora do modelo.
+ *
+ * Dois centímetros, pedidos assim no playtest de 19/09. Não é folga de
+ * tolerância: é a espessura do PELO. Encostar exatamente na malha é encostar
+ * na superfície matemática do bicho, e o toque só conta quando o dedo já
+ * afundou nela — o que se vê como "não encostei" com o dedo dentro do
+ * Bulbasaur.
+ */
+export const BORDA_COLISAO = 0.02;
+
+/**
+ * E a margem a MAIS que a pokébola ganha por cima dela.
+ *
+ * *"A pokébola pode encostar no Pokémon com uma margem maior"* — playtest de
+ * 19/09, na mesma frase que pediu os dois centímetros. Faz sentido que sejam
+ * números diferentes: a mão você vê chegando e corrige; a bola sai voando e a
+ * correção não existe mais. Doze centímetros é meio palmo em volta do bicho,
+ * que é o quanto um arremesso de braço erra sem parecer que errou.
+ */
+export const MARGEM_DA_BOLA = 0.12;
+
+/** Rascunhos da colisão por caixa. Ver `Pokemon.distanciaAoCorpo`. */
+const _invColisao = new THREE.Matrix4();
+const _localColisao = new THREE.Vector3();
+const _posColisao = new THREE.Vector3();
+const _giroColisao = new THREE.Quaternion();
+const _escalaColisao = new THREE.Vector3();
+const _perto = new THREE.Vector3();
+const _amostra = new THREE.Vector3();
+
+/**
  * Um Pokémon vivo no seu quarto. O mesmo corpo serve para o selvagem — que
  * passeia, repara em você e foge se levar susto — e para o companheiro, que
  * anda ao seu lado e ataca quando você manda.
@@ -481,6 +512,87 @@ export class Pokemon {
 
   get raio(): number {
     return this.corpo.raio;
+  }
+
+  /**
+   * A que distância do CORPO dele está um ponto do mundo. Zero quer dizer
+   * dentro.
+   *
+   * ## Por que existe, se já havia `raio`
+   *
+   * Porque `raio` é uma esfera, e nenhum dos 151 é uma esfera. Ele sai de
+   * `max(meia maior medida horizontal, um quarto da altura)` — duas
+   * aproximações grosseiras somadas —, e o erro não é pequeno: o Onix é uma
+   * serpente fina de 8,8 m que a esfera envolve num balão de 4,4 m de raio, e
+   * o Diglett é uma cabeça pousada no chão que o piso de um quarto da altura
+   * infla até ficar do tamanho de um cachorro. Mirar um deles é acertar o ar
+   * meio metro ao lado; mirar o outro é errar de perto.
+   *
+   * O pedido do playtest de 19/09 foi exatamente isso: *"a caixa de colisão do
+   * Pokémon precisa respeitar o modelo 3D com uma borda de 2 centímetros a
+   * mais"*. Aqui a caixa é a do modelo — `Corpo.meiaCaixa`, medida na pose
+   * desenhada — e a borda é um argumento.
+   *
+   * ## Por que no espaço do corpo, e não no mundo
+   *
+   * Porque o bicho GIRA. Uma AABB no mundo, em volta de um Onix atravessado na
+   * diagonal, é maior que o Onix inteiro; girada a 45° ela chega a dobrar de
+   * área. Levar o ponto para o espaço do corpo e comparar ali resolve a
+   * orientação de graça — é a mesma escolha que `caixaDaPose` faz ao medir
+   * ponto a ponto em vez de girar a caixa pronta.
+   *
+   * A borda vem em metros do MUNDO e é convertida eixo a eixo, porque o corpo
+   * também tem escala — a de nascer, a do tamanho real e o squash & stretch do
+   * salto. Dois centímetros têm de continuar sendo dois centímetros.
+   */
+  distanciaAoCorpo(ponto: THREE.Vector3, borda = 0): number {
+    const corpo = this.corpo.corpo;
+    corpo.updateWorldMatrix(true, false);
+    corpo.matrixWorld.decompose(_posColisao, _giroColisao, _escalaColisao);
+
+    _invColisao.copy(corpo.matrixWorld).invert();
+    _localColisao.copy(ponto).applyMatrix4(_invColisao);
+
+    const meia = this.corpo.meiaCaixa;
+    const centro = this.corpo.centroCaixa;
+    // Caixa degenerada é sintoma, não medida: sem `meiaCaixa` (um `Corpo` de
+    // mentira dos testes, por exemplo) o certo é cair na esfera antiga em vez
+    // de devolver um número inventado.
+    if (!meia || meia.lengthSq() < 1e-12) {
+      return Math.max(0, ponto.distanceTo(this.centro) - this.raio - borda);
+    }
+
+    for (const eixo of ['x', 'y', 'z'] as const) {
+      const escala = Math.max(1e-5, Math.abs(_escalaColisao[eixo]));
+      const meio = meia[eixo] + borda / escala;
+      _perto[eixo] = THREE.MathUtils.clamp(_localColisao[eixo], centro[eixo] - meio, centro[eixo] + meio);
+    }
+
+    // De volta ao mundo para medir: a distância que interessa é a que a mão
+    // percorre, e no espaço local ela estaria contada na escala do bicho.
+    _perto.applyMatrix4(corpo.matrixWorld);
+    return ponto.distanceTo(_perto);
+  }
+
+  /**
+   * O mesmo, para um SEGMENTO — o caminho que a pokébola fez neste quadro.
+   *
+   * A bola voa a 9 m/s, o que a 90 Hz são 10 cm por quadro: testar só a
+   * posição nova deixa ela atravessar um Diglett inteiro entre dois quadros.
+   * Por isso o teste é do segmento, e por isso ele é amostrado — um passo a
+   * cada centímetro e meio, com teto, que é fino o bastante para a bola e
+   * barato o bastante para rodar contra todos os selvagens.
+   */
+  distanciaDoSegmentoAoCorpo(de: THREE.Vector3, ate: THREE.Vector3, borda = 0): number {
+    const comprimento = de.distanceTo(ate);
+    const passos = THREE.MathUtils.clamp(Math.ceil(comprimento / 0.015), 1, 16);
+    let menor = Infinity;
+    for (let i = 0; i <= passos; i++) {
+      _amostra.lerpVectors(de, ate, i / passos);
+      menor = Math.min(menor, this.distanciaAoCorpo(_amostra, borda));
+      if (menor <= 0) return 0;
+    }
+    return menor;
   }
 
   get podeAtacar(): boolean {

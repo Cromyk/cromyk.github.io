@@ -116,6 +116,23 @@ export function filaDePiscadas(
  */
 const BRILHO_BASE = 0.14;
 
+/**
+ * O tamanho da mão desenhada, em relação à mão de referência do arquivo.
+ *
+ * *"Quero que aumente a escala das mãos em 25%"* — playtest de 19/09. O
+ * `generic-hand` do webxr-input-profiles é uma mão adulta média, e média é
+ * pequena demais para o que esta mão faz aqui: ela é o CURSOR do jogo inteiro,
+ * e o alvo dela — uma carta de sete centímetros no pulso, a ponta de um
+ * Diglett, o botão da engrenagem — é sempre menor do que ela. Uma mão maior é
+ * uma mão que se vê de canto de olho e que tapa menos o que está tentando
+ * tocar, porque o dedo chega antes do resto.
+ *
+ * O crescimento é em torno do PONTO DE ENCAIXE (onde a mão de verdade segura o
+ * controle), nunca em torno da origem do espaço: a mão engorda para fora do
+ * punho em vez de sair voando dele. Ver `MaoArticulada` e `MaoRastreada`.
+ */
+export const ESCALA_DA_MAO = 1.25;
+
 /** Os dedos, da base para a ponta, com os nomes exatos da especificação. */
 const DEDOS: readonly (readonly string[])[] = [
   ['thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip'],
@@ -357,6 +374,12 @@ export class MaoArticulada {
 
     const alinhado = new THREE.Group();
     alinhado.quaternion.copy(this.giro);
+    // A mão 25% maior. Aqui e não em `raiz`: `alinhado` tem a origem no ponto
+    // de encaixe, então a escala cresce a mão a partir de onde ela é segurada.
+    // Em `raiz` — que é o grip space — o efeito seria o mesmo número, mas o
+    // `recuar` dos ajustes passaria a ser medido em unidades escaladas e o
+    // valor que ele calibrou no headset mudaria de significado.
+    alinhado.scale.setScalar(ESCALA_DA_MAO);
     const deslocado = new THREE.Group();
     deslocado.position.copy(encaixe).negate();
     deslocado.add(cena);
@@ -560,9 +583,25 @@ class MaoRastreada {
     if (ponta) ponta.add(this.pontaDoIndicador);
   }
 
-  /** Devolve false quando o runtime ainda não preencheu as juntas. */
+  /**
+   * Devolve false quando o runtime ainda não preencheu as juntas.
+   *
+   * ## Por que a escala é feita aqui, junta a junta
+   *
+   * Porque as vinte e cinco juntas chegam em coordenadas do ESPAÇO DE
+   * REFERÊNCIA, e não do punho: os ossos são todos irmãos e cada um recebe uma
+   * posição absoluta. Pôr `scale = 1.25` no grupo escalaria em torno da origem
+   * do espaço — o canto do quarto —, e a mão sairia voando para longe do braço
+   * na proporção da distância até lá.
+   *
+   * Então o crescimento é medido a partir do PULSO: cada junta se afasta dele
+   * 25% mais, e cada osso engorda 25% no lugar. As duas coisas juntas são uma
+   * escala uniforme da mão em torno do pulso, que é exatamente o que "uma mão
+   * maior" quer dizer — e o pulso continua exatamente onde o seu está.
+   */
   usarJuntas(juntas: Record<string, THREE.Object3D>): boolean {
     let posadas = 0;
+    const punho = juntas['wrist'] as THREE.Object3D | undefined;
     for (const nome of Object.keys(juntas)) {
       const osso = this.juntas.get(nome);
       const junta = juntas[nome] as THREE.Object3D & { jointRadius?: number };
@@ -571,7 +610,14 @@ class MaoRastreada {
       // Junta sem raio é junta que o runtime ainda não rastreou neste quadro.
       if (raio === undefined || raio === null || !Number.isFinite(raio)) continue;
       osso.position.copy(junta.position);
+      if (punho && nome !== 'wrist') {
+        osso.position
+          .sub(punho.position)
+          .multiplyScalar(ESCALA_DA_MAO)
+          .add(punho.position);
+      }
       osso.quaternion.copy(junta.quaternion);
+      osso.scale.setScalar(ESCALA_DA_MAO);
       posadas++;
     }
     return posadas > 8;
@@ -616,6 +662,10 @@ class LuvaDeCodigo {
     corDaFaixa: number,
   ) {
     const espelho = lado === 'left' ? -1 : 1;
+    // A luva de reserva cresce junto: quem cai nela por falha de rede tem de
+    // ver a MESMA mão, não uma menor. O grupo tem a origem no grip space, que
+    // é o ponto de encaixe — a mesma referência da mão de malha.
+    this.grupo.scale.setScalar(ESCALA_DA_MAO);
 
     const guardar = <T extends THREE.BufferGeometry | THREE.Material>(x: T): T => {
       this.descartaveis.push(x);

@@ -56,6 +56,22 @@ export interface Corpo {
   altura: number;
   /** Metade da maior medida horizontal — serve de raio para colisão. */
   raio: number;
+  /**
+   * Meias-medidas da CAIXA do bicho, em metros, no espaço de `corpo`.
+   *
+   * O `raio` é uma esfera, e esfera é uma aproximação grosseira de um bicho: o
+   * Onix é uma serpente de 8,8 m que a esfera envolve num balão de 4,4 m, e o
+   * Diglett é uma cabeça no chão que o piso de `alturaAlvo * 0.25` infla até
+   * um quarto da própria altura. Encostar a bola nessa esfera é encostar no ar
+   * — foi o pedido de 19/09: *"a caixa de colisão do Pokémon precisa respeitar
+   * o modelo 3D"*.
+   *
+   * Aqui está a medida de verdade: largura, altura e profundidade da POSE
+   * DESENHADA, meia a meia. Ver `Pokemon.caixaDeColisao` em src/creature.ts.
+   */
+  meiaCaixa: THREE.Vector3;
+  /** O centro dessa caixa no espaço de `corpo`: x e z em zero, y na metade. */
+  centroCaixa: THREE.Vector3;
   mixer: THREE.AnimationMixer | null;
   /** Clipes assados que vieram no arquivo, pelo nome. Poucos modelos têm. */
   acoes: Map<string, THREE.AnimationAction>;
@@ -330,8 +346,19 @@ export function instanciar(
 
     desloca.position.set(-(min.x + max.x) / 2, -min.y, -(min.z + max.z) / 2);
     ajuste.scale.setScalar(escala);
+    // A caixa em METROS, já no espaço de `corpo`: `desloca` pôs o centro
+    // horizontal no eixo e os pés no zero, e `ajuste` converteu a unidade do
+    // arquivo (que vai de 0,01 a 629) para metro. Então meia-largura é
+    // meia-largura vezes a escala, e o centro vertical fica a meia-altura do
+    // chão. É a mesma conta do `plantar`, no mesmo lugar, de propósito — a
+    // caixa medida noutro ponto é a caixa que descreve outra pose.
+    meiaCaixa.set(largura * 0.5, altura * 0.5, profundidade * 0.5).multiplyScalar(escala);
+    centroCaixa.set(0, meiaCaixa.y, 0);
     return profundidade;
   };
+
+  const meiaCaixa = new THREE.Vector3();
+  const centroCaixa = new THREE.Vector3();
 
   const meia = new THREE.Vector3(medida.largura, medida.alturaModelo, medida.profundidade).multiplyScalar(0.5);
   const centroDoManifesto = new THREE.Vector3(
@@ -403,6 +430,8 @@ export function instanciar(
     boca,
     altura: alturaAlvo,
     raio: Math.max(maiorHorizontal * escala * 0.5, alturaAlvo * 0.25),
+    meiaCaixa,
+    centroCaixa,
     mixer,
     acoes,
     renormalizar() {

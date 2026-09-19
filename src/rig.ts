@@ -141,9 +141,52 @@ export interface Apendice {
   relativo: number;
 }
 
+/**
+ * Um DEDO: a cadeia que sai da mão, e o eixo em que ela dobra.
+ *
+ * ## Os dedos sempre estiveram no arquivo
+ *
+ * `node tools/diag-ossos.mjs` lista os ossos que o `Rig` não conhece, por
+ * frequência, e depois de `ltoe` e `tail4` o que aparece é isto:
+ * `LFingerA`, `LFingerB1`, `LFingerB2`, `LFingerC1`, `LFingerC2`, `RFingerA1`…
+ * — vinte e duas espécies com três dedos de duas falanges em cada mão, mais
+ * quinze com um `LFinger`/`RFinger` só. Nada disso se mexia: a mão do
+ * Charmander atravessava o quarto aberta, com os dedos na pose de bind, para
+ * sempre. O pedido do playtest de 19/09 foi *"verifique que todos têm bones
+ * para fazer os movimentos procedurais, mãos se fecham"*.
+ *
+ * É a mesma lição de `Apendice` e de `tools/brasa.mjs`: antes de adivinhar
+ * onde uma coisa está dentro de um modelo, leia como ela se chama.
+ *
+ * ## Por que o eixo vem medido, e não escolhido
+ *
+ * Fechar a mão é curvar o dedo PARA A PALMA, e onde fica a palma muda de
+ * espécie para espécie — um Bulbasaur tem a patinha virada para baixo, um
+ * Machop tem a mão de gente. Escolher um eixo fixo fecharia metade das mãos
+ * para o lado, que é a cara de dedo quebrado.
+ *
+ * O arquivo já responde, porém: **um dedo em pose de bind quase nunca está
+ * reto**. As falanges já vêm com uma curvatura de repouso, e o plano dessa
+ * curvatura é o plano em que o dedo dobra. Então o eixo é a normal desse
+ * plano — `soma dos (v[i] × v[i+1])` ao longo da cadeia —, e girar em torno
+ * dele com ângulo positivo CONTINUA a curva que já existe. Dedo reto demais
+ * para dar plano cai na reserva: a perpendicular que aponta para o eixo do
+ * corpo, que é para onde a pata de um bicho se fecha.
+ */
+export interface Dedo {
+  /** −1 esquerda, +1 direita, 0 quando o nome não diz. */
+  lado: -1 | 0 | 1;
+  /** Quantas falanges a cadeia tem. */
+  tamanho: number;
+}
+
 /** Quantos apêndices e quantos elos cada um: um teto para o custo por quadro. */
 const MAX_APENDICES = 8;
 const MAX_ELOS = 8;
+/** E quantos dedos por bicho. Seis cobre três por mão, que é o caso comum. */
+const MAX_DEDOS = 8;
+/** Falanges por dedo. Os rips vão até duas (`LFingerA1`, `LFingerA2`). */
+const MAX_FALANGES = 4;
 
 /** O que conta como apêndice, pelo nome já normalizado. */
 function ehApendice(nome: string): boolean {
@@ -151,6 +194,11 @@ function ehApendice(nome: string): boolean {
   // entram porque são as abas da cauda do Vaporeon e companhia — cauda que sai
   // aos pares é barbatana, não cauda.
   return /^(l|r)?feeler/.test(nome) || /^(l|r)tail/.test(nome);
+}
+
+/** O que conta como dedo. Ver `Dedo`. */
+function ehDedo(nome: string): boolean {
+  return /^(l|r)?finger/.test(nome);
 }
 
 function ladoDoNome(nome: string): -1 | 0 | 1 {
@@ -225,6 +273,12 @@ export class Rig {
   readonly apendices: Apendice[] = [];
   /** Os nós de cada apêndice, do que nasce no corpo até a ponta. */
   private elos: No[][] = [];
+  /** As cadeias de dedo. Ver `Dedo`. */
+  readonly dedos: Dedo[] = [];
+  /** Os nós de cada dedo, da base à ponta. */
+  private falanges: No[][] = [];
+  /** O eixo em que cada dedo dobra, em espaço da criatura. Ver `Dedo`. */
+  private eixosDeDedo: THREE.Vector3[] = [];
   /**
    * Todos os nós numa lista só — os dos papéis e os dos apêndices.
    *
@@ -267,9 +321,87 @@ export class Rig {
     }
 
     this.encontrados = encontrados;
+    // Os dedos ANTES dos apêndices: `tomados` é quem-pegou-primeiro, e um osso
+    // que se chame `LFingerA` não pode virar barbatana por acaso de ordem.
+    this.montarDedos(porNome, tomados, raizInv);
     this.montarApendices(porNome, tomados, raizInv);
     this.planos = [...this.nos.values()];
     for (const cadeia of this.elos) this.planos.push(...cadeia);
+    for (const cadeia of this.falanges) this.planos.push(...cadeia);
+  }
+
+  /**
+   * Acha as cadeias de dedo e mede em que eixo cada uma dobra. Ver `Dedo`.
+   *
+   * A busca é igual à dos apêndices — pela HIERARQUIA, de um osso de dedo cujo
+   * pai não é dedo até a ponta — porque os nomes mentem sobre a ordem do mesmo
+   * jeito: há `LFingerA` sem número, `LFingerA1`/`LFingerA2` numerados, e
+   * `LFingerB` que em alguns arquivos é irmão de `LFingerA` e noutros é filho.
+   */
+  private montarDedos(
+    porNome: Map<string, THREE.Bone>,
+    tomados: Set<THREE.Bone>,
+    raizInv: THREE.Quaternion,
+  ) {
+    const raizes: Array<[string, THREE.Bone]> = [];
+    for (const [nome, osso] of porNome) {
+      if (!ehDedo(nome) || tomados.has(osso)) continue;
+      const pai = osso.parent as THREE.Bone | null;
+      if (pai?.isBone && ehDedo(normalizar(pai.name))) continue;
+      raizes.push([nome, osso]);
+    }
+    // Ordem estável e previsível: pelo nome. Ao contrário dos apêndices, aqui
+    // não há "cadeia principal" — três dedos de uma mão são todos o mesmo dedo
+    // do ponto de vista de quem os fecha.
+    raizes.sort((a, b) => a[0].localeCompare(b[0]));
+
+    const local = new THREE.Vector3();
+    for (const [nome, raiz] of raizes.slice(0, MAX_DEDOS)) {
+      const cadeia: No[] = [];
+      const pontos: THREE.Vector3[] = [];
+      let atual: THREE.Bone | null = raiz;
+      while (atual && cadeia.length < MAX_FALANGES) {
+        if (tomados.has(atual)) break;
+        tomados.add(atual);
+        cadeia.push(this.montarNo(atual, raizInv));
+        pontos.push(atual.getWorldPosition(new THREE.Vector3()).applyQuaternion(raizInv));
+        atual = (atual.children.find(
+          (f) => (f as THREE.Bone).isBone && ehDedo(normalizar(f.name)),
+        ) ?? null) as THREE.Bone | null;
+      }
+      if (cadeia.length === 0) continue;
+
+      // A ponta, para o último segmento existir: o `_end` do exportador não é
+      // osso, mas a direção de repouso do último nó aponta para ele.
+      const ultima = cadeia[cadeia.length - 1];
+      if (ultima.direcao.lengthSq() > 0.5) {
+        pontos.push(pontos[pontos.length - 1].clone().addScaledVector(ultima.direcao, 0.01));
+      }
+
+      // A normal do plano em que o dedo já está curvado. Ver `Dedo`.
+      const eixo = new THREE.Vector3();
+      for (let i = 0; i + 2 < pontos.length; i++) {
+        const a = pontos[i + 1].clone().sub(pontos[i]);
+        const b = pontos[i + 2].clone().sub(pontos[i + 1]);
+        eixo.add(local.crossVectors(a, b));
+      }
+
+      if (eixo.lengthSq() < 1e-12) {
+        // Dedo reto: a reserva é dobrar para o eixo do corpo, que é para onde
+        // uma pata se fecha. `direcao` é para onde o dedo aponta; a palma está
+        // do lado de dentro, que é −sign(x) a partir de onde a mão está.
+        const base = pontos[0];
+        const paraDentro = new THREE.Vector3(base.x >= 0 ? -1 : 1, -0.35, 0).normalize();
+        const aponta =
+          ultima.direcao.lengthSq() > 0.5 ? ultima.direcao : new THREE.Vector3(0, -1, 0);
+        eixo.crossVectors(aponta, paraDentro);
+      }
+      if (eixo.lengthSq() < 1e-12) eixo.set(1, 0, 0);
+
+      this.falanges.push(cadeia);
+      this.eixosDeDedo.push(eixo.normalize());
+      this.dedos.push({ lado: ladoDoNome(nome), tamanho: cadeia.length });
+    }
   }
 
   /**
@@ -461,6 +593,41 @@ export class Rig {
     _q.setFromAxisAngle(eixo, angulo);
     no.acumulado.multiply(_q);
     no.sujo = true;
+  }
+
+  /**
+   * FECHA a mão, de 0 (aberta como no arquivo) a 1 (punho).
+   *
+   * O ângulo é por falange e cresce da base para a ponta — a articulação de
+   * cima de um dedo dobra mais que a de baixo, e é essa diferença que faz a
+   * ponta encostar na palma em vez de o dedo inteiro girar como uma vara.
+   *
+   * `lado` escolhe a mão: −1 esquerda, +1 direita, 0 todas. Dedo cujo nome não
+   * diz o lado (o `Finger` central de alguns arquivos) sempre obedece.
+   */
+  fecharDedos(quanto: number, lado: -1 | 0 | 1 = 0) {
+    if (quanto <= 0.001 || this.dedos.length === 0) return;
+    const fecho = Math.min(1, quanto);
+    for (let d = 0; d < this.falanges.length; d++) {
+      const dedo = this.dedos[d];
+      if (lado !== 0 && dedo.lado !== 0 && dedo.lado !== lado) continue;
+      const eixo = this.eixosDeDedo[d];
+      const cadeia = this.falanges[d];
+      for (let f = 0; f < cadeia.length; f++) {
+        // 0,55 rad na base, subindo 0,22 por falange: um punho de ~75° na
+        // última junta, que é o quanto uma pata de bicho fecha sem virar garra.
+        const angulo = (0.55 + f * 0.22) * fecho;
+        const no = cadeia[f];
+        _q.setFromAxisAngle(eixo, angulo);
+        no.acumulado.multiply(_q);
+        no.sujo = true;
+      }
+    }
+  }
+
+  /** O comprimento de um dedo, em metros — para quem quiser saber se há mão. */
+  get temDedos(): boolean {
+    return this.dedos.length > 0;
   }
 
   /**

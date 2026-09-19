@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Pokemon } from './creature';
+import { BORDA_COLISAO, MARGEM_DA_BOLA, Pokemon } from './creature';
 import {
   AFETO,
   ESPECIES,
@@ -237,14 +237,6 @@ interface Selvagem {
   golpe: Golpe | null;
   /** Se a animação de recolher já foi disparada neste ciclo. */
   avisou: boolean;
-}
-
-function distanciaAoSegmento(ponto: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
-  const ab = b.clone().sub(a);
-  const comprimento = ab.lengthSq();
-  if (comprimento < 1e-8) return ponto.distanceTo(a);
-  const t = THREE.MathUtils.clamp(ponto.clone().sub(a).dot(ab) / comprimento, 0, 1);
-  return ponto.distanceTo(a.clone().addScaledVector(ab, t));
 }
 
 export class Jogo {
@@ -1068,8 +1060,12 @@ export class Jogo {
    */
   private noAlcanceDoColo(mao: Mao, c: Pokemon, maos: 1 | 2): boolean {
     const ponto = maos === 2 ? this.pontoDeAgarre(mao) : mao.pontoDeToque(this.pontoDaMao);
-    const alcance = alcanceDoColo(c.raio, maos);
-    return ponto.distanceToSquared(c.centro) <= alcance * alcance;
+    // Do CORPO, e não do centro: `alcanceDoColo` já descontava o raio da
+    // esfera, e a esfera errava a forma. Medindo contra a caixa do modelo, a
+    // folga é o que sobra do alcance depois do corpo — o mesmo número, agora
+    // contado a partir da pele e não de um balão. Ver `distanciaAoCorpo`.
+    const folga = Math.max(0.1, alcanceDoColo(c.raio, maos) - c.raio);
+    return c.distanciaAoCorpo(ponto, BORDA_COLISAO) <= folga;
   }
 
   /** O cartão que explica o que fazer com o bicho que acabou de subir. */
@@ -2169,8 +2165,14 @@ export class Jogo {
     if (c.estado === 'saindo' || c.estado === 'preso') return false;
 
     const toque = mao.pontoDeToque(new THREE.Vector3());
-    const alcance = Math.max(0.22, c.raio * 0.9 + 0.12);
-    if (toque.distanceTo(c.centro) > alcance && toque.distanceTo(c.pontoDaCabeca()) > alcance) {
+    // Encostar o item no CORPO dele, e não numa esfera em volta dele: a caixa
+    // do modelo com a borda de 2 cm, mais um palmo de folga para o braço não
+    // ter de mirar. Ver `Pokemon.distanciaAoCorpo`.
+    const folga = 0.12;
+    if (
+      c.distanciaAoCorpo(toque, BORDA_COLISAO) > folga &&
+      toque.distanceTo(c.pontoDaCabeca()) > Math.max(0.22, c.raio * 0.9 + 0.12)
+    ) {
       return false;
     }
 
@@ -6589,15 +6591,36 @@ export class Jogo {
     return pokemon;
   }
 
+  /**
+   * A bola encostou em alguém?
+   *
+   * ## A esfera que mentia
+   *
+   * Isto media `distância do centro < raio do bicho + raio da bola`, e `raio` é
+   * `max(meia maior medida horizontal, um quarto da altura)`. Num Onix de 8,8 m
+   * isso é uma bola de 4,4 m de raio em volta de uma serpente fina: a pokébola
+   * "acertava" passando a três metros do bicho, no ar. Num Diglett era o
+   * contrário — o piso de um quarto da altura inflava uma cabecinha de 20 cm
+   * até virar um alvo de meio metro.
+   *
+   * Agora o teste é contra a CAIXA do modelo, com a borda de 2 cm por fora
+   * (`BORDA_COLISAO`) e a margem de arremesso da bola por cima
+   * (`MARGEM_DA_BOLA`). Ver `Pokemon.distanciaAoCorpo`.
+   *
+   * A margem é generosa de propósito e não desfaz o ganho: o que ela faz é
+   * perdoar meio palmo em volta da SILHUETA CERTA, e não em volta de um balão
+   * que não tem a forma de ninguém.
+   */
   private testarAcerto(bola: Pokebola, anterior: THREE.Vector3) {
     for (const { pokemon } of this.selvagens) {
       if (pokemon.estado === 'preso' || pokemon.estado === 'saindo' || !pokemon.viva) continue;
 
-      const alvo = pokemon.centro;
-      const dist = distanciaAoSegmento(alvo, anterior, bola.posicao);
-      const alcance = pokemon.raio + bola.raio;
+      const alcance = bola.raio + MARGEM_DA_BOLA;
+      const dist = pokemon.distanciaDoSegmentoAoCorpo(anterior, bola.posicao, BORDA_COLISAO);
 
       if (dist <= alcance) {
+        // A precisão continua premiando quem acerta no meio: zero de distância
+        // é a bola entrando no corpo, e `alcance` é o limite da margem.
         const precisao = THREE.MathUtils.clamp(1 - dist / alcance, 0, 1);
         const multiplicador = (bola.raiz.userData.multiplicador as number) ?? 1;
         bola.capturar(pokemon, precisao, multiplicador);
