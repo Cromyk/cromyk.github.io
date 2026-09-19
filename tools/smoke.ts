@@ -5195,5 +5195,74 @@ console.log('\n54. mexer no PC não troca quem volta a campo');
 
   console.log('   PC: arrastar, mover, trocar e soltar mantêm o ativo E quem volta a campo');
 }
+
+// --- 55. a mão que sumiu não leva nada junto ---
+//
+// No Quest, largar o controle é um gesto NORMAL: ele hiberna, a fonte de
+// entrada é retirada e o hand tracking assume. O evento `disconnected` chega, a
+// `Mao` se limpa por dentro — e o que o JOGO tinha posto naquela mão continua
+// lá.
+//
+// O colo já tinha faxina (um Pokémon preso numa mão morta era visível demais
+// para passar). A pokébola, a fruta e a Pokédex não tinham: ficavam penduradas
+// num punho que parou de se mexer, e não havia gesto capaz de recuperá-las,
+// porque soltar exige um GRIP e a mão que o daria não existe mais.
+console.log('\n55. a mão que sumiu não leva nada junto');
+{
+  // O que a devolução promete, medido na Dex de verdade: tirar debita, devolver
+  // repõe, e o total não muda. É isso que faz devolver ser seguro — se a bola
+  // não saísse do estoque ao ser sacada, devolvê-la a duplicaria.
+  const dex = new Dex();
+  dex.limpar();
+  dex.receberInicial('charmander');
+
+  const antes = dex.bolas('comum');
+  checar(antes > 0, 'o teste começou sem bola nenhuma');
+  dex.gastarBola('comum');
+  checar(dex.bolas('comum') === antes - 1, 'sacar a bola não debitou o estoque');
+  dex.ganharBola('comum', 1);
+  checar(dex.bolas('comum') === antes, 'devolver a bola não repôs o estoque');
+
+  // E o teto é respeitado: devolver com a mochila cheia não estoura o limite.
+  const teto = BOLAS[0].maximo;
+  dex.ganharBola('comum', teto * 2);
+  checar(dex.bolas('comum') === teto, `o estoque foi a ${dex.bolas('comum')}, acima do teto ${teto}`);
+
+  // --- e o jogo faz a faxina por quadro ---
+  const fonte = readFileSync('src/game.ts', 'utf8');
+  const i = fonte.indexOf('  private atualizarMaosPerdidas() {');
+  checar(i > 0, 'não existe faxina para o que ficou numa mão desconectada');
+  const faxina = fonte.slice(i, fonte.indexOf('\n  }', i));
+
+  checar(faxina.includes('if (mao.conectada) continue;'), 'a faxina mexe em mão conectada');
+  for (const [oQue, chamada] of [
+    ['a Pokédex', 'this.tablet.guardar()'],
+    ['a fruta ou a poção', 'this.guardarIsca(mao)'],
+    ['a pokébola', 'this.largarBolaDaMao(mao)'],
+  ] as const) {
+    checar(faxina.includes(chamada), `${oQue} continua presa na mão que sumiu`);
+  }
+
+  // A bola de INVOCAÇÃO não volta ao estoque: ela nunca saiu de lá — é o corpo
+  // de um Pokémon seu virando bola, e creditá-la fabricaria uma pokébola.
+  checar(
+    /invocacao[\s\S]{0,200}ganharBola/.test(faxina),
+    'a devolução credita bola de invocação — isso fabrica pokébola do nada',
+  );
+
+  // E ela roda no quadro, junto da faxina do colo, que é a que já existia.
+  checar(
+    fonte.includes('this.atualizarMaosPerdidas();'),
+    'a faxina existe e ninguém a chama',
+  );
+  checar(
+    fonte.indexOf('this.atualizarMaosPerdidas();') < fonte.indexOf('this.atualizarColo(dt);', fonte.indexOf('this.atualizarMaosPerdidas();')),
+    'a faxina das mãos perdidas roda depois da do colo',
+  );
+
+  console.log(
+    `   mão perdida: bola, item e Pokédex voltam · estoque ${antes} → ${antes} depois de sacar e devolver`,
+  );
+}
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

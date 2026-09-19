@@ -1161,6 +1161,73 @@ export class Jogo {
    * e o tremor de dano também escrevem na raiz, e a mão precisa ser a última
    * palavra sobre onde ele está neste quadro.
    */
+  /**
+   * A mão sumiu com coisas dentro.
+   *
+   * ## Por que isto acontece o tempo todo
+   *
+   * No Quest, largar o controle é um gesto NORMAL: ele hiberna, a fonte de
+   * entrada é retirada e o hand tracking assume. O evento `disconnected`
+   * chega, a `Mao` se limpa por dentro — e o que o JOGO tinha posto naquela
+   * mão continua lá.
+   *
+   * O colo já tinha faxina (um Pokémon preso numa mão morta era visível
+   * demais para passar). O resto não tinha:
+   *
+   * - a **pokébola** ficava pendurada num punho que parou de se mexer,
+   *   flutuando no ar até o fim da sessão. Ela já tinha saído da cinta, então
+   *   era uma bola a menos — e não havia gesto capaz de recuperá-la, porque
+   *   soltar exige um GRIP e a mão que o daria não existe mais;
+   * - a **fruta ou a poção** ficavam do mesmo jeito;
+   * - a **Pokédex** também, e ela é a maior das três.
+   *
+   * ## Por que devolver, e não deixar cair
+   *
+   * Cair é o que acontece quando VOCÊ abre a mão — é um gesto, e o objeto no
+   * chão é a consequência dele. Aqui ninguém fez gesto nenhum: a mão saiu de
+   * cena por fora do jogo. Devolver cada coisa ao lugar de onde veio é a
+   * leitura honesta do que aconteceu, e é reversível — a bola volta à cinta
+   * sem ser gasta, exatamente como quando você desiste no painel.
+   */
+  private atualizarMaosPerdidas() {
+    for (const mao of this.maos) {
+      if (mao.conectada) continue;
+
+      // A Pokédex volta para as costas, que é onde ela mora.
+      if (this.tablet.naMaoDe === mao.indice) this.tablet.guardar();
+
+      const item = this.itemNaMao.get(mao.indice);
+      const bola = this.bolaNaMao.get(mao.indice);
+      if (!item && !bola) continue;
+
+      let oQue = '';
+      if (item) {
+        oQue = item.tipo.nome;
+        this.guardarIsca(mao);
+      }
+      if (bola) {
+        // A bola de invocação não volta ao estoque: ela nunca saiu de lá, é o
+        // corpo de um Pokémon seu virando bola. Ver `guardarNaMochila`.
+        const invocacao = this.bolaDeInvocacao.get(mao.indice);
+        const idBola = bola.raiz.userData.idBola as string | undefined;
+        this.largarBolaDaMao(mao);
+        if (!invocacao && idBola) {
+          this.dex.ganharBola(idBola, 1);
+          oQue = oQue ? `${oQue} e a bola` : 'a bola';
+        }
+      }
+
+      if (!oQue) continue;
+      this.aviso.mostrar(
+        [
+          { texto: `${oQue} de volta`, tamanho: 32, cor: '#9aa5b8' },
+          { texto: 'a mão saiu de cena com isso na palma', tamanho: 20, cor: '#9aa5b8', peso: 500 },
+        ],
+        1.6,
+      );
+    }
+  }
+
   private atualizarColo(dt: number) {
     // Faxina: mão que sumiu ou bicho que morreu saem do mapa. A mão devolve o
     // punho — sem isso, recolher o bicho para a bola deixa a luva branca
@@ -4010,6 +4077,8 @@ export class Jogo {
     this.atualizarCompanheiro(dt);
     // Depois do companheiro: quem está no colo tem a posição escrita pela mão,
     // e ela precisa ser a última palavra sobre onde ele está neste quadro.
+    // Antes do colo: ele já tem a faxina dele, e as duas leem a mesma mão.
+    this.atualizarMaosPerdidas();
     this.atualizarColo(dt);
     this.atualizarEvolucao(dt);
     this.atualizarCarinho(dt);

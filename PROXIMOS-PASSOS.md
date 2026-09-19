@@ -980,10 +980,48 @@ vazia continuava com o índice de quem estava em campo.
   falham contra o código anterior (conferido rodando o teste novo contra o
   `state.ts` do commit passado).
 
+### 5.10 ✅ A mão que sumiu levava as coisas junto (feito em 19/09)
+
+No Quest, **largar o controle é um gesto normal**: ele hiberna, a fonte de
+entrada é retirada e o hand tracking assume. O evento `disconnected` chega, a
+`Mao` se limpa por dentro — e o que o **jogo** tinha posto naquela mão
+continua lá.
+
+O colo já tinha faxina: um Pokémon preso numa mão morta era visível demais
+para passar despercebido. O resto não tinha:
+
+- a **pokébola** ficava pendurada num punho que parou de se mexer, flutuando
+  no ar até o fim da sessão. Ela já tinha saído da cinta — era uma bola a
+  menos —, e não havia gesto capaz de recuperá-la, porque soltar exige um GRIP
+  e a mão que o daria não existe mais;
+- a **fruta ou a poção** ficavam do mesmo jeito;
+- a **Pokédex** também, e ela é a maior das três.
+
+Agora existe a faxina, e ela **devolve** em vez de deixar cair. Cair é o que
+acontece quando VOCÊ abre a mão: é um gesto, e o objeto no chão é a
+consequência dele. Aqui ninguém fez gesto nenhum — a mão saiu de cena por fora
+do jogo —, então cada coisa volta ao lugar de onde veio: a Pokédex para as
+costas, o item para a mochila, e a bola para a cinta **sem ser gasta**,
+exatamente como quando você desiste no painel.
+
+A bola de invocação é a exceção e continua sendo: ela nunca saiu do estoque —
+é o corpo de um Pokémon seu virando bola —, e creditá-la fabricaria uma
+pokébola do nada.
+
+- **Esforço:** baixo.
+- **Como saber que funcionou:** saque uma pokébola e largue o controle na mesa
+  até ele hibernar. A bola volta para a cinta, com um aviso, em vez de ficar
+  parada no ar.
+- **Conferido em:** `npm test`, seção 55 — o ciclo do estoque (sacar debita,
+  devolver repõe, o teto não estoura, e é isso que torna devolver seguro: se a
+  bola não saísse do estoque ao ser sacada, devolvê-la a duplicaria) e a faxina
+  tratando os três casos. Sete das verificações falham contra o `game.ts` do
+  commit anterior.
+
 ## O que depende de você
 
 Com o 5.1, **todo item deste arquivo que dá para fazer sem o headset está
-feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.9, vinte e um itens.
+feito** — fases 1, 2, 4 e os itens 5.1 e 5.3 a 5.10, vinte e dois itens.
 
 O que resta depende de você:
 
