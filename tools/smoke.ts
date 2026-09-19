@@ -5459,5 +5459,159 @@ console.log('\n57. o golpe diz o que foi');
 
   console.log('   golpe: quatro efeitos elementais para todos · garra risca, baque estoura');
 }
+// --- 58. o corpo reage, e não só oscila ---
+//
+// Toda a animação era função de `fase` e seno, e por isso incapaz de reagir: o
+// bicho arrancava, freava e virava com a cauda fazendo exatamente a mesma
+// onda. O ciclo de passada é bom — tem contrapeso de braço, transferência de
+// peso e cauda com atraso nó a nó —, mas descreve um bicho em velocidade
+// constante para sempre, e o jogo quase nunca está nisso: o bicho te segue,
+// para, vira, corre atrás de uma fruta, recua assustado.
+//
+// O olho lê essa ausência como MECÂNICO, e mais senos não consertam — o que
+// falta não é detalhe, é CAUSA.
+console.log('\n58. o corpo reage, e não só oscila');
+{
+  const ossos = [
+    'Spine', 'Chest', 'Neck', 'Head', 'Hips',
+    'LThigh', 'RThigh', 'LLeg', 'RLeg',
+    'LArm', 'RArm', 'LForeArm', 'RForeArm',
+    'Tail1', 'Tail2', 'Tail3', 'EarL', 'EarR',
+  ];
+
+  const novo = () => {
+    const { corpo, porNome, repousos } = esqueletoDe(ossos, 0.6);
+    const animador = new Animador(corpo);
+    return { animador, porNome, repousos };
+  };
+  const PARADO = { velocidade: 0, alarme: 0, vida: 1, encarar: null, desmaiado: false };
+  const desvio = (
+    porNome: Map<string, THREE.Bone>,
+    repousos: Map<string, THREE.Quaternion>,
+    nome: string,
+  ) => Math.abs(porNome.get(nome)!.quaternion.angleTo(repousos.get(nome)!));
+
+  let grausNaCurva = 0;
+  let sobrouDepoisDaFreada = 0;
+
+  // --- (1) VIRAR joga a cauda para fora da curva ---
+  //
+  // É o movimento mais característico de um bicho mudando de direção, e o que
+  // mais faltava: sem ele, virar é o corpo inteiro girando como um pião.
+  {
+    const reto = novo();
+    const virando = novo();
+    for (let q = 0; q < 60; q++) {
+      reto.animador.atualizar(1 / 90, { ...PARADO, velocidade: 0.9, giro: 0 });
+      virando.animador.atualizar(1 / 90, { ...PARADO, velocidade: 0.9, giro: 2.2 });
+    }
+    const pontaReta = desvio(reto.porNome, reto.repousos, 'Tail3');
+    const pontaVirando = desvio(virando.porNome, virando.repousos, 'Tail3');
+    grausNaCurva = (pontaVirando - pontaReta) * 57.3;
+    checar(
+      pontaVirando > pontaReta + 0.05,
+      `virando, a ponta da cauda desvia ${(pontaVirando * 57.3).toFixed(0)}° contra ${(pontaReta * 57.3).toFixed(0)}° andando reto — a curva não chega nela`,
+    );
+  }
+
+  // --- (2) A cauda CONTINUA indo depois de o corpo parar ---
+  //
+  // É o que mola tem e seno não: memória. Um bicho que para e tem a cauda
+  // parando junto é um boneco articulado.
+  {
+    const bicho = novo();
+    for (let q = 0; q < 90; q++) {
+      bicho.animador.atualizar(1 / 90, { ...PARADO, velocidade: 1.6, giro: 3 });
+    }
+    const noMovimento = desvio(bicho.porNome, bicho.repousos, 'Tail3');
+    // Freada seca: parou de andar e parou de virar, no mesmo quadro.
+    bicho.animador.atualizar(1 / 90, { ...PARADO, velocidade: 0, giro: 0 });
+    const logoDepois = desvio(bicho.porNome, bicho.repousos, 'Tail3');
+    sobrouDepoisDaFreada = (logoDepois / Math.max(1e-6, noMovimento)) * 100;
+    checar(
+      logoDepois > noMovimento * 0.4,
+      'a cauda parou junto com o corpo — não sobrou inércia nenhuma',
+    );
+    // E assenta: dois segundos depois ela está quieta.
+    for (let q = 0; q < 180; q++) {
+      bicho.animador.atualizar(1 / 90, { ...PARADO, velocidade: 0, giro: 0 });
+    }
+    checar(
+      desvio(bicho.porNome, bicho.repousos, 'Tail3') < noMovimento,
+      'a cauda continua balançando dois segundos depois de o bicho parar',
+    );
+  }
+
+  // --- (3) A mola não EXPLODE com quadro longo ---
+  //
+  // Uma mola rígida integrada com dt de 50 ms — que é o teto do laço do jogo —
+  // diverge em vez de oscilar, e o bicho se dobra ao meio. O passo é
+  // subdividido justamente por isso.
+  {
+    const bicho = novo();
+    for (let q = 0; q < 40; q++) {
+      bicho.animador.atualizar(0.05, { ...PARADO, velocidade: 2, giro: 5 });
+    }
+    for (const nome of ['Tail3', 'Head', 'Spine', 'EarL']) {
+      const d = desvio(bicho.porNome, bicho.repousos, nome);
+      checar(Number.isFinite(d), `${nome} virou NaN com quadro de 50 ms`);
+      checar(d < Math.PI, `${nome} girou ${(d * 57.3).toFixed(0)}° — a mola explodiu`);
+    }
+  }
+
+  // --- (4) Quem está no COLO não tem inércia de corrida ---
+  {
+    const bicho = novo();
+    for (let q = 0; q < 60; q++) {
+      bicho.animador.atualizar(1 / 90, { ...PARADO, velocidade: 2, giro: 4, colo: 1 });
+    }
+    checar(
+      desvio(bicho.porNome, bicho.repousos, 'Tail3') < 0.5,
+      'o bicho no seu colo chicoteia a cauda como se estivesse correndo',
+    );
+  }
+
+  // --- (5) A CADÊNCIA respira: dois segundos de passada não são iguais ---
+  {
+    const bicho = novo();
+    const fase = () => (bicho.animador as unknown as { fase: number }).fase;
+    const anda = (n: number) => {
+      for (let q = 0; q < n; q++) {
+        bicho.animador.atualizar(1 / 90, { ...PARADO, velocidade: 0.8 });
+      }
+    };
+    anda(90);
+    const a0 = fase();
+    anda(90);
+    const s1 = fase() - a0;
+    anda(90);
+    const s2 = fase() - a0 - s1;
+    checar(Math.abs(s1 - s2) > 1e-3, 'a cadência é exata: o passo voltou a ser metrônomo');
+    checar(
+      Math.abs(s1 - s2) / s1 < 0.25,
+      `a cadência varia ${((Math.abs(s1 - s2) / s1) * 100).toFixed(0)}% entre segundos — o pé desliza`,
+    );
+
+    // --- (6) E o corpo AFUNDA no contato: o gingado ganhou peso ---
+    let maior = 0;
+    for (let q = 0; q < 90; q++) {
+      bicho.animador.atualizar(1 / 90, { ...PARADO, velocidade: 1.6 });
+      maior = Math.max(maior, bicho.animador.compressao);
+    }
+    checar(maior > 0.3, `correndo, a compressão máxima foi ${maior.toFixed(2)} — o corpo não tem peso`);
+    // Parado ele não afunda: compressão sem passo é o bicho derretendo.
+    for (let q = 0; q < 120; q++) bicho.animador.atualizar(1 / 90, PARADO);
+    checar(
+      bicho.animador.compressao < 0.05,
+      `parado, a compressão é ${bicho.animador.compressao.toFixed(2)} — ele afunda sem dar passo`,
+    );
+  }
+
+  console.log(
+    `   inércia: a curva joga a ponta da cauda +${grausNaCurva.toFixed(0)}° · ` +
+      `${sobrouDepoisDaFreada.toFixed(0)}% dela sobra no quadro seguinte à freada`,
+  );
+}
+
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

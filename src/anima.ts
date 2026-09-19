@@ -125,6 +125,14 @@ const DURACAO: Record<Gesto, number> = {
 export interface Contexto {
   /** Metros por segundo no plano. É o que escolhe entre parado, andar e correr. */
   velocidade: number;
+  /**
+   * Radianos por segundo em torno do eixo vertical: para que lado ele está
+   * VIRANDO, e com que pressa.
+   *
+   * Opcional porque as ferramentas de folha montam o contexto à mão, e um
+   * bicho desenhado num PNG não está virando para lado nenhum.
+   */
+  giro?: number;
   /** 0..1 — quanto mais nervoso, mais rápido e mais miúdo o movimento. */
   alarme: number;
   /** 0..1 — pouca vida deixa a pose mais caída. */
@@ -145,10 +153,125 @@ export interface Contexto {
 /** Acima desta velocidade, em m/s, a base vira corrida. */
 const FASE_CORRIDA = 1.15;
 
+/**
+ * Uma mola amortecida de um eixo só: o que faz um apêndice ter PESO.
+ *
+ * ## Por que o jogo precisava disto
+ *
+ * Toda a animação era função de `fase` e seno. Isso desenha um ciclo de
+ * passada muito bom — e é, por construção, incapaz de reagir: o bicho
+ * arranca, freia e vira com a cauda fazendo exatamente a mesma onda, porque
+ * um seno não sabe o que aconteceu no quadro anterior.
+ *
+ * É essa ausência que o olho lê como mecânico, e nenhuma quantidade de senos
+ * novos conserta — o que falta não é detalhe, é CAUSA. Uma mola tem estado:
+ * ela guarda onde estava e com que velocidade, então o rabo continua indo
+ * quando o corpo já parou, que é o que rabo de bicho faz.
+ *
+ * ## Ela PERSEGUE um alvo, e não recebe uma força
+ *
+ * A diferença não é de estilo. Com `a = forca − x·k`, o lugar onde a mola
+ * para é `forca / k`, então quem escreve o número tem de dividir de cabeça
+ * pela rigidez para saber quanto vai sair — e a primeira versão disto errou
+ * exatamente nisso: a cauda inteira chegava a **um grau** numa curva fechada,
+ * porque a rigidez 26 comia a força antes de ela virar ângulo.
+ *
+ * Perseguindo (`a = (alvo − x)·k`), o alvo É o ângulo em radianos, e
+ * `rigidez` e `atrito` deixam de mexer no tamanho para mexer só no
+ * COMPORTAMENTO: quão rápido ela chega lá e quanto passa do ponto.
+ *
+ * `rigidez` é ω² — o quadrado da velocidade angular natural. `atrito` abaixo
+ * de 2·√rigidez deixa a mola oscilar antes de assentar, que é o que faz um
+ * rabo parecer rabo; igual ou acima disso ela chega e para, que é o que serve
+ * para um tronco.
+ */
+class Mola {
+  valor = 0;
+  private velocidade = 0;
+
+  constructor(
+    private readonly rigidez: number,
+    private readonly atrito: number,
+  ) {}
+
+  /**
+   * Persegue este alvo, em radianos, por `dt`.
+   *
+   * O passo é SUBDIVIDIDO quando o quadro é longo: uma mola rígida integrada
+   * com dt de 50 ms diverge em vez de oscilar, e 50 ms é exatamente o teto do
+   * laço do jogo. Fatias de 8 ms resolvem sem custo perceptível — a mais
+   * dura daqui tem ω de 11 rad/s, e isso pede uns cem passos por segundo para
+   * integrar sem ganhar energia.
+   */
+  passo(alvo: number, dt: number) {
+    const fatias = dt > 0.008 ? Math.ceil(dt / 0.008) : 1;
+    const h = dt / fatias;
+    for (let i = 0; i < fatias; i++) {
+      const a = (alvo - this.valor) * this.rigidez - this.velocidade * this.atrito;
+      this.velocidade += a * h;
+      this.valor += this.velocidade * h;
+    }
+  }
+}
+
+/**
+ * Ruído orgânico barato: três senos de períodos que não se fecham.
+ *
+ * Um seno só repete a cada volta, e o olho aprende o compasso em poucos
+ * segundos — é o que faz uma respiração parecer um metrônomo. Somando três
+ * frequências incomensuráveis (√2 e √5 entre elas), o padrão só se repetiria
+ * depois de horas, e de graça: são três senos, não um gerador de ruído.
+ *
+ * Devolve algo entre −1 e 1, com média zero.
+ */
+function ruido(t: number, semente = 0): number {
+  return (
+    (Math.sin(t + semente) +
+      Math.sin(t * 1.41421 + semente * 2.3) * 0.6 +
+      Math.sin(t * 2.23607 + semente * 5.1) * 0.35) /
+    1.95
+  );
+}
+
 export class Animador {
   readonly rig: Rig;
   /** Falso quando o modelo não tem esqueleto reconhecível — um Ditto, um Voltorb. */
   readonly temRig: boolean;
+
+  /**
+   * As molas do corpo. Ver `Mola` e `aplicarInercia`.
+   *
+   * Uma por apêndice e por eixo, com constantes escolhidas pelo PESO da
+   * coisa: a cauda é o pêndulo lento que continua indo depois de o corpo
+   * parar, as orelhas são leves e rápidas, o tronco é o mais duro porque é
+   * ele que sustenta o resto.
+   */
+  private molas = {
+    /**
+     * Cauda no plano horizontal: arrasta na curva.
+     *
+     * ω = 6,3 rad/s, que é um vaivém por segundo — o balanço de um rabo
+     * pesado. O atrito é 40% do crítico: ela passa do ponto e volta duas ou
+     * três vezes antes de assentar, que é a parte que se nota.
+     */
+    caudaLado: new Mola(40, 5),
+    /** Cauda na vertical: sobe quando arranca, cai quando freia. */
+    caudaCima: new Mola(46, 7),
+    /** Leves e rápidas: ω de 11, quase duas vezes por segundo. */
+    orelhas: new Mola(120, 12),
+    /** A cabeça fica para trás quando o corpo sai. */
+    cabeca: new Mola(60, 11),
+    /**
+     * O tronco se inclina CONTRA a aceleração — é o peso resistindo. Quase
+     * criticamente amortecido: ele chega e fica, porque é o que sustenta o
+     * resto e um tronco que oscila é um bicho de gelatina.
+     */
+    tronco: new Mola(70, 15),
+  };
+  /** A velocidade do quadro anterior, para derivar a aceleração. */
+  private velocidadeAnterior = 0;
+  /** Semente de ruído, uma por bicho: dois Rattata não respiram em uníssono. */
+  private readonly semente = Math.random() * 100;
 
   private mixer: THREE.AnimationMixer | null;
   private clipes = new Map<Base | Gesto, THREE.AnimationAction>();
@@ -182,6 +305,19 @@ export class Animador {
    * já normalizou para metros.
    */
   oscilacao = 0;
+  /**
+   * O quanto o corpo está COMPRIMIDO neste quadro, de 0 a 1.
+   *
+   * O gingado já existia: o corpo sobe duas vezes por ciclo, uma por pé que
+   * encosta. Faltava a outra metade, que é a que tem peso — quando o pé bate
+   * no chão, o corpo AFUNDA um instante antes de subir de novo. Sem isso o
+   * bicho parece leve demais, como se estivesse sendo carregado por cima em
+   * vez de se sustentar.
+   *
+   * Quem lê é src/creature.ts, junto do squash & stretch do salto — é a mesma
+   * escala, pelo mesmo motivo, e elas se somam.
+   */
+  compressao = 0;
 
   /** Quanto abaixar cada braço para desfazer a T-pose do arquivo. */
   private relaxoE = 0;
@@ -357,7 +493,14 @@ export class Animador {
 
     // A fase do ciclo de passada acompanha a velocidade real: o pé encosta no
     // chão na mesma cadência em que o bicho se desloca, e não há deslize.
-    const cadencia = 2.6 + ctx.velocidade * 3.4;
+    //
+    // E ela RESPIRA: ±6% de variação lenta, que é a diferença entre um bicho
+    // andando e um metrônomo. Um ciclo de passada perfeitamente periódico é
+    // reconhecível em três segundos — o olho aprende o compasso e o corpo
+    // inteiro passa a parecer um mecanismo, por mais bem feita que seja a
+    // pose. Seis por cento não desloca o pé o bastante para deslizar no chão
+    // e é o bastante para o compasso nunca fechar. Ver `ruido`.
+    const cadencia = (2.6 + ctx.velocidade * 3.4) * (1 + ruido(this.tempo * 0.7, this.semente) * 0.06);
     this.fase += dt * cadencia;
 
     // --- gesto ---
@@ -393,8 +536,10 @@ export class Animador {
     if (!this.temRig) return;
 
     this.oscilacao = 0;
+    this.compressao = 0;
     this.rig.limpar();
     this.aplicarBase(ctx);
+    this.aplicarInercia(dt, ctx);
     this.aplicarColo(ctx);
     this.aplicarGesto(ctx);
     this.encararComACabeca(dt, ctx);
@@ -423,6 +568,84 @@ export class Animador {
     this.disparar(Math.random() < (ctx.alarme > 0.4 ? 1 : 0.62) ? 'olhar' : 'acenar');
   }
 
+  /**
+   * O corpo REAGE: o que acontece por causa do movimento, e não por causa da
+   * fase do ciclo.
+   *
+   * ## O que estava faltando
+   *
+   * Todas as poses deste arquivo são função de `fase` e seno, e por isso são
+   * incapazes de reagir: o bicho arrancava, freava e virava com a cauda
+   * fazendo exatamente a mesma onda. O ciclo de passada é bom — tem
+   * contrapeso de braço, transferência de peso e cauda com atraso nó a nó —,
+   * mas ele descreve um bicho em velocidade constante para sempre, e o jogo
+   * quase nunca está nisso: o bicho te segue, para, vira, corre atrás de uma
+   * fruta, recua assustado.
+   *
+   * O olho lê essa ausência como MECÂNICO, e mais senos não consertam — o que
+   * falta não é detalhe, é causa. Aqui as forças do movimento entram em molas
+   * (ver `Mola`), e mola tem memória: o rabo continua indo depois de o corpo
+   * parar, que é o que rabo de bicho faz.
+   *
+   * ## As quatro forças
+   *
+   * - **acelerar** joga a cauda para trás e para baixo, e deixa a cabeça um
+   *   instante atrás do corpo;
+   * - **frear** faz o contrário, e é o que dá o "assentar" de quem para;
+   * - **virar** manda a cauda para FORA da curva, como um contrapeso — é o
+   *   movimento mais característico de um quadrúpede mudando de direção, e o
+   *   que mais falta fazia;
+   * - **o tombo** do tronco contra a aceleração, que é o peso resistindo.
+   *
+   * Tudo escala por `pisa`: um bicho que flutua não tem inércia de passada, e
+   * um parado não deve ter cauda chicoteando do nada.
+   */
+  private aplicarInercia(dt: number, ctx: Contexto) {
+    if (dt <= 0) return;
+
+    // A aceleração sai da diferença de velocidade, limitada: um quadro perdido
+    // (o headset engasgou, você tirou e pôs) daria uma aceleração absurda e o
+    // bicho daria um tranco sem motivo nenhum.
+    const aceleracao = THREE.MathUtils.clamp((ctx.velocidade - this.velocidadeAnterior) / dt, -12, 12);
+    this.velocidadeAnterior = ctx.velocidade;
+    const giro = THREE.MathUtils.clamp(ctx.giro ?? 0, -6, 6);
+
+    // Sem colo e sem desmaio: quem está na sua mão não tem inércia de corrida,
+    // e quem está caído não tem inércia nenhuma.
+    const vivo = (1 - (ctx.colo ?? 0)) * (ctx.desmaiado ? 0 : 1);
+
+    // Os alvos são ÂNGULOS, em radianos — ver `Mola`. Uma curva fechada (2,5
+    // rad/s) manda o primeiro nó da cauda a uns 17°, e como os nós somam ao
+    // longo dela a ponta chega perto de 40°. Uma arrancada de 5 m/s² inclina o
+    // tronco 7°: o bastante para se ver, pouco para descaracterizar a pose.
+    this.molas.caudaLado.passo(-giro * 0.12 * vivo, dt);
+    this.molas.caudaCima.passo(-aceleracao * 0.022 * vivo, dt);
+    this.molas.orelhas.passo((-aceleracao * 0.03 - Math.abs(giro) * 0.045) * vivo, dt);
+    this.molas.cabeca.passo(-aceleracao * 0.02 * vivo, dt);
+    this.molas.tronco.passo(aceleracao * 0.025 * vivo, dt);
+
+    // A cauda no plano: o atraso nó a nó é o que a faz parecer um chicote e
+    // não uma vara. Cada nó leva uma fração do anterior, somando ao longo dela.
+    const lado = this.molas.caudaLado.valor;
+    this.rig.girar('cauda1', CIMA, lado * 0.5);
+    this.rig.girar('cauda2', CIMA, lado * 0.72);
+    this.rig.girar('cauda3', CIMA, lado * 0.9);
+
+    const cima = this.molas.caudaCima.valor;
+    this.rig.girar('cauda1', LADO, cima * 0.6);
+    this.rig.girar('cauda2', LADO, cima * 0.8);
+    this.rig.girar('cauda3', LADO, cima);
+
+    const orelha = this.molas.orelhas.valor;
+    this.rig.girar('orelhaE', LADO, orelha);
+    this.rig.girar('orelhaD', LADO, orelha);
+
+    this.rig.girar('cabeca', LADO, this.molas.cabeca.valor);
+    this.rig.girar('pescoco', LADO, this.molas.cabeca.valor * 0.5);
+    this.rig.girar('tronco', LADO, this.molas.tronco.valor);
+    this.rig.girar('peito', LADO, this.molas.tronco.valor * 0.4);
+  }
+
   // ------------------------------------------------------------ poses base
 
   private aplicarBase(ctx: Contexto) {
@@ -434,7 +657,12 @@ export class Animador {
     const pParado = this.pesos.parado;
     if (pParado > 0.01) {
       const ritmo = 1.5 + nervoso * 2.2 + cansaco * 1.4;
-      const respira = Math.sin(t * ritmo);
+      // A respiração é a coisa mais vista do jogo — um bicho parado no meio do
+      // quarto respira o tempo todo, a trinta centímetros dos seus olhos. Um
+      // seno puro ali é um metrônomo, e é o que mais entrega que o bicho é
+      // feito de fórmula. O ruído mistura 25% de irregularidade na amplitude:
+      // fica o mesmo ritmo, com respirações que não são todas iguais.
+      const respira = Math.sin(t * ritmo) * (1 + ruido(t * 0.45, this.semente) * 0.25);
       this.rig.girar('peito', LADO, respira * 0.035 * pParado);
       this.rig.girar('cabeca', LADO, -respira * 0.03 * pParado);
       // Cauda com dois nós desfasados: é o atraso entre eles que faz ela
@@ -489,6 +717,12 @@ export class Animador {
       this.rig.girar('peito', CIMA, -senoE * amplitude * 0.22);
       // Gingado: o corpo sobe duas vezes por ciclo, uma por pé que encosta.
       this.oscilacao += Math.abs(Math.sin(f)) * 0.022 * pPassada;
+      // E AFUNDA no contato, que é a metade que faltava. O pico de compressão
+      // cai onde `Math.abs(sin)` é zero — o instante em que o pé está embaixo
+      // do corpo sustentando tudo. Correndo ela é quase o dobro: é o peso
+      // chegando mais rápido no chão.
+      const contato = 1 - Math.abs(Math.sin(f));
+      this.compressao += contato * contato * (pAndar * 0.35 + pCorrer * 0.75);
 
       // Transferência de peso: o corpo tomba para o lado da perna que está
       // sustentando. É o que separa "andar" de "mover as pernas enquanto
@@ -543,10 +777,25 @@ export class Animador {
    * desce no golpe. As duas famílias mudam só onde aplicam esses dois números —
    * e é isso que faz oito gestos diferentes terem o mesmo peso e o mesmo tempo.
    */
+  /**
+   * O envelope de um gesto: recolher, disparar — e ASSENTAR.
+   *
+   * O disparo era meio seno puro, que volta exatamente ao repouso e para. Isso
+   * é o que um mecanismo faz; um corpo passa um pouco do ponto e volta,
+   * porque tem massa e a massa não para onde o músculo mandou.
+   *
+   * O acréscimo é pequeno de propósito — 18% do disparo, no último terço — e é
+   * dos detalhes que mais se notam sem se conseguir nomear: com ele o golpe
+   * tem fim, sem ele o golpe só acaba.
+   */
   private envelope(t: number, fimDoRecuo = 0.35, comecoDoDisparo = 0.3) {
+    const u = Math.max(0, (t - comecoDoDisparo) / (1 - comecoDoDisparo));
+    const disparo = Math.max(0, Math.sin(u * Math.PI));
+    // O contragolpe: começa quando o disparo já passou do pico e morre no fim.
+    const assenta = u > 0.62 ? Math.sin((u - 0.62) / 0.38 * Math.PI) * 0.18 : 0;
     return {
       recolher: Math.max(0, 1 - t / fimDoRecuo),
-      disparo: Math.max(0, Math.sin(Math.max(0, (t - comecoDoDisparo) / (1 - comecoDoDisparo)) * Math.PI)),
+      disparo: disparo - assenta,
     };
   }
 

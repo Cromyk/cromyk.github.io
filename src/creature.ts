@@ -229,6 +229,9 @@ export class Pokemon {
   private acumuladoDaCondicao = 0;
   /** As partículas da condição, no corpo. Ver src/marcaCondicao.ts. */
   private marcaDaCondicao: MarcaDeCondicao;
+  /** O rumo do quadro anterior e a velocidade angular dele. Ver `atualizar`. */
+  private rumoAnterior = 0;
+  private giroPorSegundo = 0;
 
   /**
    * O quanto o Pokémon que está em campo contra ele é uma ameaça: −1 a +1.
@@ -1586,6 +1589,18 @@ export class Pokemon {
     // A pose de estar sendo segurado entra e sai suave: um corte seco entre
     // "de pé" e "no colo" lê como troca de boneco. Seis por segundo dá uns 300
     // ms, que é o tempo de um bicho se acomodar na sua mão.
+    // A velocidade angular do corpo, medida entre dois quadros. O ângulo é
+    // normalizado para o intervalo de meia volta: sem isso, a virada que cruza
+    // ±π daria um pico de seis radianos e a cauda chicotearia do nada.
+    const rumo = this.raiz.rotation.y;
+    let dRumo = rumo - this.rumoAnterior;
+    while (dRumo > Math.PI) dRumo -= Math.PI * 2;
+    while (dRumo < -Math.PI) dRumo += Math.PI * 2;
+    this.rumoAnterior = rumo;
+    // Suavizado: o rumo é interpolado a cada quadro e a diferença crua treme.
+    const giroCru = dt > 0 ? dRumo / dt : 0;
+    this.giroPorSegundo += (giroCru - this.giroPorSegundo) * Math.min(1, dt * 12);
+
     const querColo = this.estado === 'colo' ? 1 : 0;
     this.pesoDoColo += (querColo - this.pesoDoColo) * Math.min(1, dt * 6);
 
@@ -1594,6 +1609,11 @@ export class Pokemon {
       // que ele não tem, e num Zubat moveria as asas no ritmo errado. Ele fica
       // na pose parada, e quem dá a sensação de deslocamento é o corpo inteiro.
       velocidade: this.flutua ? 0 : this.velocidadeAndando,
+      // Para que lado ele está virando, e com que pressa. É a força que manda
+      // a cauda para fora da curva — ver `aplicarInercia` em src/anima.ts. Sai
+      // da diferença de rumo entre dois quadros, porque o corpo gira por
+      // interpolação e não guarda velocidade angular em lugar nenhum.
+      giro: this.giroPorSegundo,
       alarme: nervoso,
       vida: this.hpFracao,
       encarar: this.estado === 'desmaiado' ? null : this.residuoOlhar,
@@ -1610,9 +1630,13 @@ export class Pokemon {
     const cansaco = 1 - this.hpFracao;
     const ritmo = 2.2 + nervoso * 3.5 + cansaco * 2.5;
     const respira = Math.sin(this.tempo * ritmo) * (0.03 + nervoso * 0.025 + cansaco * 0.02);
-    let ex = 1 - respira * 0.6;
-    let ey = 1 + respira;
-    let ez = 1 - respira * 0.6;
+    // A compressão do passo entra aqui, junto da respiração e pelo mesmo
+    // caminho: quando o pé bate no chão, o corpo afunda e ESPALHA. É a metade
+    // com peso do gingado — ver `compressao` em src/anima.ts.
+    const afunda = this.animador.compressao * 0.055;
+    let ex = 1 - respira * 0.6 + afunda * 0.5;
+    let ey = 1 + respira - afunda;
+    let ez = 1 - respira * 0.6 + afunda * 0.5;
 
     // Squash & stretch: estica subindo, achata na aterrissagem.
     if (!this.noChao) {
