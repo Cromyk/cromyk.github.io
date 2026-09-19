@@ -69,6 +69,27 @@
         font-weight: 500;
       }
       .note { margin: 14px 0 0; font-size: 12.5px; color: #6f7b90; }
+
+      /* O rolo de fotos, na saída da sessão. Ver src/foto.ts: dentro da
+         realidade misturada não há como baixar um arquivo, então a entrega
+         acontece aqui, quando a página volta a ser uma página. */
+      #rolo { display: none; margin: 16px 0 0; }
+      #rolo h2 { margin: 0 0 8px; font-size: 15px; color: #e8ecf4; font-weight: 600; }
+      #fotos {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+        gap: 8px;
+        max-height: 40vh;
+        overflow-y: auto;
+      }
+      #fotos a {
+        display: block;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: repeating-conic-gradient(#1a1f2b 0% 25%, #141821 0% 50%) 50% / 14px 14px;
+      }
+      #fotos img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
       .note code { color: #9aa5b8; }
     </style>
   </head>
@@ -92,6 +113,11 @@
         <button id="enter" disabled>verificando o dispositivo…</button>
         <button id="widget" class="ghost">modo widget — só o seu companheiro</button>
         <button id="flat" class="ghost">jogar na tela (sem headset)</button>
+        <div id="rolo">
+          <h2>As suas fotos</h2>
+          <div id="fotos"></div>
+          <p class="note">Toque numa para baixar. Elas somem se você fechar esta página.</p>
+        </div>
         <p class="note" id="note"></p>
       </div>
     </div>

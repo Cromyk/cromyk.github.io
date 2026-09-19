@@ -297,7 +297,7 @@ descansar, chamado ele não volta, e sem móvel nenhum o jogo é o de antes.
 - **Como saber que funcionou:** você olha para o lado e ele está em cima da sua
   mesa, sem você ter mandado.
 
-### 2.3 Fotografia
+### 2.3 ✅ Fotografia (feito em 19/09)
 
 A Pokédex tira foto. Em realidade misturada isso é a coisa mais natural que
 existe — o bicho está na sua sala — e é o único jeito de o jogo sair do headset
@@ -307,9 +307,35 @@ Tecnicamente é onde mora a dúvida: capturar o passthrough exige permissão de
 câmera (`camera-access`), que o Quest dá com aviso. Sem ela, dá para gravar só o
 Pokémon com fundo transparente — que já serve para um adesivo.
 
-- **Esforço:** médio, com um risco de plataforma a confirmar primeiro.
-- **Como saber que funcionou:** existe um PNG no seu Quest com o seu Charmander
-  em cima da sua mesa.
+**Feito**, e o risco de plataforma era outro do que eu esperava.
+
+O que eu achava que seria o problema — capturar o passthrough — é uma limitação
+conhecida e contornável: sem acesso bruto à câmera, a foto sai com o bicho sobre
+fundo TRANSPARENTE, que é o formato de um adesivo. Quando a permissão existir, o
+mesmo caminho recebe o quadro da câmera como fundo e nada muda de forma.
+
+O problema de verdade é que **dentro de uma sessão imersiva não há como baixar
+um arquivo**: não há barra de endereço, não há diálogo de download, e um link
+com `download` é inerte. Então a foto é guardada em memória e entregue na
+SAÍDA — quando a sessão acaba, a página volta a ser uma página, e ali um link é
+um link. A galeria na tela inicial é esse corredor.
+
+- **O gesto:** **A/X da mão que segura a Pokédex**. É a câmera no punho e o dedo
+  no disparador, e vem antes dos outros usos daquele botão porque, com uma placa
+  de 34 × 45 cm na mão, recolher um Pokémon apontando não é o que se está
+  tentando fazer.
+- **O enquadramento é o do seu OLHAR**, não o da Pokédex: em MR você enquadra
+  com a cabeça, e uma foto tirada do ponto de vista de uma placa que você segura
+  de lado sairia do chão ou do teto.
+- **O retorno:** obturador (duas camadas curtas — câmera não faz nota musical),
+  vibração, e um clarão branco de 0,16 s. O clarão é uma folha de luz na frente
+  da câmera e NÃO mexe nela: a regra um continua valendo.
+
+- **Como saber que funcionou:** tire uma foto, saia da realidade misturada, e
+  ela estará na tela inicial para baixar.
+- **O que ainda depende de você:** confirmar se o download funciona no navegador
+  do Quest como funciona no de mesa. Se não funcionar, o caminho é a Web Share
+  API, que o Quest tem.
 
 ---
 

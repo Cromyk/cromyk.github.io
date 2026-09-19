@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { Jogo } from './game';
 import { audio } from './audio';
+import { nomeDaFoto } from './foto';
 
 const botaoEntrar = document.getElementById('enter') as HTMLButtonElement;
 const botaoPlano = document.getElementById('flat') as HTMLButtonElement;
 const botaoWidget = document.getElementById('widget') as HTMLButtonElement;
 const nota = document.getElementById('note') as HTMLParagraphElement;
 const ui = document.getElementById('ui') as HTMLDivElement;
+const rolo = document.getElementById('rolo') as HTMLDivElement;
+const fotos = document.getElementById('fotos') as HTMLDivElement;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -129,6 +132,7 @@ async function entrarXR(automatico = false) {
       botaoEntrar.disabled = false;
       botaoEntrar.textContent = 'entrar em realidade mista';
       nota.textContent = `Sessão encerrada. ${jogo.dex.totalCapturas} capturas até agora.`;
+      mostrarRolo();
     });
 
     await renderer.xr.setSession(sessao);
@@ -164,6 +168,35 @@ async function entrarXR(automatico = false) {
     // Isso é esperado: o botão continua ali, e não há erro nenhum a relatar.
     nota.textContent = automatico ? '' : `Não deu para abrir a sessão: ${(erro as Error).message}`;
   }
+}
+
+/**
+ * As fotos da sessão, entregues na saída.
+ *
+ * É aqui que a fotografia termina, e não no headset: dentro de uma sessão
+ * imersiva não existe diálogo de download nem barra de endereço, e um link com
+ * `download` é inerte. Quando a sessão acaba, a página volta a ser uma página —
+ * e aí um link é um link. Ver o cabeçalho de src/foto.ts.
+ */
+function mostrarRolo() {
+  const tiradas = jogo.rolo;
+  if (tiradas.length === 0) {
+    rolo.style.display = 'none';
+    return;
+  }
+  fotos.textContent = '';
+  // Da mais nova para a mais velha: a última foto é a que a pessoa quer.
+  for (const foto of [...tiradas].reverse()) {
+    const link = document.createElement('a');
+    link.href = foto.dados;
+    link.download = nomeDaFoto(foto);
+    const img = document.createElement('img');
+    img.src = foto.dados;
+    img.alt = foto.quem;
+    link.appendChild(img);
+    fotos.appendChild(link);
+  }
+  rolo.style.display = 'block';
 }
 
 void prepararBotaoXR();

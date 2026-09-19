@@ -80,6 +80,7 @@ import {
 import { Tablet, ALCANCE_TABLET } from '../src/tablet';
 import { FOGO_POR_ESPECIE, temFogo } from '../src/fogo';
 import { poseDoPulso } from '../src/pulso';
+import { Fotografo, LADO_DA_FOTO, MAX_FOTOS, nomeDaFoto } from '../src/foto';
 import { olhandoORelogio } from '../src/gesto';
 import { forcaDeToque, pulsoDeToque } from '../src/toque';
 import { Rig, type Chave } from '../src/rig';
@@ -3709,6 +3710,82 @@ console.log('\n39. o companheiro usa o quarto');
   );
 
   console.log('   quarto: ele sobe na mesa sozinho, descansa quando acabado, e larga tudo se você chamar');
+}
+
+
+// --- 40. a foto: o nome do arquivo e o caminho sem DOM ---
+//
+// A fotografia é o único item do jogo que sai do headset: dentro de uma sessão
+// imersiva não há diálogo de download nem barra de endereço, então a foto é
+// guardada em memória e entregue quando a página volta a ser uma página.
+//
+// O que se afirma sem navegador é o que decide se o arquivo chega inteiro: o
+// NOME. Dois disparos que gerem o mesmo nome fazem o segundo sobrescrever o
+// primeiro no rolo de quem baixa os dois, e um nome que herde o que está na
+// espécie é um caminho de arquivo esperando para dar errado.
+console.log('\n40. a foto');
+{
+  const foto = (quem: string, quando: number) => ({
+    dados: '',
+    quando,
+    quem,
+    largura: LADO_DA_FOTO,
+    altura: LADO_DA_FOTO,
+  });
+
+  // Acentos e espaços saem: o nome tem de sobreviver a qualquer sistema de
+  // arquivos, e os nomes das espécies têm acento (Nidoran♀ tem coisa pior).
+  checar(
+    nomeDaFoto(foto('Nidoran Fêmea', 12.34)) === 'pokeplace-nidoran-femea-12s34.png',
+    `o nome saiu ${nomeDaFoto(foto('Nidoran Fêmea', 12.34))}`,
+  );
+  checar(
+    nomeDaFoto(foto('Farfetch’d', 5)) === 'pokeplace-farfetch-d-5s00.png',
+    `apóstrofo virou ${nomeDaFoto(foto('Farfetch’d', 5))}`,
+  );
+
+  // NADA vira caminho: nem barra, nem ponto-ponto, nem dois-pontos.
+  for (const veneno of ['../../etc/passwd', 'C:\\Windows', 'a/b/c', '..', '???']) {
+    const nome = nomeDaFoto(foto(veneno, 1));
+    checar(
+      !nome.includes('/') && !nome.includes('\\') && !nome.includes('..'),
+      `o nome ${nome} virou caminho de arquivo`,
+    );
+    checar(nome.endsWith('.png'), `o nome ${nome} perdeu a extensão`);
+  }
+  // E um nome que sobra vazio ainda produz arquivo.
+  checar(nomeDaFoto(foto('???', 1)) === 'pokeplace-foto-1s00.png', 'o nome vazio não virou "foto"');
+
+  // DOIS DISPAROS SEGUIDOS DÃO NOMES DIFERENTES. É o que o centésimo existe
+  // para garantir: um décimo é menos do que a distância entre dois toques no
+  // mesmo botão, e nomes iguais somem um por cima do outro na pasta.
+  const nomes = new Set<string>();
+  for (let i = 0; i < 40; i++) nomes.add(nomeDaFoto(foto('Charmander', 10 + i * 0.05)));
+  checar(nomes.size === 40, `40 disparos a 50 ms deram só ${nomes.size} nomes diferentes`);
+
+  // O rolo é limitado e a foto é quadrada: as duas coisas que a memória do
+  // headset sente, e que ninguém repara até estourar.
+  checar(MAX_FOTOS > 0 && MAX_FOTOS <= 40, `o rolo guarda ${MAX_FOTOS} fotos, o que é muita memória`);
+  checar(LADO_DA_FOTO >= 512 && LADO_DA_FOTO <= 2048, 'o lado da foto saiu do razoável');
+
+  // Sem DOM, bater uma foto devolve null e não estoura. É o caminho deste
+  // próprio teste, e é o que garante que a ferramenta de linha de comando não
+  // quebre no dia em que alguém instanciar o jogo fora do navegador.
+  const fotografo = new Fotografo(64);
+  const semDom = fotografo.bater(
+    null as unknown as THREE.WebGLRenderer,
+    new THREE.Group(),
+    new THREE.PerspectiveCamera(),
+    'charmander',
+    1,
+  );
+  checar(semDom === null, 'bater uma foto sem navegador devolveu alguma coisa');
+  checar(fotografo.fotos.length === 0, 'uma foto que não existiu entrou no rolo');
+
+  console.log(
+    `   foto: ${LADO_DA_FOTO}×${LADO_DA_FOTO}, rolo de ${MAX_FOTOS}, ` +
+      `nome como ${nomeDaFoto(foto('Charmander', 94.2))}`,
+  );
 }
 
   console.log(

@@ -321,6 +321,19 @@ export class Audio {
     this.sopro({ duracao: 0.05, corteInicial: 2400, corteFinal: 700, ganho: 0.1, q: 2.5 });
   }
 
+  /**
+   * O obturador.
+   *
+   * Duas camadas muito curtas e nada mais: um estalo agudo e um sopro seco. Uma
+   * câmera de verdade não faz nota musical — faz um mecanismo batendo —, e é o
+   * som mais reconhecível que existe. Se este ficar melodioso, deixa de dizer
+   * "foto" e passa a dizer "menu".
+   */
+  obturador() {
+    this.tom({ freq: 1800, freqFinal: 900, duracao: 0.025, tipo: 'square', ganho: 0.09 });
+    this.sopro({ duracao: 0.05, corteInicial: 5200, corteFinal: 1200, ganho: 0.13, q: 1.6 });
+  }
+
   acerto() {
     this.tom({ freq: 420, freqFinal: 180, duracao: 0.14, tipo: 'square', ganho: 0.18 });
     this.sopro({ duracao: 0.16, corteInicial: 2200, corteFinal: 400, ganho: 0.22, q: 1.2 });

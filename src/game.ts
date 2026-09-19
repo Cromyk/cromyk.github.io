@@ -48,6 +48,7 @@ import { marcoDe } from './marcos';
 import { fatorDoHorario, nomeDoPeriodo, noturnidade } from './hora';
 import { Cinto } from './cinto';
 import { Tablet, ALCANCE_TABLET } from './tablet';
+import { Fotografo, type Foto } from './foto';
 import { Aviso, BarraVida, PainelPulso, type Carga, type LinhaTexto } from './hud';
 import {
   Colo,
@@ -792,6 +793,65 @@ export class Jogo {
 
   /** Uma vez por sessão, na primeira queda: ver `soltarTablet`. */
   private jaLargouTablet = false;
+  /** A câmera da Pokédex. Ver src/foto.ts. */
+  private fotografo = new Fotografo();
+  /** Quanto tempo o clarão do disparo ainda dura. */
+  private clarao = 0;
+  /**
+   * Segundos desde que a sessão começou.
+   *
+   * Existe para dar nome às fotos, e não é `Date.now()` de propósito: o nome
+   * do arquivo fica legível ("aos 94 segundos de jogo") e igual em qualquer
+   * fuso, e o smoke consegue afirmar o que ele produz.
+   */
+  private relogioDaSessao = 0;
+  /** As fotos desta sessão, para a página entregar na saída. */
+  get rolo(): readonly Foto[] {
+    return this.fotografo.fotos;
+  }
+
+  /**
+   * Bate uma foto de onde você está olhando.
+   *
+   * O gesto é o botão da mão que SEGURA a Pokédex, e ele só existe com ela na
+   * mão: é a câmera no seu punho e o dedo no disparador. Com a Pokédex
+   * guardada, o mesmo botão continua fazendo o que sempre fez.
+   *
+   * O enquadramento é o do seu olhar, e não o da Pokédex. Parece errado e não
+   * é: em MR você ENQUADRA com a cabeça — é para onde você está olhando que
+   * está o bicho —, e uma foto tirada do ponto de vista de uma placa que você
+   * segura de lado sairia do chão ou do teto.
+   */
+  private baterFoto(mao: Mao) {
+    const c = this.companheiro;
+    const foto = this.fotografo.bater(
+      this.renderer,
+      this.cena,
+      this.camera,
+      c?.especie.nome ?? 'pokeplace',
+      this.relogioDaSessao,
+    );
+    if (!foto) return;
+
+    this.clarao = 0.16;
+    audio.obturador();
+    mao.sentir('acertou');
+    this.aviso.mostrar(
+      [
+        { texto: `foto ${this.fotografo.fotos.length}`, tamanho: 34, cor: '#eef2f8' },
+        {
+          texto:
+            this.fotografo.fotos.length === 1
+              ? 'saia da realidade misturada para baixar'
+              : 'elas ficam na tela de saída',
+          tamanho: 21,
+          cor: '#9aa5b8',
+          peso: 500,
+        },
+      ],
+      1.6,
+    );
+  }
 
   /** A Pokédex caída, perto o bastante desta mão para ser catada. */
   private tabletNoChaoPerto(mao: Mao): boolean {
@@ -3727,6 +3787,7 @@ export class Jogo {
 
   atualizar(dt: number) {
     const agora = performance.now();
+    this.relogioDaSessao += dt;
     this.camera.getWorldPosition(this.posicaoJogador);
 
     // A sala é remedida enquanto você anda: cada leitura carimba o chão sob os
@@ -3748,6 +3809,7 @@ export class Jogo {
     }
 
     this.atualizarOclusao();
+    this.atualizarClarao(dt);
 
     // O quarto vem antes do jogo. Enquanto o mapa não tem o bastante, a única
     // coisa que acontece é você andar e ver a sala se desenhar.
@@ -3879,6 +3941,41 @@ export class Jogo {
    * `hasDepthSensing` é a pergunta certa a cada quadro: ela também volta a ser
    * falsa se a sessão trocar.
    */
+  /**
+   * O clarão do disparo.
+   *
+   * Um plano branco preso à câmera, que apaga em 0,16 s. Isto NÃO é mexer na
+   * câmera — a regra um continua valendo: a pose dela não muda, o mundo não
+   * treme, e o que acontece é uma folha de luz na frente dela. É o único jeito
+   * de o disparo ser sentido por quem está olhando para o bicho e não para a
+   * Pokédex.
+   */
+  private atualizarClarao(dt: number) {
+    if (!this.folhaDoClarao) {
+      const geo = new THREE.PlaneGeometry(2, 2);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      this.descartaveis.push(geo, mat);
+      this.folhaDoClarao = new THREE.Mesh(geo, mat);
+      this.folhaDoClarao.position.z = -0.12;
+      this.folhaDoClarao.renderOrder = 10000;
+      this.folhaDoClarao.frustumCulled = false;
+      this.camera.add(this.folhaDoClarao);
+    }
+    if (this.clarao > 0) this.clarao = Math.max(0, this.clarao - dt);
+    const mat = this.folhaDoClarao.material as THREE.MeshBasicMaterial;
+    mat.opacity = this.clarao * 4;
+    this.folhaDoClarao.visible = this.clarao > 0;
+  }
+
+  private folhaDoClarao: THREE.Mesh | null = null;
+
   private atualizarOclusao() {
     const quer = this.ajustes.oclusaoDoQuarto && this.renderer.xr.hasDepthSensing();
     if (!quer) {
@@ -4222,6 +4319,15 @@ export class Jogo {
         this.recusarEvolucao();
         return;
       }
+    }
+
+    // Com a Pokédex NA MÃO, o botão daquela mão vira o disparador da câmera.
+    // É a câmera no punho e o dedo no botão — e vem antes dos outros usos
+    // porque, com uma placa de 34 por 45 centímetros na mão, recolher um
+    // Pokémon apontando não é o que alguém está tentando fazer.
+    if (this.tablet.naMaoDe === mao.indice) {
+      if (mao.apertou(BOTAO_A)) this.baterFoto(mao);
+      return;
     }
 
     // A mão que aponta recolhe e abre a mochila; a outra chama e liga o PC.

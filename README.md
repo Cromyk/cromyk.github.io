@@ -90,6 +90,7 @@ sem pôr o headset a cada mudança:
 | Time, bolas, itens e os quatro golpes | girar o **pulso esquerdo**, como para ver as horas (o **direito**, com Canhoto ligado) |
 | Modo de jogo, dificuldade e opções | a **engrenagem**, no canto do painel do pulso |
 | Ouvir a ficha da Pokédex | **GATILHO** com a Pokédex na mão |
+| **Tirar foto** | **A/X** da mão que segura a Pokédex — elas ficam na tela de saída |
 | Escolher / recolher / usar item | apontar com a outra mão e puxar o **GATILHO** |
 | Trocar de bola | **analógico direito** para os lados |
 | Virar página da Pokédex | **analógico direito**, com a Pokédex aberta |
