@@ -110,6 +110,13 @@ Com *hand tracking* ligado a mesma malha passa a seguir as suas vinte e cinco
 juntas de verdade — fechar o punho faz o papel do GRIP, já que mão nua não tem
 botão. Se o arquivo não estiver lá, a luva montada em código assume o lugar.
 
+`npm run fogo` mede onde a chama de cada Pokémon de fogo fica e confere a
+tabela: os rips NOMEIAM o fogo (`FireCoreA_mat`, `FireStenA`, e um `Hair` no
+Ponyta), então o ponto de ancoragem é medido nos vértices desses materiais em
+vez de escolhido a olho. Sai em `folha-fogo.png`, com o bicho de perfil e uma
+cruz em cada chama — é assim que Ponyta, Magmar e a cauda do Rapidash ganharam
+chama sem ter um osso onde pendurar.
+
 `npm run mao` desenha as duas mãos em três poses e três vistas num PNG: é como
 se confere que os dedos dobram para dentro da palma sem pôr o headset.
 

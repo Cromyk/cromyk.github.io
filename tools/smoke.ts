@@ -63,6 +63,7 @@ import { MEDIDAS_TIME, disporTime } from '../src/menu';
 import { classificarPelaAltura } from '../src/room';
 import { ALTURA_DE_ABRACO, Colo, alcanceDoColo, cabeNoColo, pontoDoColo } from '../src/colo';
 import { Tablet, ALCANCE_TABLET } from '../src/tablet';
+import { FOGO_POR_ESPECIE, temFogo } from '../src/fogo';
 import { forcaDeToque, pulsoDeToque } from '../src/toque';
 import { Rig, type Chave } from '../src/rig';
 import { ATAQUES, Animador, type GestoDeAtaque } from '../src/anima';
@@ -2972,6 +2973,78 @@ console.log('\n31. a Pokédex: as costas, a queda e a volta');
   console.log(
     `   toque: rampa de ${(0.13 * 100).toFixed(0)} a ${(0.075 * 100).toFixed(1)} cm, pulso de ` +
       `${pulsoDeToque(0).toFixed(2)} a ${pulsoDeToque(1).toFixed(2)}`,
+  );
+}
+
+
+// --- 32. o fogo de quem não tem osso ---
+//
+// Ponyta e Magmar ficaram sem chama porque os rips deles não têm esqueleto
+// nenhum, e a tabela dizia — com razão — que escolher um ponto fixo de memória
+// é palpite. O que mudou foi passar a MEDIR: `tools/brasa.mjs` lê os vértices
+// que o próprio arquivo declara como chama (`FireCoreA_mat`, `FireStenA`,
+// `Hair`) e devolve o centroide em fração da altura.
+//
+// Esta seção guarda o resultado contra duas regressões que não aparecem em
+// lugar nenhum: uma âncora que sai da caixa do bicho — chama acesa no vazio, ao
+// lado dele — e um Pokémon de fogo que perde a chama em silêncio.
+console.log('\n32. o fogo de quem não tem osso');
+{
+  const comAncora: string[] = [];
+  for (const [id, pontos] of Object.entries(FOGO_POR_ESPECIE)) {
+    const medida = MEDIDAS[id as keyof typeof MEDIDAS] as
+      | { largura: number; profundidade: number; alturaModelo: number }
+      | undefined;
+    checar(medida !== undefined, `${id} tem fogo na tabela e não tem modelo`);
+    if (!medida) continue;
+
+    const meiaLargura = medida.largura / 2 / medida.alturaModelo;
+    const meiaProfundidade = medida.profundidade / 2 / medida.alturaModelo;
+
+    for (const ponto of pontos) {
+      checar(
+        (ponto.ossos?.length ?? 0) > 0 || ponto.ancora !== undefined,
+        `${id} tem um ponto de fogo sem osso e sem âncora — a chama não nasce`,
+      );
+      checar(
+        ponto.fracao > 0.05 && ponto.fracao < 0.6,
+        `a chama de ${id} tem ${ponto.fracao} da altura dele, fora do que uma chama é`,
+      );
+      if (!ponto.ancora) continue;
+      comAncora.push(id);
+
+      // Dentro da caixa, com a folga de 5% que a chama transborda de propósito.
+      const [ax, ay, az] = ponto.ancora;
+      checar(
+        Math.abs(ax) <= meiaLargura + 0.05,
+        `a âncora de ${id} fica ${Math.abs(ax).toFixed(2)} para o lado, e o bicho tem ${meiaLargura.toFixed(2)}`,
+      );
+      checar(
+        ay >= -0.05 && ay <= 1.05,
+        `a âncora de ${id} fica na altura ${ay}, fora do corpo (0 = pé, 1 = topo)`,
+      );
+      checar(
+        Math.abs(az) <= meiaProfundidade + 0.05,
+        `a âncora de ${id} fica ${Math.abs(az).toFixed(2)} de profundidade, e o bicho tem ${meiaProfundidade.toFixed(2)}`,
+      );
+    }
+  }
+
+  // Os cinco que o desenho manda ter fogo continuam tendo. Por NOME, e não por
+  // contagem: se alguém sair da tabela, o teste diz quem.
+  for (const id of ['charmander', 'charmeleon', 'charizard', 'ponyta', 'rapidash', 'magmar', 'moltres']) {
+    checar(temFogo(id), `${id} é de fogo e não tem chama nenhuma`);
+  }
+  // E quem não é, não ganha: a régua é o DESENHO, não o tipo. Flareon é de fogo
+  // e a juba dele é pelo.
+  for (const id of ['flareon', 'growlithe', 'vulpix', 'charmander']) {
+    if (id === 'charmander') continue;
+    checar(!temFogo(id), `${id} ganhou chama, e a juba dele é pelo`);
+  }
+
+  console.log(
+    `   fogo: ${Object.keys(FOGO_POR_ESPECIE).length} espécies · ` +
+      `${new Set(comAncora).size} delas por âncora medida, sem osso`,
   );
 }
 

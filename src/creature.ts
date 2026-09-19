@@ -333,10 +333,31 @@ export class Pokemon {
     if (daRaiz < 1e-9) return;
 
     for (const ponto of pontos) {
+      // Sem osso: a chama vai direto no CORPO, num ponto medido.
+      //
+      // Dentro de `corpo` as coordenadas já estão na escala do jogo, com o pé
+      // em y = 0 — é o mesmo espaço em que a `boca` é posicionada (ver
+      // src/modelos.ts). Então a âncora, que vem em fração da altura, só
+      // precisa ser multiplicada por ela. E como aqui não há o nó encolhido do
+      // modelo no caminho, o tamanho da chama também não precisa da
+      // compensação de escala que a versão do osso precisa.
+      if (ponto.ancora) {
+        const [ax, ay, az] = ponto.ancora;
+        const chama = new Chama(this.corpo.altura * ponto.fracao, ponto.cor);
+        chama.grupo.position.set(
+          ax * this.corpo.altura,
+          ay * this.corpo.altura,
+          az * this.corpo.altura,
+        );
+        this.corpo.corpo.add(chama.grupo);
+        this.chamas.push(chama);
+        continue;
+      }
+
       // O último osso que o rip nomeou: nem todo modelo tem as três vértebras
       // de cauda, e pendurar na primeira deixaria a chama no lombo.
       let osso: THREE.Object3D | null = null;
-      for (const chave of ponto.ossos) {
+      for (const chave of ponto.ossos ?? []) {
         osso = this.animador.rig.ossoDe(chave);
         if (osso) break;
       }

@@ -10,6 +10,13 @@
  *    pela cadeia até o osso mais distante (ver `pontaDaCadeia` em src/fogo.ts);
  *    esta ferramenta refaz a mesma conta aqui fora e mostra onde ela para.
  *
+ * 3. **E quando não há osso?** Ponyta e Magmar não têm esqueleto nenhum, e a
+ *    chama deles vai por ÂNCORA — um ponto fixo em fração da altura, medido
+ *    por `tools/brasa.mjs` nos vértices que o rip declara como chama. Aqui a
+ *    pergunta muda: o ponto cai DENTRO da caixa do bicho? Uma âncora fora dela
+ *    é uma chama acesa no vazio ao lado do Pokémon, e isso não se vê em teste
+ *    nenhum — só no headset.
+ *
  *   node tools/diag-fogo.mjs            # confere a tabela
  *   node tools/diag-fogo.mjs ponyta     # lista os ossos de um modelo
  */
@@ -83,6 +90,9 @@ for (const [id, corpo] of entradas) {
   const grupos = [...corpo.matchAll(/ossos:\s*\[([^\]]*)\]/g)].map((m) =>
     m[1].split(',').map((s) => s.trim().replace(/'/g, '')).filter(Boolean),
   );
+  const ancoras = [...corpo.matchAll(/ancora:\s*\[([^\]]*)\]/g)].map((m) =>
+    m[1].split(',').map((n) => Number(n.trim())),
+  );
   const naPonta = /ponta:\s*true/.test(corpo);
   const mundo = await arvoreDe(id);
   if (!mundo) {
@@ -120,6 +130,31 @@ for (const [id, corpo] of entradas) {
     }
     return null;
   });
+
+  // As âncoras: o ponto tem de cair dentro da caixa do bicho, em fração da
+  // altura. A folga de 0,05 existe porque a chama é maior do que o ponto — ela
+  // pode (e deve) transbordar um pouco da silhueta.
+  const m = MEDIDAS[id];
+  const meiaLargura = m.largura / 2 / m.alturaModelo;
+  const meiaProfundidade = m.profundidade / 2 / m.alturaModelo;
+  for (const [ax, ay, az] of ancoras) {
+    const dentro =
+      Math.abs(ax) <= meiaLargura + 0.05 &&
+      ay >= -0.05 &&
+      ay <= 1.05 &&
+      Math.abs(az) <= meiaProfundidade + 0.05;
+    achados.push(
+      dentro
+        ? `âncora(${ax}, ${ay}, ${az})`
+        : null,
+    );
+    if (!dentro) {
+      console.log(
+        `       a âncora (${ax}, ${ay}, ${az}) cai FORA da caixa de ${id}: ` +
+          `x até ±${meiaLargura.toFixed(2)}, z até ±${meiaProfundidade.toFixed(2)}`,
+      );
+    }
+  }
 
   const ok = achados.length > 0 && achados.every(Boolean);
   if (!ok) faltou++;

@@ -32,7 +32,8 @@
     "luva": "node tools/luva.mjs",
     "rig": "esbuild tools/rig.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rig.mjs --log-level=error --external:./raster.mjs --external:./png.mjs && node --max-old-space-size=4096 node_modules/.cache/rig.mjs",
     "ver:luva": "node tools/ver-luva.mjs",
-    "tipos": "tsc --noEmit -p tsconfig.tools.json"
+    "tipos": "tsc --noEmit -p tsconfig.tools.json",
+    "fogo": "node tools/brasa.mjs --material=Hair ponyta magmar rapidash && node tools/diag-fogo.mjs"
   },
   "dependencies": {
     "three": "^0.184.0"

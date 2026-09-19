@@ -164,7 +164,36 @@ export class Chama {
  * vértebras da cauda, e a ponta é a última que existir.
  */
 export interface PontoDeFogo {
-  ossos: Chave[];
+  /**
+   * Em que osso pendurar. Vazio quando o modelo não tem esqueleto — aí vale a
+   * `ancora`, e as duas nunca são usadas juntas.
+   */
+  ossos?: Chave[];
+  /**
+   * Onde a chama fica quando NÃO HÁ OSSO, em fração da altura do bicho: x para
+   * o lado, y do pé para cima, z da traseira para a frente.
+   *
+   * ## Por que isto existe
+   *
+   * Nem todo rip tem esqueleto. `node tools/diag-fogo.mjs ponyta` devolve lista
+   * vazia, e o mesmo vale para Magmar — os dois Pokémon de fogo mais óbvios
+   * depois dos Charmanders ficaram sem chama nenhuma por isso, com a tabela
+   * dizendo, com razão, que escolher um ponto fixo de memória é palpite.
+   *
+   * ## De onde vêm estes números
+   *
+   * De `node tools/brasa.mjs`, que pergunta ao arquivo. Os rips NOMEIAM a
+   * chama: Magmar tem `FireCoreA_mat` e `FireStenA_mat`, Rapidash tem
+   * `FireCoreA` e `FireStenA`, e no Ponyta ela mora num material chamado
+   * `Hair`. A ferramenta junta os vértices desses materiais em aglomerados e
+   * imprime o centroide de cada um em fração da altura — que é exatamente a
+   * unidade desta tabela, e a mesma em que a `boca` do corpo é posicionada.
+   *
+   * O custo de não ter osso continua sendo real e está aceito: a chama fica
+   * PARADA em relação ao corpo. Ela respira e pisca, mas não balança junto com
+   * o rabo, porque não há rabo que balance — estes modelos não animam nada.
+   */
+  ancora?: readonly [number, number, number];
   /** Fração da altura do bicho. A chama do Charmander é ~1/5 dele. */
   fracao: number;
   cor?: number;
@@ -187,11 +216,15 @@ export const FOGO_POR_ESPECIE: Readonly<Record<string, readonly PontoDeFogo[]>> 
   charmander: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.16, ponta: true }],
   charmeleon: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.15, ponta: true }],
   charizard: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.13, ponta: true }],
-  // Só a crina: a cauda do Rapidash é fogo também, mas o rip nomeia as mechas
-  // dela `taila01`…`tailh03`, e nenhuma bate com os candidatos de cauda do
-  // rig. Ensinar o rig a ler esses nomes mexeria na animação de cauda de todo
-  // mundo para ganhar uma chama — a troca não compensa.
-  rapidash: [{ ossos: ['pescoco', 'cabeca'], fracao: 0.45, cor: 0xffa02a }],
+  // A crina vai no OSSO do pescoço, que o rig conhece. A cauda não tem osso que
+  // sirva — o rip nomeia as mechas dela `taila01`…`tailh03`, e nenhuma bate com
+  // os candidatos do rig —, então ela vai por âncora, no ponto que a
+  // `tools/brasa.mjs` mediu nos vértices de `FireCoreA`: y=0,647 e z=−0,412,
+  // que é o alto da garupa, atrás.
+  rapidash: [
+    { ossos: ['pescoco', 'cabeca'], fracao: 0.45, cor: 0xffa02a },
+    { ancora: [0, 0.65, -0.41], fracao: 0.22, cor: 0xffa02a },
+  ],
   // Moltres é uma ave DE fogo: a cauda dele é chama do começo ao fim.
   // Fração menor que a das outras aves de fogo porque a chama dele fica na
   // BASE da cauda, não na ponta: o rip não liga o osso `tail` ao resto do rabo
@@ -199,12 +232,25 @@ export const FOGO_POR_ESPECIE: Readonly<Record<string, readonly PontoDeFogo[]>> 
   // uma bola de fogo no meio do corpo.
   moltres: [{ ossos: ['cauda3', 'cauda2', 'cauda1'], fracao: 0.3, cor: 0xffb03a, ponta: true }],
 
-  // Ficam de fora, e é bom estar escrito por quê: **Ponyta e Magmar não têm
-  // esqueleto nenhum** nestes arquivos (`tools/diag-fogo.mjs ponyta` devolve
-  // lista vazia). Sem osso não há onde pendurar, e a alternativa — um ponto
-  // fixo no corpo, medido a olho — é palpite: erra o lugar e a chama sai do
-  // pescoço do cavalo. Quando forem feitos, que seja com a folha de contato
-  // aberta para conferir, não de memória.
+  // Ponyta e Magmar NÃO TÊM ESQUELETO nenhum nestes arquivos — por isso ficaram
+  // de fora até 18/09, com a observação de que um ponto fixo escolhido a olho
+  // seria palpite. O que mudou não foi a disposição de chutar: foi passar a
+  // MEDIR, com `tools/brasa.mjs`, os vértices que o próprio rip declara como
+  // chama. Os números abaixo são centroides de aglomerados, não impressões.
+  //
+  // Ponyta tem duas: a crina, à frente e no alto (1.748 vértices em y=0,772 e
+  // z=+0,318), e a cauda, atrás (3.103 vértices entre y=0,40 e y=0,62, em
+  // z≈−0,20, com o centro visual no alto da garupa). As quatro patas também são fogo e ficam de fora: são mais quatro
+  // chamas de três sprites cada num bicho que já tem duas, e o que elas
+  // acrescentam à silhueta a meio metro do rosto não paga o quadro.
+  ponyta: [
+    { ancora: [0, 0.77, 0.32], fracao: 0.26, cor: 0xffa83a },
+    { ancora: [0, 0.52, -0.2], fracao: 0.28, cor: 0xffa83a },
+  ],
+  // Magmar é uma chama só, e é o rabo: os 534 vértices de `FireCoreA_mat` e
+  // `FireStenA_mat` estão todos em z≈−0,30, subindo de y=0,09 a y=0,31. A
+  // âncora é o centroide ponderado dos dois aglomerados.
+  magmar: [{ ancora: [0, 0.15, -0.3], fracao: 0.28, cor: 0xff7a2a }],
 };
 
 export const temFogo = (id: string) => id in FOGO_POR_ESPECIE;

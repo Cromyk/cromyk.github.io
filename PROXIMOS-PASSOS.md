@@ -331,16 +331,29 @@ ordem anatômica ficar confiável, o alinhamento, os pesos e a bind pose. É o
 item de menor impacto do roteiro: a mão genérica funciona, e **nada aqui
 depende dele**.
 
-**O fogo do Ponyta e do Magmar.** Os rips deles não têm esqueleto nenhum
-(`node tools/diag-fogo.mjs ponyta` devolve lista vazia), então não há osso onde
-pendurar. A saída é um ponto fixo no corpo, medido com a folha de contato
-aberta — não de memória. Pequeno, mas só vale a pena junto de outra visita ao
-`src/fogo.ts`.
+**~~O fogo do Ponyta e do Magmar~~ — feito em 18/09.** Os rips deles não têm
+esqueleto nenhum, então não havia osso onde pendurar, e a nota aqui dizia que a
+saída era um ponto fixo "medido com a folha de contato aberta, não de memória".
+Foi o que se fez, e a medida saiu melhor do que uma folha: `tools/brasa.mjs`
+descobriu que **os rips NOMEIAM a chama** — `FireCoreA_mat` e `FireStenA_mat` no
+Magmar, `FireCoreA` e `FireStenA` no Rapidash, e um material `Hair` no Ponyta.
+A ferramenta junta os vértices desses materiais em aglomerados e imprime o
+centroide de cada um em fração da altura, que é a unidade da tabela de
+`src/fogo.ts`. `npm run fogo` roda os dois (a medida e a conferência) e desenha
+`folha-fogo.png`, o bicho de perfil com as chamas marcadas.
 
-**A cauda do Rapidash.** O rip nomeia as mechas `taila01`…`tailh03` e nenhuma
-bate com os candidatos de cauda do rig. Ensinar o rig a ler esses nomes mexeria
-na animação de cauda de todo mundo para ganhar uma chama — a troca não
-compensa hoje.
+**~~A cauda do Rapidash~~ — feita junto.** O rip nomeia as mechas
+`taila01`…`tailh03` e nenhuma bate com os candidatos de cauda do rig; ensinar o
+rig a ler esses nomes mexeria na animação de cauda de todo mundo. Com a âncora,
+nada disso é preciso: a crina continua no osso do pescoço e a cauda entra por
+ponto fixo, em y=0,65 e z=−0,41, que é onde os vértices de `FireCoreA` estão.
+
+**O que a âncora não dá, e é bom estar escrito:** a chama fica PARADA em relação
+ao corpo. Ela respira e pisca, mas não balança junto com o rabo — e não há rabo
+que balance, porque estes modelos não animam nada. As quatro patas de fogo do
+Ponyta também ficaram de fora: são mais quatro chamas de três sprites num bicho
+que já tem duas, e o que elas somam à silhueta a meio metro do rosto não paga o
+quadro.
 
 ---
 
