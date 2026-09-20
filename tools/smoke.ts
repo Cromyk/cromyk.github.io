@@ -11,7 +11,7 @@
  */
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { BORDA_COLISAO, MARGEM_DA_BOLA, Pokemon } from '../src/creature';
+import { BORDA_COLISAO, MARGEM_DA_BOLA, Pokemon, type Terreno } from '../src/creature';
 import { avaliar, genesDe, poderDeCombate, totalDosGenes } from '../src/avaliacao';
 import { PainelPc } from '../src/pc';
 import { RAIO_DO_PASTO, Rancho } from '../src/rancho';
@@ -6723,6 +6723,120 @@ console.log('\n68. quem não tem osso também se mexe');
   console.log(
     `   sem osso: parado varia ${(parado * 100).toFixed(1)}% da altura · andando sobe ` +
       `${(altoAndando * 100).toFixed(1)}% e afunda até ${compressaoMax.toFixed(2)}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// --- 69. no pasto ele é LIVRE, e obedece às quatro ordens ---
+//
+// O relato de 20/09 foi *"o rancho Pokémon atrai todos os pokes pra mim, quero
+// ver eles livres, e comandar eles para ir, andar, ficar e vir"*. A primeira
+// metade era um erro meu de uma linha: os moradores nasciam com papel
+// `'companheiro'`, e companheiro tem a regra "fica a 1,1 m do treinador"
+// atravessando tudo. Oito bichos amontoados na sua frente não são um pasto.
+console.log('\n69. no pasto ele é livre, e obedece às quatro ordens');
+{
+  const chao: Terreno = { alturaEm: () => 0 };
+  const nascerSolto = (onde: THREE.Vector3) => {
+    const especie = porId('bulbasaur')!;
+    const bicho = new Pokemon(especie, corpoFalso(especie.altura), onde, 0, 'companheiro', 14);
+    bicho.invocar(onde, 0);
+    bicho.solto = true;
+    // Passa o susto de nascer: `surgindo` dura alguns quadros.
+    for (let i = 0; i < 90; i++) bicho.atualizar(1 / 72, JOGADOR, chao);
+    return bicho;
+  };
+  const distanciaAoJogador = (b: Pokemon) =>
+    Math.hypot(b.raiz.position.x - JOGADOR.x, b.raiz.position.z - JOGADOR.z);
+
+  // --- LIVRE: ele não vem atrás de você ---
+  const longe = new THREE.Vector3(5, 0, -5);
+  const livre = nascerSolto(longe);
+  const partida = distanciaAoJogador(livre);
+  let maisPerto = Infinity;
+  for (let i = 0; i < 2000; i++) {
+    livre.atualizar(1 / 72, JOGADOR, chao);
+    maisPerto = Math.min(maisPerto, distanciaAoJogador(livre));
+  }
+  checar(
+    maisPerto > partida * 0.55,
+    `solto a ${partida.toFixed(1)} m, ele chegou a ${maisPerto.toFixed(1)} m de você — ` +
+      `ainda está te seguindo`,
+  );
+
+  // E o mesmo bicho NÃO solto continua vindo: é o contraste que prova que a
+  // bandeira é o que decide, e não o acaso do passeio.
+  const grudento = nascerSolto(longe);
+  grudento.solto = false;
+  let chegouPerto = Infinity;
+  for (let i = 0; i < 2000; i++) {
+    grudento.atualizar(1 / 72, JOGADOR, chao);
+    chegouPerto = Math.min(chegouPerto, distanciaAoJogador(grudento));
+  }
+  checar(
+    chegouPerto < 2,
+    `o companheiro comum parou a ${chegouPerto.toFixed(1)} m — ele devia vir para o seu lado`,
+  );
+
+  // --- FICAR ---
+  const parado = nascerSolto(new THREE.Vector3(2, 0, -3));
+  parado.ficarAqui();
+  checar(parado.ficandoNoPosto, 'ficarAqui não plantou o posto');
+  const posto = parado.raiz.position.clone();
+  for (let i = 0; i < 1200; i++) parado.atualizar(1 / 72, JOGADOR, chao);
+  const saiuDoPosto = Math.hypot(
+    parado.raiz.position.x - posto.x,
+    parado.raiz.position.z - posto.z,
+  );
+  // Ele passeia um palmo em volta do posto — isso é vida, não desobediência.
+  checar(saiuDoPosto < 0.6, `mandado ficar, ele andou ${saiuDoPosto.toFixed(2)} m`);
+
+  // --- ANDAR desfaz o ficar ---
+  parado.andarPorConta();
+  checar(!parado.ficandoNoPosto, 'andarPorConta não soltou o posto');
+  checar(parado.solto, 'andarPorConta não deixou o bicho solto');
+  let andou = 0;
+  for (let i = 0; i < 1200; i++) {
+    parado.atualizar(1 / 72, JOGADOR, chao);
+    andou = Math.max(
+      andou,
+      Math.hypot(parado.raiz.position.x - posto.x, parado.raiz.position.z - posto.z),
+    );
+  }
+  checar(andou > 0.8, `solto de novo, ele só andou ${andou.toFixed(2)} m do posto antigo`);
+
+  // --- IR ---
+  const mandado = nascerSolto(new THREE.Vector3(-2, 0, -2));
+  const marca = new THREE.Vector3(1.5, 0, -4);
+  mandado.solto = false;
+  mandado.irPara(marca.clone());
+  checar(mandado.indoParaAlgumLugar, 'irPara não tomou o controle');
+  for (let i = 0; i < 1500; i++) mandado.atualizar(1 / 72, JOGADOR, chao);
+  const daMarca = Math.hypot(
+    mandado.raiz.position.x - marca.x,
+    mandado.raiz.position.z - marca.z,
+  );
+  checar(daMarca < 0.7, `mandado ir, ele parou a ${daMarca.toFixed(2)} m da marca`);
+  // E FICA lá: chegar planta o posto sozinho.
+  checar(mandado.ficandoNoPosto, 'ele chegou na marca e não ficou');
+
+  // --- VIR ---
+  const chamado = nascerSolto(new THREE.Vector3(6, 0, -6));
+  const antesDeVir = distanciaAoJogador(chamado);
+  chamado.solto = false;
+  chamado.cancelarComando();
+  chamado.chamarPara(JOGADOR);
+  for (let i = 0; i < 2000; i++) chamado.atualizar(1 / 72, JOGADOR, chao);
+  const depoisDeVir = distanciaAoJogador(chamado);
+  checar(
+    depoisDeVir < antesDeVir * 0.5,
+    `chamado de ${antesDeVir.toFixed(1)} m, ele parou a ${depoisDeVir.toFixed(1)} m`,
+  );
+
+  console.log(
+    `   pasto: solto fica a ${maisPerto.toFixed(1)} m (o comum vem a ${chegouPerto.toFixed(1)}) · ` +
+      `ficar segura em ${saiuDoPosto.toFixed(2)} m · ir chega a ${daMarca.toFixed(2)} m · ` +
+      `vir traz de ${antesDeVir.toFixed(1)} para ${depoisDeVir.toFixed(1)} m`,
   );
 }
 

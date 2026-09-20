@@ -290,7 +290,8 @@ export class Pokemon {
    */
   private jaAguentou = false;
 
-  private static readonly RAIO_PASSEIO = 0.85;
+  /** O raio em que ele passeia em torno da âncora. Público: o rancho lê. */
+  static readonly RAIO_PASSEIO = 0.85;
 
   /**
    * As distâncias deste arquivo foram escritas para bichos de meio metro, que
@@ -1359,6 +1360,66 @@ export class Pokemon {
     this.proximaIdeia = entre(this.rng, 14, 26);
   }
 
+  /**
+   * SOLTO: ele não te segue. Passeia por conta, em torno da própria âncora.
+   *
+   * ## O que isto conserta
+   *
+   * O rancho nasceu com os moradores marcados como `'companheiro'`, e
+   * companheiro tem uma regra que atravessa tudo: *fica a 1,1 m do treinador*.
+   * O resultado em campo foi imediato — *"o rancho Pokémon atrai todos os
+   * pokes pra mim, quero ver eles livres"* (playtest de 20/09). Oito bichos
+   * amontoados na sua frente não são um pasto, são uma fila.
+   *
+   * Não virou um `Papel` novo porque papel é usado em treze lugares para
+   * decidir coisas que não têm nada a ver com isto — quem foge, quem aguenta o
+   * primeiro golpe, quem pode ser capturado. O que muda aqui é UMA regra, e a
+   * bandeira mexe só nela.
+   *
+   * Quem está solto continua sendo seu: ele obedece `chamarPara`, `irPara` e
+   * `ficarAqui` do mesmo jeito. A diferença é o que ele faz quando você não
+   * manda nada — e o certo, num pasto, é ele viver a vida dele.
+   */
+  solto = false;
+
+  /**
+   * FICAR: ele planta o pé onde está e monta guarda ali.
+   *
+   * O `posto` já existia, mas só nascia por um caminho: mandar ir a um ponto e
+   * ESPERAR ele chegar (ver o estado 'indo'). Não havia como dizer "fica aí"
+   * para um bicho que já está onde você quer — e essa é a ordem mais óbvia das
+   * quatro.
+   */
+  ficarAqui() {
+    if (this.desmaiado || this.estado === 'preso' || this.estado === 'saindo') return;
+    this.destinoComandado = null;
+    this.largarORepouso();
+    this.posto = this.raiz.position.clone();
+    this.ancora.copy(this.raiz.position);
+    this.destino.copy(this.raiz.position);
+    this.estado = 'ocioso';
+  }
+
+  /**
+   * ANDAR: ele volta a passear por conta própria, a partir de onde está.
+   *
+   * É a ordem contrária de `ficarAqui`, e ela também SOLTA — no pasto, "anda
+   * aí" quer dizer "esquece que eu existo e vai viver", não "volta para o meu
+   * lado".
+   */
+  andarPorConta() {
+    if (this.desmaiado || this.estado === 'preso' || this.estado === 'saindo') return;
+    this.posto = null;
+    this.destinoComandado = null;
+    this.solto = true;
+    this.largarORepouso();
+    // A âncora vira o lugar onde ele está: sem isto ele sairia andando de volta
+    // para onde nasceu, que é o canto do pasto onde a bola o largou.
+    this.ancora.copy(this.raiz.position);
+    this.proximaAndanca = entre(this.rng, 2, 5);
+    this.estado = 'ocioso';
+  }
+
   private comportamentoLivre(dt: number, jogador: THREE.Vector3, distJogador: number) {
     if (this.papel === 'companheiro') {
       // Recebendo carinho ele não sai do lugar. Sem isto, a regra de "fica a
@@ -1398,6 +1459,20 @@ export class Pokemon {
           }
         }
         this.olharPara = this.alvo && !this.alvo.desmaiado ? this.alvo.centro : jogador;
+        return;
+      }
+
+      // SOLTO: ele não te segue. Passeia como o selvagem passeia, orbitando a
+      // própria âncora — o mesmo `passeioSolto`, e não uma cópia dele.
+      //
+      // O que NÃO se herda do selvagem é o MEDO: um bicho seu não acumula
+      // alarme por você chegar perto, não foge de você e não mede vantagem de
+      // tipo contra o companheiro. Por isso aqui se chama só o passeio, e não
+      // o trecho do selvagem inteiro.
+      if (this.solto) {
+        this.estado = distJogador < 2.2 ? 'atento' : 'ocioso';
+        this.olharPara = distJogador < 2.6 ? jogador : null;
+        this.passeioSolto(dt);
         return;
       }
 
@@ -1481,6 +1556,24 @@ export class Pokemon {
       }
     }
 
+    // De tempos em tempos ele muda de canto. Sem isto a âncora era o berço
+    // para sempre e o bicho orbitava um raio de um palmo pelo resto da vida:
+    // voltar ao quarto meia hora depois encontrava todo mundo exatamente onde
+    // tinha nascido. Agora a âncora anda, e ele anda com ela.
+    //
+    // Parado quando está atento a você: bicho que te encara não sai vagando.
+    this.passeioSolto(dt);
+  }
+
+  /**
+   * O passeio: mudar de canto de vez em quando, e dar voltinhas em torno da
+   * âncora enquanto está lá.
+   *
+   * Extraído porque agora tem dois donos — o selvagem, que sempre fez isso, e
+   * o morador do rancho, que passou a fazer (ver `solto`). Era o único jeito
+   * de os dois passearem igual sem o passeio existir duas vezes.
+   */
+  private passeioSolto(dt: number) {
     // De tempos em tempos ele muda de canto. Sem isto a âncora era o berço
     // para sempre e o bicho orbitava um raio de um palmo pelo resto da vida:
     // voltar ao quarto meia hora depois encontrava todo mundo exatamente onde

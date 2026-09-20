@@ -761,9 +761,31 @@ Saem até oito, e o teto é de memória e não de gosto: o cache de modelos segu
 catorze, e cada Pokémon em cena traz geometria, esqueleto e textura. Quem não
 coube fica no PC, que é a tela onde se decide o bando.
 
-Lá dentro eles andam, param, se entreolham e reagem a você: encostar a mão na
-cabeça faz carinho — e o afeto conta, como conta no quarto —, e o GRIP pega no
-colo quem couber nele. A cerca é o limite: quem chega nela volta.
+Lá dentro eles são **livres**: cada um passeia em torno do próprio canto, muda
+de canto de vez em quando e não vem atrás de você. Isso não era de graça — os
+moradores nasceram marcados como "companheiro", e companheiro tem uma regra que
+atravessa tudo (*fica a 1,1 m do treinador*), o que juntava os oito na sua
+frente em vez de espalhá-los pelo pasto. A bandeira `solto` mexe só nessa regra;
+o resto do que é ser seu continua valendo.
+
+### As quatro ordens
+
+Aponte um deles e:
+
+| ordem | gesto |
+|---|---|
+| **ficar** / **andar** | **toque** o gatilho — alterna entre plantar o pé ali e voltar a passear |
+| **ir** | **segure** o gatilho e marque o chão — ele vai e fica lá |
+| **vir** | **X**, ou a carta "vem cá" — o apontado vem; sem apontar ninguém, vem o bando inteiro |
+
+O alvo do "vá ali" é escolhido na **descida** do gatilho, e não na subida: no
+fim do gesto o braço já está apontando para o chão, e perguntar ali quem está
+sob a mira devolveria o capim.
+
+Encostar a mão na cabeça faz carinho — e o afeto conta, como conta no quarto —,
+e o GRIP pega no colo quem couber nele. A cerca é o limite, e ela prende a
+ÂNCORA do passeio, não só a posição: prender só a posição deixaria o bicho
+empurrando a cerca para sempre, com as pernas andando e o corpo parado.
 
 O cenário inteiro são oito desenhos e 739 vértices, e nada aqui usa
 `transmission` nem pós-processamento (a água é opaca com brilho, não vidro). Em

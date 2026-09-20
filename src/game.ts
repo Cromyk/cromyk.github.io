@@ -340,7 +340,19 @@ export class Jogo {
    * A mão que está com o gatilho preso, e desde quando. É a diferença entre
    * tocar o gatilho (atacar) e segurá-lo (marcar para onde ir).
    */
-  private gatilhoPreso: { mao: Mao; desde: number; comandou: boolean } | null = null;
+  private gatilhoPreso: {
+    mao: Mao;
+    desde: number;
+    comandou: boolean;
+    /**
+     * Quem recebe o "vá ali", escolhido na DESCIDA do gatilho.
+     *
+     * No fim do gesto o braço já está apontando para o chão: perguntar ali
+     * quem está sob a mira devolveria o capim. A mira que importa é a do
+     * instante em que o dedo desceu. Ver `ordenarNoPasto`.
+     */
+    paraQuem: Pokemon | null;
+  } | null = null;
   private pontoMarcado: THREE.Vector3 | null = null;
   /** Quando a bola da mão carrega um Pokémon para soltar, e não é de captura. */
   private bolaDeInvocacao = new Map<number, Exemplar>();
@@ -2608,7 +2620,12 @@ export class Jogo {
       this.puxarGatilho(mao);
       return;
     }
-    this.gatilhoPreso = { mao, desde: performance.now(), comandou: false };
+    this.gatilhoPreso = {
+      mao,
+      desde: performance.now(),
+      comandou: false,
+      paraQuem: this.rancho.aberto ? this.moradorApontado(mao) : null,
+    };
   }
 
   /**
@@ -2662,17 +2679,29 @@ export class Jogo {
 
     // Soltar depois de ter marcado um ponto: ele vai até lá. O caminho já
     // estava desenhado no chão desde que o dedo ficou embaixo.
-    if (preso.comandou && this.pontoMarcado && this.temCompanheiroEmCampo) {
+    if (preso.comandou && this.pontoMarcado) {
+      // No pasto, quem vai é o MORADOR QUE ESTAVA SOB A MIRA quando o gatilho
+      // desceu. Guardado na descida e não lido agora, porque no fim do gesto o
+      // braço já está apontando para o chão — pedir a mira aqui devolveria o
+      // capim, e a ordem iria para ninguém.
+      const quem = preso.paraQuem ?? (this.temCompanheiroEmCampo ? this.companheiro : null);
+      if (!quem) {
+        this.pontoMarcado = null;
+        return;
+      }
       const destino = this.pontoMarcado.clone();
       this.pontoMarcado = null;
-      this.companheiro!.irPara(destino);
+      quem.solto = false;
+      quem.irPara(destino);
       mao.sentir('acertou');
       audio.comando();
       this.aviso.mostrar(
         [
-          { texto: `${this.companheiro!.especie.nome} está indo`, tamanho: 34, cor: '#7fe7c4' },
+          { texto: `${quem.especie.nome} está indo`, tamanho: 34, cor: '#7fe7c4' },
           {
-            texto: 'e fica lá — aperte X para chamar de volta',
+            texto: this.rancho.aberto
+              ? 'e fica lá — aponte e puxe o gatilho para soltar de novo'
+              : 'e fica lá — aperte X para chamar de volta',
             tamanho: 21,
             cor: '#9aa5b8',
             peso: 500,
@@ -2824,6 +2853,10 @@ export class Jogo {
       this.narrarDaDex(mao);
       return;
     }
+
+    // No PASTO o gatilho é ORDEM, e não ataque: aponte um morador e ele
+    // alterna entre ficar e andar. Ver `ordenarNoPasto`.
+    if (this.rancho.aberto && this.ordenarNoPasto(mao)) return;
 
     // Sem painel: manda o companheiro atacar.
     this.comandarAtaque(mao);
@@ -4724,11 +4757,138 @@ export class Jogo {
       );
       pokemon.afeto = exemplar.afeto ?? 0;
       pokemon.hp = Math.max(1, Math.min(exemplar.hp, pokemon.hpMax));
+      // SOLTO desde o primeiro quadro. Sem isto eles nascem `'companheiro'` e
+      // a regra de "fica a 1,1 m do treinador" junta os oito na sua frente —
+      // que foi exatamente o relato de 20/09, *"o rancho atrai todos os pokes
+      // pra mim"*. Ver `Pokemon.solto`.
+      pokemon.solto = true;
       this.cena.add(pokemon.raiz);
       pokemon.invocar(ponto, this.rancho.alturaEm());
       this.moradores.push({ pokemon, exemplar });
       this.vozDoBicho(pokemon);
     }
+  }
+
+  /**
+   * Qual morador está no eixo do braço. É quem recebe a ordem.
+   *
+   * A mesma conta de `escanearComADex`: distância do centro dele à reta do
+   * braço, com a tolerância crescendo com o tamanho do bicho — um Onix se
+   * aponta de qualquer jeito, um Diglett exige mira. O companheiro entra na
+   * lista porque, no pasto, ele é mais um do bando.
+   */
+  private moradorApontado(mao: Mao): Pokemon | null {
+    if (!this.rancho.aberto) return null;
+    const { origem, direcao } = mao.mira();
+    let melhor: Pokemon | null = null;
+    let menorDesvio = Infinity;
+
+    const candidatos = this.moradores.map((m) => m.pokemon);
+    if (this.companheiro) candidatos.push(this.companheiro);
+
+    for (const alvo of candidatos) {
+      if (!alvo.viva || alvo.estado === 'colo') continue;
+      const paraEle = _paraABola.copy(alvo.centro).sub(origem);
+      const aoLongo = paraEle.dot(direcao);
+      if (aoLongo <= 0 || aoLongo > ALCANCE_DO_ESCANEAMENTO) continue;
+      const desvio = paraEle.addScaledVector(direcao, -aoLongo).length();
+      if (desvio > alvo.raio + 0.35) continue;
+      if (desvio < menorDesvio) {
+        menorDesvio = desvio;
+        melhor = alvo;
+      }
+    }
+    return melhor;
+  }
+
+  /**
+   * AS QUATRO ORDENS DO PASTO: ir, andar, ficar e vir.
+   *
+   * *"Quero ver eles livres, e comandar eles para ir, andar, ficar e vir"* —
+   * playtest de 20/09. Três das quatro já existiam no jogo, cada uma por um
+   * caminho, e todas apontando para o companheiro único:
+   *
+   * - **ir** — gatilho SEGURADO marcando o chão (`irPara`);
+   * - **vir** — o **X** ou a carta "vem cá" (`chamarPara`);
+   * - **ficar** — acontecia sozinho ao CHEGAR de um "vá ali", e não tinha
+   *   gesto próprio: não havia como dizer "fica" para quem já está onde você
+   *   quer. Agora tem (`Pokemon.ficarAqui`).
+   * - **andar** — não existia de jeito nenhum. É o contrário de ficar, e no
+   *   pasto quer dizer "esquece que eu existo e vai viver" (`andarPorConta`).
+   *
+   * O que muda no rancho é a PONTARIA: a ordem vai para quem está no eixo do
+   * braço, e não para o companheiro. Sem isso, oito bichos e uma ordem só.
+   *
+   * Um TOQUE de gatilho num morador alterna ficar/andar — é o par que se usa o
+   * tempo todo, e alternar com um gesto só é o que faz valer a pena apontar.
+   * Devolve `true` quando a ordem saiu, para o gatilho não cair na cascata de
+   * ataque depois.
+   */
+  private ordenarNoPasto(mao: Mao): boolean {
+    const quem = this.moradorApontado(mao);
+    if (!quem) return false;
+
+    if (quem.ficandoNoPosto) {
+      quem.andarPorConta();
+      quem.acenar();
+      this.aviso.mostrar(
+        [
+          { texto: `${quem.especie.nome} está livre`, tamanho: 34, cor: '#9ff0c4' },
+          { texto: 'aponte e puxe de novo para mandar ficar', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        ],
+        1.8,
+      );
+    } else {
+      quem.ficarAqui();
+      this.aviso.mostrar(
+        [
+          { texto: `${quem.especie.nome} vai ficar`, tamanho: 34, cor: '#ffd78a' },
+          { texto: 'aponte e puxe de novo para soltar', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+        ],
+        1.8,
+      );
+    }
+    mao.sentir('acertou');
+    audio.comando();
+    this.vozDoBicho(quem);
+    return true;
+  }
+
+  /** VIR: o apontado vem; sem ninguém apontado, o bando inteiro. */
+  private chamarNoPasto(mao: Mao): boolean {
+    if (!this.rancho.aberto || this.moradores.length === 0) return false;
+
+    const um = this.moradorApontado(mao);
+    const vindo = um ? [um] : this.moradores.map((m) => m.pokemon);
+    let quantos = 0;
+    for (const quem of vindo) {
+      if (!quem.viva || quem.estado === 'colo') continue;
+      quem.cancelarComando();
+      // `chamarPara` já zera o posto — mas não o `solto`, e é ele que decide o
+      // que o bicho faz DEPOIS de chegar. Sem isto ele vinha e dava meia-volta
+      // no quadro seguinte, de volta ao passeio dele.
+      quem.solto = false;
+      quem.chamarPara(this.posicaoJogador);
+      quem.acenar();
+      quantos++;
+    }
+    if (quantos === 0) return false;
+
+    audio.comando();
+    mao.sentir('pegou');
+    if (um) this.vozDoBicho(um);
+    this.aviso.mostrar(
+      [
+        {
+          texto: um ? `${um.especie.nome} está vindo` : `${quantos} estão vindo`,
+          tamanho: 34,
+          cor: '#cfe6ff',
+        },
+        { texto: 'aponte um deles para chamar só ele', tamanho: 21, cor: '#9aa5b8', peso: 500 },
+      ],
+      1.8,
+    );
+    return true;
   }
 
   private fecharRancho() {
@@ -4768,18 +4928,30 @@ export class Jogo {
     for (const { pokemon, exemplar } of this.moradores) {
       pokemon.atualizar(dt, this.posicaoJogador, this.rancho);
 
-      // A CERCA: quem chega perto dela volta. O `Pokemon` não conhece limite
-      // de área — ele passeia em torno de uma âncora —, e sem isto um Rapidash
-      // sai andando pelo capim infinito até virar um ponto no horizonte.
+      // A CERCA: quem chega nela volta.
+      //
+      // O `Pokemon` não conhece limite de área — ele passeia em torno de uma
+      // ÂNCORA, e `escolherNovoCanto` move essa âncora por conta própria a cada
+      // dez segundos. Sem isto, um Rapidash sai andando pelo capim e vira um
+      // ponto no horizonte.
+      //
+      // Prender só a POSIÇÃO não bastaria: ele ficaria empurrando a cerca para
+      // sempre, com as pernas andando e o corpo parado. A âncora vem junto — e
+      // um pouco mais para dentro do que o limite, para o próximo passeio dele
+      // nascer olhando para o pasto em vez de para fora.
       const centro = this.rancho.centroDoPasto;
-      const dx = pokemon.raiz.position.x - centro.x;
-      const dz = pokemon.raiz.position.z - centro.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > RAIO_DO_PASTO) {
-        const k = RAIO_DO_PASTO / Math.max(1e-4, dist);
-        pokemon.raiz.position.x = centro.x + dx * k;
-        pokemon.raiz.position.z = centro.z + dz * k;
-      }
+      const puxar = (ponto: THREE.Vector3, limite: number) => {
+        const dx = ponto.x - centro.x;
+        const dz = ponto.z - centro.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= limite) return false;
+        const k = limite / Math.max(1e-4, dist);
+        ponto.x = centro.x + dx * k;
+        ponto.z = centro.z + dz * k;
+        return true;
+      };
+      puxar(pokemon.raiz.position, RAIO_DO_PASTO);
+      puxar(pokemon.ancora, RAIO_DO_PASTO - Pokemon.RAIO_PASSEIO - 0.5);
 
       if (pokemon.estado === 'colo' || pokemon.estado === 'saindo') continue;
 
@@ -5538,6 +5710,10 @@ export class Jogo {
   }
 
   private chamarParaPerto(mao: Mao) {
+    // No pasto o "vem cá" é do BANDO: o apontado vem sozinho, e sem ninguém
+    // apontado vêm todos. Ver `chamarNoPasto`.
+    if (this.rancho.aberto && this.chamarNoPasto(mao)) return;
+
     if (!this.temCompanheiroEmCampo) {
       this.recusar(mao, 'nenhum Pokémon em campo', 'gire o pulso esquerdo e pegue a bola de um deles');
       return;
@@ -7382,7 +7558,12 @@ export class Jogo {
   /** Versão do comando "vá até ali" para o modo sem headset. */
   marcarPlano(fase: 'inicio' | 'fim') {
     if (fase === 'inicio') {
-      this.gatilhoPreso = { mao: this.maos[0], desde: performance.now() - 400, comandou: false };
+      this.gatilhoPreso = {
+        mao: this.maos[0],
+        desde: performance.now() - 400,
+        comandou: false,
+        paraQuem: null,
+      };
       return;
     }
     const preso = this.gatilhoPreso;
