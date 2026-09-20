@@ -16,6 +16,7 @@ import { avaliar, genesDe, poderDeCombate, totalDosGenes } from '../src/avaliaca
 import { PainelPc } from '../src/pc';
 import { RAIO_DO_PASTO, Rancho } from '../src/rancho';
 import { GOLPES_POR_POKEMON, golpesAprendidos } from '../src/species';
+import { normalizar as normalizarMjs } from './nomes.mjs';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
@@ -3173,6 +3174,37 @@ console.log('\n31. a Pokédex: as costas, a queda e a volta');
   catada.largar(new THREE.Vector3(0, -0.4, 0));
   catada.recolher(1);
   checar(!catada.noChao && catada.naMaoDe === 1, 'catar a Pokédex do chão não a pôs na mão');
+
+  // (6) O COLDRE DAS COSTAS CONTINUA VALENDO COM ELA NO CHÃO.
+  //
+  // *"Quando largar ela nas costas ou no chão ela fica disponível nas costas;
+  // pegar nas costas destrói qualquer outra que existia"* — playtest de 20/09.
+  // O ponto de guarda é o que o gesto das costas mede, e ele não pode sumir só
+  // porque ela caiu: era isso que trancava a Pokédex por vinte e cinco
+  // segundos, com o jogador sem nenhuma pista de que havia um relógio correndo.
+  const largada = new Tablet();
+  largada.grupo.position.set(0, 1.4, -0.5);
+  largada.largar(new THREE.Vector3(0.6, -0.4, 0));
+  for (let i = 0; i < 180; i++) largada.atualizar(1 / 72, camera, null, chao);
+  checar(largada.noChao, 'ela devia estar no carpete nesta altura do teste');
+
+  const costas = largada.pontoGuardado(new THREE.Vector3());
+  const noCarpete = largada.posicao(new THREE.Vector3());
+  checar(
+    Number.isFinite(costas.x) && costas.distanceTo(camera.position) < 1,
+    'o ponto das costas sumiu com ela caída',
+  );
+  // E os dois pontos são DIFERENTES: se fossem o mesmo, o teste não provaria
+  // nada — pegar do chão e pegar das costas seriam o mesmo gesto.
+  checar(
+    costas.distanceTo(noCarpete) > ALCANCE_TABLET,
+    `as costas e o carpete estão a ${costas.distanceTo(noCarpete).toFixed(2)} m — perto demais para o teste separar os dois gestos`,
+  );
+
+  // Pegar pelas costas tira ela do chão: é o "destrói qualquer outra".
+  largada.recolher(0);
+  checar(!largada.noChao, 'pegar pelas costas não tirou a Pokédex do carpete');
+  checar(largada.naMaoDe === 0, 'pegar pelas costas não a pôs na mão');
 }
 
 {
@@ -6925,6 +6957,174 @@ console.log('\n70. você escolhe quais quatro golpes ele carrega');
     `   golpes: ${aprendidos.length} aprendidos no nível ${nivel} · a escolha manda, ` +
       `o nome inválido cai fora e a escolha morta volta para a dedução`,
   );
+}
+// ---------------------------------------------------------------------------
+console.log('\n71. quem não tem perna rasteja, e a onda chega na ponta');
+{
+  // Uma SERPENTE sintética: tronco, cabeça e uma cauda de dez nós, sem perna
+  // nenhuma — a forma do Ekans, do Dratini e de mais dezessete.
+  const osso = (nome: string, pai: THREE.Object3D, p: THREE.Vector3) => {
+    const b = new THREE.Bone();
+    b.name = nome;
+    b.position.copy(p);
+    pai.add(b);
+    return b;
+  };
+
+  const corpo = new THREE.Group();
+  const quadril = osso('Hips', corpo, new THREE.Vector3(0, 0, 0));
+  const tronco = osso('Spine1', quadril, new THREE.Vector3(0, 0.25, 0));
+  const peito = osso('Spine2', tronco, new THREE.Vector3(0, 0.25, 0));
+  const pescoco = osso('Neck', peito, new THREE.Vector3(0, 0.2, 0));
+  osso('Head', pescoco, new THREE.Vector3(0, 0.15, 0));
+  // A cauda desce: é o que faz o eixo lateral ser FRENTE e não CIMA, e foi
+  // exatamente essa a armadilha. Ver `Rig.eixoLateral`.
+  let atual: THREE.Object3D = quadril;
+  for (let i = 1; i <= 13; i++) {
+    atual = osso(`Tail${i}`, atual, new THREE.Vector3(0, -0.12, 0));
+  }
+  corpo.updateMatrixWorld(true);
+
+  const rig = new Rig(corpo);
+  checar(rig.tem('quadril') && rig.tem('cauda3'), 'o Rig não reconheceu a serpente');
+  checar(!rig.tem('coxaE') && !rig.tem('pernaE'), 'a serpente ganhou perna do nada');
+
+  // A CAUDA ESTENDIDA: treze nós de cauda, três viram papel, o resto é `rabo`.
+  checar(
+    rig.rabo >= 9,
+    `a cauda estendida pegou ${rig.rabo} elos de dez — a onda morre no meio do bicho`,
+  );
+
+  // O EIXO LATERAL: girar uma cauda vertical em CIMA é torção invisível.
+  const ponta = corpo.getObjectByName(`Tail${3 + rig.rabo}`)!;
+  const medir = (fn: () => void) => {
+    rig.limpar();
+    fn();
+    rig.aplicar(1);
+    corpo.updateMatrixWorld(true);
+    return ponta.getWorldPosition(new THREE.Vector3());
+  };
+  const repouso = medir(() => {});
+  const comCima = medir(() => {
+    for (let i = 0; i < rig.rabo; i++) rig.girarRabo(i, new THREE.Vector3(0, 1, 0), 0.2);
+  });
+  const comLateral = medir(() => {
+    for (let i = 0; i < rig.rabo; i++) rig.girarRaboLateral(i, 0.2);
+  });
+  checar(
+    comCima.distanceTo(repouso) < 0.01,
+    `girar a cauda vertical em CIMA moveu a ponta ${comCima.distanceTo(repouso).toFixed(3)} m — ` +
+      `devia ser torção invisível, e o teste não estaria provando nada`,
+  );
+  checar(
+    comLateral.distanceTo(repouso) > 0.3,
+    `o eixo lateral moveu a ponta só ${comLateral.distanceTo(repouso).toFixed(3)} m`,
+  );
+
+  // E o ANIMADOR faz isso sozinho: andando, a serpente se mexe. O `Corpo` é o
+  // mínimo que ele pede — a serpente acima é o esqueleto, e `corpoFalso`
+  // montaria outro.
+  const raizGrupo = new THREE.Group();
+  raizGrupo.add(corpo);
+  const corpoFake: Corpo = {
+    raiz: raizGrupo,
+    corpo,
+    boca: new THREE.Object3D(),
+    altura: 0.6,
+    raio: 0.3,
+    meiaCaixa: new THREE.Vector3(0.12, 0.3, 0.12),
+    centroCaixa: new THREE.Vector3(0, 0.3, 0),
+    mixer: null,
+    acoes: new Map(),
+    renormalizar() {},
+    descartar() {},
+  };
+  const animador = new Animador(corpoFake);
+  checar(animador.temRig, 'a serpente não passou no teste de rig do Animador');
+
+  const ctx = (velocidade: number) => ({
+    velocidade,
+    alarme: 0,
+    vida: 1,
+    encarar: null,
+    desmaiado: false,
+  });
+  const faixaDaPonta = (quadros: number, velocidade: number) => {
+    const caixa = new THREE.Box3();
+    const p = new THREE.Vector3();
+    for (let i = 0; i < quadros; i++) {
+      animador.atualizar(1 / 72, ctx(velocidade));
+      corpo.updateMatrixWorld(true);
+      caixa.expandByPoint(ponta.getWorldPosition(p));
+    }
+    return caixa.getSize(new THREE.Vector3()).length();
+  };
+
+  for (let i = 0; i < 140; i++) animador.atualizar(1 / 72, ctx(0.9));
+  const andando = faixaDaPonta(200, 0.9);
+  checar(
+    andando > 0.15,
+    `andando, a ponta da cauda percorreu ${andando.toFixed(3)} m — a serpente está deslizando`,
+  );
+
+  // E o PULO do passo não existe nela: cobra não quica.
+  let maiorPulo = 0;
+  for (let i = 0; i < 200; i++) {
+    animador.atualizar(1 / 72, ctx(0.9));
+    maiorPulo = Math.max(maiorPulo, animador.oscilacao);
+  }
+  checar(
+    maiorPulo < 0.012,
+    `a serpente pula ${(maiorPulo * 100).toFixed(1)}% da altura a cada passada`,
+  );
+
+  console.log(
+    `   rastejar: ${rig.rabo} elos de cauda além dos três · a ponta varre ` +
+      `${andando.toFixed(2)} m andando · e o pulo do passo fica em ${(maiorPulo * 100).toFixed(1)}%`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n72. a régua de nome do jogo e a das ferramentas são a mesma');
+{
+  // `tools/nomes.mjs` é uma cópia de `normalizar` em src/rig.ts, e ela existe
+  // porque os diagnósticos são .mjs e não importam o módulo do jogo. Foram
+  // TRÊS cópias até hoje, e elas envelheceram: o censo continuou dando
+  // "Mewtwo sem perna" depois de o `Rig` já ter aprendido a segunda convenção
+  // de nomes. Duplicação que um teste vigia é duplicação que não mente.
+  const casos = [
+    // a convenção da Game Freak, e o índice do exportador dos dois lados
+    'Head_50',
+    'Head',
+    '004Hips',
+    '050LArm',
+    'model_skeleton|Spine2',
+    'LFeelerA1',
+    'RFingerB2',
+    'Tail13',
+    // a segunda convenção — Dragonite e Mewtwo
+    'left_arm_01_24',
+    'right_leg_02_30',
+    'left_foot_22',
+    'spine_01_5',
+    'tail_12_44',
+    'jaw_8',
+  ];
+  const divergiram = casos.filter((c) => normalizar(c) !== normalizarMjs(c));
+  checar(
+    divergiram.length === 0,
+    `as duas réguas discordam em: ${divergiram
+      .map((c) => `${c} → ${normalizar(c)} vs ${normalizarMjs(c)}`)
+      .join(' · ')}`,
+  );
+
+  // E a tradução da segunda convenção cai nos candidatos que já existiam.
+  checar(normalizar('spine_01_5') === 'spine1', `spine_01_5 virou ${normalizar('spine_01_5')}`);
+  checar(normalizar('left_foot_22') === 'lfoot', `left_foot_22 virou ${normalizar('left_foot_22')}`);
+  checar(normalizar('left_leg_01_9') === 'lleg1', `left_leg_01_9 virou ${normalizar('left_leg_01_9')}`);
+  checar(normalizar('tail_12_44') === 'tail12', `tail_12_44 virou ${normalizar('tail_12_44')}`);
+
+  console.log(`   nomes: ${casos.length} casos reais, as duas réguas concordam em todos`);
 }
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

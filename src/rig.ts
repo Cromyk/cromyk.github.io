@@ -77,16 +77,16 @@ const CANDIDATOS: Record<Chave, string[]> = {
   mandibula: ['jaw', 'mouth'],
   ombroE: ['lshoulder'],
   ombroD: ['rshoulder'],
-  bracoE: ['larm', 'lupperarm'],
-  bracoD: ['rarm', 'rupperarm'],
-  antebracoE: ['lforearm', 'llowerarm'],
-  antebracoD: ['rforearm', 'rlowerarm'],
+  bracoE: ['larm', 'lupperarm', 'larm1'],
+  bracoD: ['rarm', 'rupperarm', 'rarm1'],
+  antebracoE: ['lforearm', 'llowerarm', 'larm2'],
+  antebracoD: ['rforearm', 'rlowerarm', 'rarm2'],
   maoE: ['lhand'],
   maoD: ['rhand'],
-  coxaE: ['lthigh', 'lupperleg'],
-  coxaD: ['rthigh', 'rupperleg'],
-  pernaE: ['lleg', 'llowerleg', 'lknee'],
-  pernaD: ['rleg', 'rlowerleg', 'rknee'],
+  coxaE: ['lthigh', 'lupperleg', 'lleg1'],
+  coxaD: ['rthigh', 'rupperleg', 'rleg1'],
+  pernaE: ['lleg', 'llowerleg', 'lknee', 'lleg2'],
+  pernaD: ['rleg', 'rlowerleg', 'rknee', 'rleg2'],
   peE: ['lfoot'],
   peD: ['rfoot'],
   cauda1: ['tail1', 'tail'],
@@ -187,6 +187,13 @@ const MAX_ELOS = 8;
 const MAX_DEDOS = 8;
 /** Falanges por dedo. Os rips vão até duas (`LFingerA1`, `LFingerA2`). */
 const MAX_FALANGES = 4;
+/**
+ * Elos de cauda além dos três primeiros. Ver `Rig.rabo`.
+ *
+ * Dez cobre o Ekans (treze no total) sem custar uma conta por quadro para cada
+ * farpa de ponta de rabo — a onda já morreu muito antes do décimo.
+ */
+const MAX_RABO = 10;
 
 /** O que conta como apêndice, pelo nome já normalizado. */
 function ehApendice(nome: string): boolean {
@@ -226,6 +233,28 @@ export function normalizar(nome: string): string {
   return (
     semPilha
       .replace(/_\d+$/, '')
+      // --- a SEGUNDA convenção de nomes ---
+      //
+      // Dois dos 156 não usam `LArm`/`RThigh`/`Spine1`: usam
+      // `left_arm_01`, `right_leg_02`, `spine_01`. São Dragonite e Mewtwo, e
+      // eram justamente dois dos que `npm run rig-censo` dava como "sem perna
+      // e sem braço" — com o esqueleto inteiro no arquivo, intacto, e o `Rig`
+      // sem enxergar nada dele.
+      //
+      // A tradução é mecânica: `left_`/`right_` viram `l`/`r`, e o número do
+      // segmento perde o zero à esquerda e cola no nome. Assim `spine_01` cai
+      // em `spine1` e `left_foot` em `lfoot`, que já eram candidatos — só os
+      // quatro membros numerados (`larm1`, `larm2`, `lleg1`, `lleg2`)
+      // precisaram entrar na tabela.
+      //
+      // O zero à esquerda é o que separa as duas coisas, e essa é a parte fina:
+      // `_01` é NÚMERO DE SEGMENTO e `_50` é ÍNDICE DE NÓ do exportador. O
+      // `replace` acima já comeu o índice (não vem com zero à esquerda em
+      // arquivo nenhum); aqui sobra o segmento, e ele fica.
+      .replace(/^left_/i, 'l')
+      .replace(/^right_/i, 'r')
+      .replace(/_0*(\d+)/g, '$1')
+      .replace(/_/g, '')
       // E o índice no COMEÇO, que é o mesmo exportador numerando os nós pelo
       // outro lado: `004Hips`, `050LArm`, `036Spine2`.
       //
@@ -260,6 +289,8 @@ interface No {
 }
 
 const _q = new THREE.Quaternion();
+/** Rascunho do eixo lateral, para não alocar um vetor por osso por quadro. */
+const _eixo = new THREE.Vector3();
 const _qRaiz = new THREE.Quaternion();
 const _qOsso = new THREE.Quaternion();
 
@@ -273,6 +304,26 @@ export class Rig {
   readonly apendices: Apendice[] = [];
   /** Os nós de cada apêndice, do que nasce no corpo até a ponta. */
   private elos: No[][] = [];
+  /**
+   * Quantos elos de cauda existem DEPOIS de `cauda3`.
+   *
+   * ## Por que três nunca bastaram
+   *
+   * Os papéis `cauda1`, `cauda2` e `cauda3` pegam `Tail1`, `Tail2` e `Tail3`,
+   * e param aí. Mas o Ekans tem `Tail1`…`Tail13`, o Gyarados tem nove, o
+   * Charmander tem seis mais três de ponta. Em todos eles, a cauda se mexia nos
+   * três primeiros nós e o resto ia atrás como um cabo de vassoura.
+   *
+   * Num Charmander isso é um detalhe. Numa SERPENTE é o bicho inteiro: o Ekans
+   * não tem perna nenhuma, e a cauda dele não é um apêndice — é o corpo. Ver
+   * `rastejar` em src/anima.ts.
+   *
+   * Não virou `Chave` pelo mesmo motivo dos apêndices: não é um papel, é uma
+   * cadeia de comprimento variável.
+   */
+  readonly rabo: number = 0;
+  /** Os nós dessa continuação, do quarto até a ponta. */
+  private elosDoRabo: No[] = [];
   /** As cadeias de dedo. Ver `Dedo`. */
   readonly dedos: Dedo[] = [];
   /** Os nós de cada dedo, da base à ponta. */
@@ -321,6 +372,7 @@ export class Rig {
     }
 
     this.encontrados = encontrados;
+    this.rabo = this.montarRabo(tomados, raizInv);
     // Os dedos ANTES dos apêndices: `tomados` é quem-pegou-primeiro, e um osso
     // que se chame `LFingerA` não pode virar barbatana por acaso de ordem.
     this.montarDedos(porNome, tomados, raizInv);
@@ -328,6 +380,44 @@ export class Rig {
     this.planos = [...this.nos.values()];
     for (const cadeia of this.elos) this.planos.push(...cadeia);
     for (const cadeia of this.falanges) this.planos.push(...cadeia);
+    this.planos.push(...this.elosDoRabo);
+  }
+
+  /**
+   * A cauda depois de `cauda3`. Ver `rabo`.
+   *
+   * Desce pela HIERARQUIA a partir do nó de cauda mais fundo que virou papel, e
+   * não pelo nome: `Tail4` existe, mas também existem `Taila01`…`Taila03` na
+   * ponta do Charmander, e a cauda se RAMIFICA em alguns bichos. Descer pelos
+   * filhos entrega a cadeia real, na ordem real — é a mesma escolha de
+   * `montarApendices`, e pela mesma razão.
+   */
+  private montarRabo(tomados: Set<THREE.Bone>, raizInv: THREE.Quaternion): number {
+    const ultimo =
+      this.nos.get('cauda3')?.osso ?? this.nos.get('cauda2')?.osso ?? this.nos.get('cauda1')?.osso;
+    if (!ultimo) return 0;
+
+    let atual: THREE.Bone = ultimo;
+    while (this.elosDoRabo.length < MAX_RABO) {
+      // O filho que mais tem descendentes: numa cauda que se ramifica, a
+      // principal é a mais comprida. Pegar o primeiro filho daria a farpa
+      // lateral e deixaria a cauda inteira parada atrás dela.
+      const filhos: THREE.Bone[] = [];
+      for (const filho of atual.children) {
+        const osso = filho as THREE.Bone;
+        if (!osso.isBone || tomados.has(osso) || ehApendice(normalizar(osso.name))) continue;
+        filhos.push(osso);
+      }
+      if (filhos.length === 0) break;
+      let melhor: THREE.Bone = filhos[0];
+      for (const f of filhos) {
+        if (contarDescendentes(f) > contarDescendentes(melhor)) melhor = f;
+      }
+      tomados.add(melhor);
+      this.elosDoRabo.push(this.montarNo(melhor, raizInv));
+      atual = melhor;
+    }
+    return this.elosDoRabo.length;
   }
 
   /**
@@ -576,6 +666,66 @@ export class Rig {
     for (const no of this.planos) {
       if (no.sujo) no.acumulado.identity();
     }
+  }
+
+  /**
+   * O eixo em que ESTE osso balança PARA OS LADOS.
+   *
+   * ## Por que não é sempre CIMA
+   *
+   * Porque "para os lados" é uma coisa do MUNDO e o eixo é uma coisa do OSSO.
+   * Girar em torno de CIMA balança lateralmente uma cauda que sai para trás
+   * — a do Charmander, horizontal — e não faz absolutamente nada numa cauda
+   * que sai para BAIXO ou para CIMA: ali o mesmo giro é uma TORÇÃO em volta do
+   * próprio eixo do corpo, invisível.
+   *
+   * Foi exatamente isso na primeira versão do `rastejar`: o Gyarados
+   * serpenteava bonito e o Ekans e o Dratini — que os rips trazem na vertical,
+   * empinados na ponta da cauda — não se mexiam um milímetro. A folha de poses
+   * mostrou os dois como uma vareta idêntica em todas as colunas.
+   *
+   * ## A conta
+   *
+   * Para a ponta do osso andar na direção LADO, o eixo tem de ser
+   * `direção × LADO`: girar `d` em torno de `e` move a ponta para `e × d`, e
+   * `(d × LADO) × d` é a componente de LADO perpendicular a `d`. Num osso
+   * horizontal a conta devolve CIMA, que é o que sempre se usou; num vertical
+   * ela devolve FRENTE, que é o que faltava.
+   *
+   * Sem direção de repouso — osso sem filho — sobra CIMA, que é o palpite
+   * antigo e continua servindo para a maioria.
+   */
+  private eixoLateral(no: No, alvo: THREE.Vector3): THREE.Vector3 {
+    if (no.direcao.lengthSq() < 0.5) return alvo.copy(CIMA);
+    alvo.crossVectors(no.direcao, LADO);
+    if (alvo.lengthSq() < 1e-6) return alvo.copy(CIMA);
+    return alvo.normalize();
+  }
+
+  /** Balança este papel para os LADOS. Ver `eixoLateral`. */
+  girarLateral(chave: Chave, angulo: number) {
+    if (angulo === 0) return;
+    const no = this.nos.get(chave);
+    if (!no) return;
+    this.girar(chave, this.eixoLateral(no, _eixo), angulo);
+  }
+
+  /** O mesmo, para um elo da cauda estendida. */
+  girarRaboLateral(elo: number, angulo: number) {
+    if (angulo === 0) return;
+    const no = this.elosDoRabo[elo];
+    if (!no) return;
+    this.girarRabo(elo, this.eixoLateral(no, _eixo), angulo);
+  }
+
+  /** Soma um giro a um elo da cauda estendida. Ver `rabo`. */
+  girarRabo(elo: number, eixo: THREE.Vector3, angulo: number) {
+    if (angulo === 0) return;
+    const no = this.elosDoRabo[elo];
+    if (!no) return;
+    _q.setFromAxisAngle(eixo, angulo);
+    no.acumulado.multiply(_q);
+    no.sujo = true;
   }
 
   /**

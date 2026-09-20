@@ -24,6 +24,7 @@ import draco3d from 'draco3d';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizar } from './nomes.mjs';
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pasta = join(raiz, 'public', 'pokemon');
@@ -34,15 +35,9 @@ const fonteRig = readFileSync(join(raiz, 'src', 'rig.ts'), 'utf8');
 const bloco = fonteRig.slice(fonteRig.indexOf('const CANDIDATOS'), fonteRig.indexOf('\n};', fonteRig.indexOf('const CANDIDATOS')));
 const CONHECIDOS = new Set([...bloco.matchAll(/'([a-z0-9]+)'/g)].map((m) => m[1]));
 
-// A mesma régua de `normalizar` em src/rig.ts: o índice do exportador cai dos
-// dois lados do nome (`Head_50` e `004Hips`).
-const normalizar = (nome) =>
-  nome
-    .slice(nome.lastIndexOf('|') + 1)
-    .replace(/_\d+$/, '')
-    .replace(/^\d+/, '')
-    .replace(/[\s.:-]/g, '')
-    .toLowerCase();
+// A régua de nome é uma só, e mora em tools/nomes.mjs: três cópias dela
+// aqui foi como o censo continuou dando "Mewtwo sem perna" depois de o
+// `Rig` já ter aprendido a segunda convenção. Ver o cabeçalho de lá.
 
 const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS.filter((e) => e !== EXTMeshoptCompression))

@@ -954,10 +954,6 @@ export class Jogo {
    * verdade.
    */
   private pegarTablet(mao: Mao): boolean {
-    // Caída no carpete, ela não está mais nas suas costas — e sem esta guarda a
-    // mão às costas materializaria uma Pokédex que está do outro lado da sala.
-    // Quem cata do chão é `pegarTabletDoChao`.
-    if (this.tablet.noChao) return false;
     if (!this.maoNasCostas(mao)) return false;
 
     // O toggle de guardar vem ANTES do teste de mão cheia, e a ordem importa:
@@ -970,6 +966,47 @@ export class Jogo {
 
     // Mão ocupada não pega a Pokédex por cima do que já tem.
     if (this.maoCheia(mao)) return false;
+
+    // CAÍDA NO CARPETE? Ela volta.
+    //
+    // Isto era uma guarda no começo do método: com a Pokédex no chão, a mão
+    // às costas não fazia nada, porque "materializar uma Pokédex que está do
+    // outro lado da sala" parecia errado. Em campo é o contrário — *"quando
+    // largar ela nas costas ou no chão ela fica disponível nas costas; pegar
+    // nas costas destrói qualquer outra que existia"* (playtest de 20/09).
+    //
+    // E ele tem razão, por dois motivos. O primeiro é que o coldre das costas
+    // é a ÚNICA porta que sempre existe: uma Pokédex que rolou para debaixo do
+    // sofá trancava metade do jogo por vinte e cinco segundos, e o jogador não
+    // tem como saber que o relógio está correndo. O segundo é que a Pokédex
+    // não é um objeto do mundo, é um EQUIPAMENTO seu: ela ter caído é um
+    // acidente, não um estado que mereça ser defendido.
+    //
+    // Como o tablet é um só, "destruir a outra" é o que já acontece
+    // naturalmente — ela sai do chão e vai para a mão. O que faltava era
+    // DIZER isso: um clarão no lugar de onde ela saiu, para o objeto não
+    // sumir do carpete em silêncio enquanto você olha para o outro lado.
+    if (this.tablet.noChao) {
+      this.tablet.posicao(this.pontoDoTablet);
+      const clarao = new Impacto(this.pontoDoTablet.clone(), 0xd8232a);
+      this.cena.add(clarao.pontos);
+      this.impactos.push(clarao);
+      this.tablet.recolher(mao.indice);
+      if (this.dex.primeiraVez('dex-volta-do-chao')) {
+        this.aviso.mostrar(
+          [
+            { texto: 'a Pokédex volta pelas costas', tamanho: 34, cor: '#cfe6ff' },
+            {
+              texto: 'derrubou? leve a mão às costas — ela sempre está lá',
+              tamanho: 21,
+              cor: '#9aa5b8',
+              peso: 500,
+            },
+          ],
+          2.8,
+        );
+      }
+    }
 
     this.tablet.naMaoDe = mao.indice;
     // A mão fecha nela de verdade. Faltava, e era o "buga": a luva reabria os
@@ -6699,7 +6736,9 @@ export class Jogo {
     // vibração é a única resposta possível, e é a diferença entre saber que a
     // mão chegou e tatear. Depois do `atualizar`, porque é ele que acabou de
     // recalcular onde as costas estão.
-    if (this.tablet.naMaoDe === null && !this.tablet.noChao) {
+    // Sem `!noChao`: as costas continuam sendo um alvo mesmo com ela no
+    // carpete, porque agora pegá-la de lá funciona. Ver `pegarTablet`.
+    if (this.tablet.naMaoDe === null) {
       this.tablet.pontoGuardado(this.pontoDoTablet);
       for (const mao of this.maos) {
         if (!mao.conectada || this.maoCheia(mao)) continue;

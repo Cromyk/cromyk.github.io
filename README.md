@@ -1074,6 +1074,62 @@ sobe a cada passo e afunda quando o pé chega —, com amplitude maior que a de
 quem tem osso, porque ali o pulo é um detalhe somado às pernas e aqui ele é a
 passada inteira.
 
+### E dezenove dos que TÊM osso não têm perna
+
+`npm run rig-partes` faz a pergunta seguinte: de que PARTES cada esqueleto é
+feito. Porque `src/anima.ts` escreve uma animação só para todos, e cada
+`rig.girar` num osso que não existe é um no-op silencioso.
+
+| parte | tem |
+|---|---|
+| tronco | 110/110 |
+| cabeça | 98 |
+| braços | 93 |
+| pernas | 91 |
+| cauda | 73 |
+| mandíbula | 56 |
+| orelhas | 49 |
+
+Os **19 sem perna** — Ekans, Arbok, Magikarp, Gyarados, a linha do Dratini,
+Diglett, Grimer, Muk, Seel, Dewgong, Caterpie, Weedle, Metapod, Geodude,
+Porygon, Omanyte, Venomoth, Weepinbell — recebiam o ciclo de passada inteiro
+(coxa, joelho, pé, contrapeso dos braços) sem que nada disso existisse neles.
+Atravessavam o quarto rígidos, e ainda ganhavam o **gingado vertical**, o
+pulinho de quem tem pé batendo no chão — que numa cobra é o movimento mais
+errado possível.
+
+Agora eles **rastejam**: a mesma onda percorre quadril → tronco → peito →
+cauda, com atraso e amplitude crescentes para trás, de forma que a ponta
+chicoteia e a cabeça fica quase parada. E o pulo do passo cai para 0,6% da
+altura.
+
+Duas coisas foram precisas para isso funcionar:
+
+- **A cauda passou dos três nós.** Os papéis `cauda1..3` pegam `Tail1`,
+  `Tail2` e `Tail3` e param — mas o Ekans tem treze nós de cauda e o Gyarados
+  nove, e o resto ia atrás como um cabo de vassoura. `Rig.rabo` é a
+  continuação, achada pela hierarquia (a cauda se ramifica em alguns bichos, e
+  o ramo principal é o mais comprido).
+- **O eixo do balanço é MEDIDO.** Girar em torno de CIMA balança lateralmente
+  uma cauda horizontal e não faz nada numa cauda vertical: ali o mesmo giro é
+  uma torção invisível. Os rips trazem Ekans e Dratini empinados na vertical, e
+  na primeira versão eles não se mexiam um milímetro — a folha de poses mostrou
+  os dois como uma vareta idêntica em todas as colunas. `Rig.eixoLateral`
+  calcula `direção × LADO`, que devolve CIMA num osso horizontal e FRENTE num
+  vertical.
+
+### Dois arquivos usam outra convenção de nomes
+
+Dragonite e Mewtwo não usam `LArm`/`RThigh`/`Spine1`: usam `left_arm_01`,
+`right_leg_02`, `spine_01`. Eram justamente dois dos que o censo dava como "sem
+perna e sem braço" — com o esqueleto inteiro no arquivo, e o `Rig` sem enxergar
+nada dele.
+
+A tradução é mecânica, e a parte fina é o zero à esquerda: `_01` é **número de
+segmento** e `_50` é **índice de nó** do exportador. O índice sai, o segmento
+fica e cola no nome, e aí `spine_01` cai em `spine1` e `left_foot` em `lfoot`,
+que já eram candidatos.
+
 A folha de poses acima sai de `npm run poses`, e ela usa o `Rig` e o `Animador`
 de verdade — não uma reimplementação. Se a imagem sair errada, é o jogo que está
 errado. As duas colunas de "andando" têm de mostrar as pernas trocadas.
@@ -1173,6 +1229,8 @@ tools/
   paineis.ts     folha de contato dos painéis, rasterizada (npm run paineis)
   pasto.ts       folha do rancho em quatro vistas; falha se sobrar buraco (npm run pasto)
   diag-rig.mjs   o censo do esqueleto: osso, braço, dedo e apêndice dos 156
+  diag-partes.mjs de que partes cada esqueleto é feito (npm run rig-partes)
+  nomes.mjs      a régua de nome de osso, espelho de src/rig.ts (teste 72 vigia)
   encaixe.mjs    confere que todo mundo encaixa no chão (npm run encaixe)
   smoke.ts       simula o jogo sem navegador (npm test)
   draco.mjs      copia o decodificador Draco do three para public/
@@ -1195,6 +1253,7 @@ npm run gritos     # baixa os gritos oficiais (--legacy para os de 8 bits)
 npm run paineis    # folha de contato dos painéis, para conferir a interface
 npm run pasto      # folha do rancho: quatro vistas, e o teste de "tapou o quarto?"
 npm run rig-censo  # quem dos 156 tem osso, braço, dedo e apêndice
+npm run rig-partes # de que partes cada esqueleto é feito, e quem não tem perna
 npm run golpes     # regenera os golpes e as tabelas de aprendizado
 npm run encaixe    # confere o encaixe de todos no chão
 npm run build      # typecheck + bundle em dist/

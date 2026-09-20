@@ -32,6 +32,7 @@ import draco3d from 'draco3d';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizar } from './nomes.mjs';
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pasta = join(raiz, 'public', 'pokemon');
@@ -51,13 +52,9 @@ const manifesto = JSON.parse(readFileSync(join(pasta, 'manifesto.json'), 'utf8')
 const nomePorNum = new Map();
 for (const [id, m] of Object.entries(manifesto.especies ?? {})) nomePorNum.set(m.num, id);
 
-const normalizar = (nome) =>
-  nome
-    .slice(nome.lastIndexOf('|') + 1)
-    .replace(/_\d+$/, '')
-    .replace(/^\d+/, '')
-    .replace(/[\s.:-]/g, '')
-    .toLowerCase();
+// A régua de nome é uma só, e mora em tools/nomes.mjs: três cópias dela
+// aqui foi como o censo continuou dando "Mewtwo sem perna" depois de o
+// `Rig` já ter aprendido a segunda convenção. Ver o cabeçalho de lá.
 
 const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS.filter((e) => e !== EXTMeshoptCompression))

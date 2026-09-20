@@ -359,6 +359,21 @@ export class Animador {
    * músculo atrás.
    */
   private fechoDaMao = 0;
+  /**
+   * Este bicho tem PERNA no esqueleto?
+   *
+   * `npm run rig-partes` conta: 19 dos 110 rigados não têm — Ekans, Arbok,
+   * Magikarp, Gyarados, a linha do Dratini, Diglett, Grimer, Muk, Seel,
+   * Dewgong, Caterpie, Weedle, Metapod, Geodude, Porygon, Omanyte, Venomoth,
+   * Weepinbell. Neles o ciclo de passada inteiro — coxa, joelho, pé, o
+   * contrapeso dos braços — é um no-op silencioso: cada `girar` procura um
+   * osso que não existe e não faz nada.
+   *
+   * O resultado em campo é o deslize: a posição muda e o corpo fica idêntico.
+   * É o mesmo defeito dos 46 sem osso, numa fatia diferente do elenco. Ver
+   * `rastejar`.
+   */
+  private temPernas = false;
 
   constructor(corpo: Corpo) {
     this.rig = new Rig(corpo.corpo);
@@ -371,6 +386,11 @@ export class Animador {
     // bind, que e justamente a que se esta trocando.
     this.emprestarPose(corpo);
     this.medirBracos(corpo);
+    this.temPernas =
+      this.rig.tem('coxaE') ||
+      this.rig.tem('coxaD') ||
+      this.rig.tem('pernaE') ||
+      this.rig.tem('pernaD');
   }
 
   /**
@@ -861,11 +881,31 @@ export class Animador {
       const respira = Math.sin(t * ritmo) * (1 + ruido(t * 0.45, this.semente) * 0.25);
       this.rig.girar('peito', LADO, respira * 0.035 * pParado);
       this.rig.girar('cabeca', LADO, -respira * 0.03 * pParado);
-      // Cauda com dois nós desfasados: é o atraso entre eles que faz ela
-      // parecer ter peso em vez de girar inteira como um ponteiro.
-      this.rig.girar('cauda1', CIMA, Math.sin(t * 1.25) * 0.16 * pParado);
-      this.rig.girar('cauda2', CIMA, Math.sin(t * 1.25 - 0.7) * 0.2 * pParado);
-      this.rig.girar('cauda3', CIMA, Math.sin(t * 1.25 - 1.4) * 0.22 * pParado);
+      // Cauda com nós desfasados: é o atraso entre eles que faz ela parecer
+      // ter peso em vez de girar inteira como um ponteiro. Em `girarLateral`
+      // porque nem toda cauda sai para trás — a do Ekans sai para BAIXO, e um
+      // giro em CIMA ali é uma torção invisível. Ver `Rig.eixoLateral`.
+      this.rig.girarLateral('cauda1', Math.sin(t * 1.25) * 0.16 * pParado);
+      this.rig.girarLateral('cauda2', Math.sin(t * 1.25 - 0.7) * 0.2 * pParado);
+      this.rig.girarLateral('cauda3', Math.sin(t * 1.25 - 1.4) * 0.22 * pParado);
+      for (let i = 0; i < this.rig.rabo; i++) {
+        const decai = Math.max(0.3, 1 - i * 0.1);
+        this.rig.girarRaboLateral(i, Math.sin(t * 1.25 - 2.1 - i * 0.7) * 0.22 * decai * pParado);
+      }
+
+      // E QUEM NÃO TEM PERNA balança o corpo inteiro, devagar.
+      //
+      // Para um bípede, ficar parado é ficar de pé — o peso está nas pernas e o
+      // tronco só respira. Para uma serpente, ficar parado é ficar apoiado no
+      // próprio corpo, e esse corpo nunca está imóvel: ele se ajeita. Sem isto
+      // o Ekans parado é uma vareta, que foi como a folha de poses o mostrou.
+      if (!this.temPernas) {
+        const manso = pParado * (1 - cansaco * 0.5);
+        this.rig.girarLateral('tronco', Math.sin(t * 0.85) * 0.05 * manso);
+        this.rig.girarLateral('peito', Math.sin(t * 0.85 - 0.5) * 0.045 * manso);
+        this.rig.girarLateral('pescoco', Math.sin(t * 0.85 - 1) * 0.06 * manso);
+        this.rig.girarLateral('cabeca', Math.sin(t * 0.85 - 1.5) * 0.05 * manso);
+      }
       // Orelha mexe em espasmo, não em onda: fica parada e dá um tranco.
       const espasmo = Math.max(0, Math.sin(t * 0.6) - 0.93) * 14;
       this.rig.girar('orelhaE', FRENTE, espasmo * 0.28 * pParado);
@@ -907,7 +947,9 @@ export class Animador {
     const pAndar = this.pesos.andando;
     const pCorrer = this.pesos.correndo;
     const pPassada = pAndar + pCorrer;
-    if (pPassada > 0.01) {
+    if (pPassada > 0.01 && !this.temPernas) {
+      this.rastejar(t, pAndar, pCorrer);
+    } else if (pPassada > 0.01) {
       const amplitude = pAndar * 0.42 + pCorrer * 0.78;
       const bracos = pAndar * 0.3 + pCorrer * 0.55;
       const f = this.fase;
@@ -1037,6 +1079,15 @@ export class Animador {
       this.rig.girar('cauda1', CIMA, -senoE * 0.14 * pPassada);
       this.rig.girar('cauda2', CIMA, -Math.sin(f - 0.55) * 0.13 * pPassada);
       this.rig.girar('cauda3', CIMA, -Math.sin(f - 1.1) * 0.12 * pPassada);
+      // E o resto da cauda, que até aqui ia atrás como um cabo de vassoura: o
+      // Charmander tem nove nós de rabo e só três se mexiam. Ver `Rig.rabo`.
+      for (let i = 0; i < this.rig.rabo; i++) {
+        this.rig.girarRabo(
+          i,
+          CIMA,
+          -Math.sin(f - 1.65 - i * 0.55) * (0.11 - i * 0.008) * pPassada,
+        );
+      }
       // E ela sobe um pouco, como todo bípede de cauda pesada faz para andar.
       this.rig.girar('cauda1', LADO, -(0.07 + pCorrer * 0.1));
 
@@ -1060,6 +1111,72 @@ export class Animador {
     }
 
     this.ondularApendices(t, ctx, pPassada);
+  }
+
+  /**
+   * QUEM NÃO TEM PERNA NÃO ANDA: rasteja, nada ou serpenteia. Ver `temPernas`.
+   *
+   * ## O que estava acontecendo
+   *
+   * Nada. O ciclo de passada gira coxa, joelho e pé, e nos 19 sem perna cada um
+   * desses `girar` procurava um osso que não existe — um no-op atrás do outro.
+   * Um Ekans atravessava o quarto absolutamente rígido, como uma peça de
+   * plástico puxada por um barbante. E o pior: ele recebia o GINGADO vertical,
+   * o pulinho de quem tem pé batendo no chão, que numa cobra é o movimento mais
+   * errado possível.
+   *
+   * ## A onda
+   *
+   * O corpo inteiro vira uma corda. A mesma onda percorre quadril → tronco →
+   * peito → cauda1..3 → e a cauda estendida (ver `Rig.rabo`, que é o que faz a
+   * onda chegar ao décimo terceiro nó do Ekans em vez de morrer no terceiro),
+   * com ATRASO crescente por elo e AMPLITUDE crescente para trás.
+   *
+   * O atraso é o que faz a onda viajar em vez de o bicho inteiro balançar
+   * junto; a amplitude crescente é o que faz a ponta chicotear e a cabeça
+   * ficar quase parada, que é como um animal sem perna se move — a cabeça
+   * aponta para onde vai e o corpo empurra atrás dela.
+   *
+   * ## O que NÃO acontece aqui
+   *
+   * O gingado vertical. `oscilacao` fica quase zero: uma serpente não pula a
+   * cada passo, e o pouco que sobra é o corpo passando por cima das próprias
+   * curvas. A `compressao` também fica de fora — ela existe para o peso caindo
+   * no pé.
+   */
+  private rastejar(t: number, pAndar: number, pCorrer: number) {
+    const pPassada = pAndar + pCorrer;
+    // Mais devagar que a passada e com mais amplitude: onda de corpo é longa.
+    const fase = t * (3.4 + pCorrer * 2.6);
+    const forca = (pAndar * 0.16 + pCorrer * 0.3) * pPassada;
+
+    // `girarLateral` e não `girar(…, CIMA, …)`: o eixo sai da direção do
+    // osso. Ver `Rig.eixoLateral` — foi o que fez o Ekans, que vem empinado na
+    // vertical, deixar de girar em torno do próprio eixo sem sair do lugar.
+    //
+    // A cabeça quase não entra: ela é a proa.
+    this.rig.girarLateral('cabeca', Math.sin(fase) * forca * 0.25);
+    this.rig.girarLateral('pescoco', Math.sin(fase - 0.3) * forca * 0.45);
+    this.rig.girarLateral('peito', Math.sin(fase - 0.6) * forca * 0.8);
+    this.rig.girarLateral('tronco', Math.sin(fase - 0.9) * forca);
+    this.rig.girarLateral('quadril', Math.sin(fase - 1.2) * forca * 1.15);
+    this.rig.girarLateral('cauda1', Math.sin(fase - 1.5) * forca * 1.25);
+    this.rig.girarLateral('cauda2', Math.sin(fase - 1.8) * forca * 1.3);
+    this.rig.girarLateral('cauda3', Math.sin(fase - 2.1) * forca * 1.35);
+    for (let i = 0; i < this.rig.rabo; i++) {
+      // A onda continua e MORRE: sem o decaimento, a ponta de um Ekans de treze
+      // nós somaria treze vezes o mesmo ângulo e o rabo daria a volta no corpo.
+      const decai = Math.max(0.25, 1 - i * 0.08);
+      this.rig.girarRaboLateral(i, Math.sin(fase - 2.4 - i * 0.3) * forca * 1.35 * decai);
+    }
+
+    // Um rolinho no eixo do corpo, defasado da onda: é o que dá volume ao
+    // movimento e o separa de um zigue-zague desenhado no chão.
+    this.rig.girar('tronco', FRENTE, Math.sin(fase - 0.9 + Math.PI / 2) * forca * 0.35);
+    this.rig.girar('quadril', FRENTE, Math.sin(fase - 1.2 + Math.PI / 2) * forca * 0.4);
+
+    // E quase nenhum pulo. Ver o cabeçalho.
+    this.oscilacao += Math.abs(Math.sin(fase)) * 0.006 * pPassada;
   }
 
   /**
