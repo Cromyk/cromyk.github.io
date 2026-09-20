@@ -246,6 +246,18 @@ const dexDaFolha = new Dex();
     canvas: (pcSel.placa as { canvas: Canvas }).canvas,
     rotulo: 'modo seleção · 5 marcados',
   });
+  // E a TELA DE GOLPES, que é a terceira cara do mesmo painel.
+  const pcGolpes = espiar(new PainelPc());
+  pcGolpes.definirDex(dex as never);
+  const charmander = dex.todos.find((e: { id: string }) => e.id === 'charmander');
+  if (charmander) {
+    (pcGolpes as unknown as { editandoGolpes: unknown }).editandoGolpes = charmander;
+    pcGolpes.desenhar();
+    pecasPc.push({
+      canvas: (pcGolpes.placa as { canvas: Canvas }).canvas,
+      rotulo: 'golpes · escolher os quatro',
+    });
+  }
   secoes.push({ titulo: 'PC do treinador', pecas: pecasPc });
 }
 

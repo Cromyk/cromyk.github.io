@@ -108,6 +108,14 @@ export class Pokemon {
   readonly corpo: Corpo;
   readonly raiz: THREE.Group;
   readonly papel: Papel;
+  /**
+   * Os quatro golpes que o dono escolheu, pelo nome. Ver `Combatente`.
+   *
+   * Fica aqui, e não só no `Exemplar`, porque quem entra na briga é o CORPO:
+   * `arsenal` recebe um `Combatente`, e o `Pokemon` é o combatente. Quem
+   * preenche é o `Jogo`, ao pôr o bicho em campo.
+   */
+  golpesEscolhidos?: readonly string[];
   readonly nivel: number;
   readonly shiny: boolean;
   readonly hpMax: number;

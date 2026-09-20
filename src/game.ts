@@ -3129,9 +3129,34 @@ export class Jogo {
           );
         }
         break;
+      case 'golpes': {
+        audio.abrirPainel();
+        const quem = this.pc.golpesDe;
+        if (quem) {
+          const especie = porId(quem.id);
+          this.aviso.mostrar(
+            [
+              { texto: `golpes de ${especie?.nome ?? '?'}`, tamanho: 36, cor: '#9fe0ff' },
+              {
+                texto: 'toque para marcar e desmarcar · ele leva até quatro',
+                tamanho: 21,
+                cor: '#9aa5b8',
+                peso: 500,
+              },
+            ],
+            3,
+          );
+        }
+        break;
+      }
       case 'marcou':
       case 'desmarcou':
         audio.clique();
+        // Mexer nos golpes de quem está EM CAMPO muda o arsenal do corpo que
+        // já está lá. Sem isto a escolha só valia na próxima vez que ele
+        // saísse da bola — e o painel do pulso continuaria mostrando os
+        // antigos, porque ele lê de `arsenal(companheiro)`.
+        this.sincronizarGolpesEmCampo();
         break;
       // Soltar VÁRIOS acontece na DESCIDA do gatilho, e não na subida como o
       // arrasto: no modo seleção não há nada na mão para largar, é um botão.
@@ -3176,6 +3201,30 @@ export class Jogo {
       ],
       3.4,
     );
+  }
+
+  /**
+   * A escolha de golpes chega ao corpo que já está em campo.
+   *
+   * `Pokemon.golpesEscolhidos` é copiado do `Exemplar` na hora de pôr em
+   * campo, e mexer no PC depois disso mexe no exemplar, não no corpo. Sem esta
+   * ponte, trocar um golpe com o bicho fora da bola não fazia nada visível:
+   * nem no painel do pulso, nem no gatilho.
+   *
+   * O golpe ARMADO some junto quando ele deixa de existir — senão o gatilho
+   * apontaria para um nome que não está mais no arsenal, e `golpeDoGatilho`
+   * cairia no primeiro da lista sem dizer por quê.
+   */
+  private sincronizarGolpesEmCampo() {
+    const exemplar = this.exemplarEmCampo;
+    if (this.companheiro && exemplar) {
+      this.companheiro.golpesEscolhidos = exemplar.golpes;
+      const tem = arsenal(this.companheiro).some((g) => g.nome === this.golpeArmado);
+      if (!tem) this.golpeArmado = null;
+    }
+    for (const morador of this.moradores) {
+      morador.pokemon.golpesEscolhidos = morador.exemplar.golpes;
+    }
   }
 
   /** O último não sai. Ver `Dex.soltar`: sem ninguém, não há jogo. */
@@ -4756,6 +4805,7 @@ export class Jogo {
         exemplar.shiny,
       );
       pokemon.afeto = exemplar.afeto ?? 0;
+      pokemon.golpesEscolhidos = exemplar.golpes;
       pokemon.hp = Math.max(1, Math.min(exemplar.hp, pokemon.hpMax));
       // SOLTO desde o primeiro quadro. Sem isto eles nascem `'companheiro'` e
       // a regra de "fica a 1,1 m do treinador" junta os oito na sua frente —
@@ -7242,6 +7292,8 @@ export class Jogo {
     pokemon.hp = Math.max(1, Math.min(exemplar.hp, pokemon.hpMax));
     // O afeto atravessa a bola: é do BICHO, não da ida a campo.
     pokemon.afeto = exemplar.afeto ?? 0;
+    // E os golpes escolhidos também. Ver `Dex.definirGolpes`.
+    pokemon.golpesEscolhidos = exemplar.golpes;
     pokemon.raiz.visible = false;
     this.cena.add(pokemon.raiz);
     this.companheiro = pokemon;

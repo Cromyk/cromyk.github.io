@@ -628,7 +628,8 @@ export function golpesNoNivel(especie: Especie, nivel: number): readonly Golpe[]
 }
 
 /** O arsenal de um combatente — a forma curta, que o jogo usa o tempo todo. */
-export const arsenal = (c: Combatente): readonly Golpe[] => golpesNoNivel(c.especie, c.nivel);
+export const arsenal = (c: Combatente): readonly Golpe[] =>
+  golpesDe(c.especie, c.nivel, c.golpesEscolhidos);
 
 /**
  * O que MUDOU no arsenal entre dois níveis.
@@ -801,6 +802,15 @@ export function evolucaoDaPedra(idPedra: string, especie: Especie): Especie | nu
 export interface Combatente {
   especie: Especie;
   nivel: number;
+  /**
+   * Os quatro que ELE escolheu carregar, pelo nome. Ausente = o jogo deduz.
+   *
+   * Ver `golpesDe`. Fica no `Combatente` e não só no `Exemplar` porque quem
+   * pergunta "quais golpes ele tem" no meio da briga é `arsenal`, e ele recebe
+   * um combatente — que tanto pode ser um bicho seu quanto um selvagem, e o
+   * selvagem nunca escolheu nada.
+   */
+  golpesEscolhidos?: readonly string[];
   /** Os estágios acumulados na briga. Ausente = tudo zerado. */
   estagios?: Estagios;
   /**
@@ -808,6 +818,55 @@ export interface Combatente {
    * exatamente como era antes de o afeto existir. Ver `AFETO`.
    */
   afeto?: number;
+}
+
+/**
+ * TUDO o que ele já aprendeu até este nível, sem repetição.
+ *
+ * É a lista da tela de troca: `golpesNoNivel` escolhe quatro dela, e o jogador
+ * passa a poder escolher outros quatro. Em ordem de aprendizado, do mais cedo
+ * para o mais tarde — que é a ordem em que ele viu cada um aparecer.
+ */
+export function golpesAprendidos(especie: Especie, nivel: number): readonly Golpe[] {
+  const vistos = new Set<string>();
+  const lista: Golpe[] = [];
+  for (const a of especie.aprende) {
+    if (a.nivel > Math.max(1, nivel)) continue;
+    if (vistos.has(a.golpe.nome)) continue;
+    vistos.add(a.golpe.nome);
+    lista.push(a.golpe);
+  }
+  if (lista.length === 0 && especie.aprende.length > 0) lista.push(especie.aprende[0].golpe);
+  return lista;
+}
+
+/**
+ * Os golpes que ele carrega: os ESCOLHIDOS, quando há escolha, e os deduzidos
+ * do nível quando não há.
+ *
+ * ## Por que a escolha é validada toda vez
+ *
+ * Porque ela é guardada por NOME (ver `Exemplar.golpes`), e o nome pode deixar
+ * de valer sem ninguém mexer nele: o bicho evolui e a espécie nova não aprende
+ * aquilo; a tabela de golpes é regerada da PokeAPI e um nome muda de tradução;
+ * um save antigo traz um golpe que o jogo não tem mais. Em todos esses casos o
+ * certo é cair na dedução por nível, que sempre funciona — e não deixar o bicho
+ * em campo sem ter como atacar.
+ *
+ * Uma escolha VAZIA também cai na dedução. Não há como ficar sem golpe nenhum.
+ */
+export function golpesDe(
+  especie: Especie,
+  nivel: number,
+  escolhidos?: readonly string[],
+): readonly Golpe[] {
+  if (!escolhidos || escolhidos.length === 0) return golpesNoNivel(especie, nivel);
+  const disponiveis = golpesAprendidos(especie, nivel);
+  const validos = escolhidos
+    .map((nome) => disponiveis.find((g) => g.nome === nome))
+    .filter((g) => g !== undefined)
+    .slice(0, GOLPES_POR_POKEMON);
+  return validos.length > 0 ? validos : golpesNoNivel(especie, nivel);
 }
 
 /** Só os que causam dano. É a lista de onde a escolha automática sai. */

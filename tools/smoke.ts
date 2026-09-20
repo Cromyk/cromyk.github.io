@@ -15,6 +15,7 @@ import { BORDA_COLISAO, MARGEM_DA_BOLA, Pokemon, type Terreno } from '../src/cre
 import { avaliar, genesDe, poderDeCombate, totalDosGenes } from '../src/avaliacao';
 import { PainelPc } from '../src/pc';
 import { RAIO_DO_PASTO, Rancho } from '../src/rancho';
+import { GOLPES_POR_POKEMON, golpesAprendidos } from '../src/species';
 import { ALCANCE_ACHADO, Achados } from '../src/achados';
 import { saidaDoTimeCaido, timeCaido } from '../src/centro';
 import { BALDE_MS, Diario, ORCAMENTO_MS, relatorio } from '../src/diario';
@@ -6840,5 +6841,90 @@ console.log('\n69. no pasto ele é livre, e obedece às quatro ordens');
   );
 }
 
+// ---------------------------------------------------------------------------
+console.log('\n70. você escolhe quais quatro golpes ele carrega');
+{
+  // Um bicho de nível alto: aos 45 o Charmander já aprendeu mais do que quatro,
+  // que é a condição para haver escolha nenhuma a fazer.
+  const dex = new Dex();
+  dex.limpar();
+  dex.receberInicial('charmander', 45);
+  const quem = dex.todos[0];
+  const especie = porId('charmander')!;
+  const nivel = dex.nivelDe(quem);
+
+  const aprendidos = golpesAprendidos(especie, nivel);
+  checar(
+    aprendidos.length > GOLPES_POR_POKEMON,
+    `no nível ${nivel} ele só aprendeu ${aprendidos.length} golpes — não há o que escolher`,
+  );
+  // Sem repetição: a tabela da PokeAPI traz o mesmo golpe em mais de um
+  // nível para várias espécies, e uma lista com dois "Arranhão" é uma lista
+  // em que marcar um marca o outro.
+  const nomes = aprendidos.map((g) => g.nome);
+  checar(new Set(nomes).size === nomes.length, `a lista repete golpe: ${nomes.join(', ')}`);
+
+  // SEM escolha, vale a dedução de sempre.
+  const deduzidos = dex.golpesDe(quem).map((g) => g.nome);
+  checar(
+    deduzidos.join() === golpesNoNivel(especie, nivel).map((g) => g.nome).join(),
+    'sem escolha, ele devia carregar exatamente os deduzidos do nível',
+  );
+
+  // COM escolha, vale a escolha — e na ordem em que foi feita.
+  const meus = [nomes[0], nomes[1], nomes[2]];
+  dex.definirGolpes(quem, meus);
+  checar(
+    dex.golpesDe(quem).map((g) => g.nome).join() === meus.join(),
+    `escolhi [${meus.join(', ')}] e ele carrega [${dex.golpesDe(quem).map((g) => g.nome).join(', ')}]`,
+  );
+
+  // E o CORPO em campo carrega o mesmo: `arsenal` lê de `golpesEscolhidos`.
+  const corpo = corpoFalso(especie.altura);
+  const bicho = new Pokemon(especie, corpo, new THREE.Vector3(0, 0, -1), 0, 'companheiro', nivel);
+  bicho.golpesEscolhidos = quem.golpes;
+  checar(
+    arsenal(bicho).map((g) => g.nome).join() === meus.join(),
+    'o corpo em campo não herdou os golpes escolhidos',
+  );
+
+  // --- as validações, que são o motivo de a escolha ser por NOME ---
+
+  // Um nome que ele não aprendeu é ignorado.
+  dex.definirGolpes(quem, [nomes[0], 'Golpe Que Não Existe']);
+  checar(
+    dex.golpesDe(quem).map((g) => g.nome).join() === nomes[0],
+    'um golpe inventado entrou no arsenal',
+  );
+
+  // Uma escolha inteira que deixou de valer cai na dedução, em vez de deixar
+  // o bicho sem ter como atacar. É o que acontece quando ele EVOLUI.
+  dex.definirGolpes(quem, ['Nada', 'Disso', 'Existe']);
+  checar(
+    dex.golpesDe(quem).length > 0,
+    'com a escolha inteira inválida ele ficou sem golpe nenhum',
+  );
+  checar(
+    dex.golpesDe(quem).map((g) => g.nome).join() === deduzidos.join(),
+    'a escolha inválida não caiu de volta na dedução por nível',
+  );
+
+  // Uma escolha vazia APAGA o campo, em vez de gravar um array vazio que
+  // viajaria em todo save daí em diante.
+  dex.definirGolpes(quem, []);
+  checar(quem.golpes === undefined, 'a escolha vazia ficou gravada como array vazio');
+
+  // E nunca mais que quatro.
+  dex.definirGolpes(quem, nomes.slice(0, 6));
+  checar(
+    dex.golpesDe(quem).length === GOLPES_POR_POKEMON,
+    `escolhi seis e ele carrega ${dex.golpesDe(quem).length}`,
+  );
+
+  console.log(
+    `   golpes: ${aprendidos.length} aprendidos no nível ${nivel} · a escolha manda, ` +
+      `o nome inválido cai fora e a escolha morta volta para a dedução`,
+  );
+}
 console.log(falhas === 0 ? '\nTUDO PASSOU' : `\n${falhas} VERIFICAÇÕES FALHARAM`);
 process.exit(falhas === 0 ? 0 : 1);

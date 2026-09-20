@@ -727,6 +727,29 @@ do modo limpa tudo, porque uma seleção esquecida é uma seleção que te esper
 escondida na próxima vez que você abrir o PC. O último continua não saindo — se
 você marcar a coleção toda, saem todos menos um, e o aviso diz quantos foram.
 
+### Escolher os golpes
+
+O botão **golpes**, no rodapé, abre a tela de golpes do Pokémon que estiver sob
+a mira. Em cima, os **quatro que ele carrega**; embaixo, **tudo o que ele já
+aprendeu** até o nível em que está, paginado. Toque para marcar e desmarcar.
+
+Até aqui os quatro eram DEDUZIDOS do nível — você ficava com os quatro últimos
+que aprendeu, sem opinião. A escolha agora fica salva **no bicho**, por NOME e
+não por índice: índice não sobrevive a nada (o nível sobe e a lista cresce, ele
+evolui e a lista muda inteira, a tabela é regerada da PokeAPI e a ordem troca).
+O nome é validado a cada leitura, e o que não valer mais é ignorado — uma
+escolha que morreu inteira cai de volta na dedução por nível, porque um Pokémon
+sem golpe é um Pokémon que não pode brigar.
+
+É alternar e não "escolha o slot, depois o golpe": os quatro golpes são um
+CONJUNTO, nada no jogo depende de qual está no slot 2, e trocar um por outro são
+dois toques em vez de três. Com quatro marcados, um quinto é **recusado** em vez
+de empurrar alguém para fora — empurrar exigiria uma regra que o jogador teria
+de adivinhar.
+
+Mexer nos golpes de quem está **em campo** vale na hora: o corpo lá fora recebe
+a escolha, e o golpe armado no gatilho é desfeito se ele tiver saído do arsenal.
+
 ### Soltar na natureza
 
 No rodapé há uma área de **soltar**. Com um bicho na mão ela acende e **diz o

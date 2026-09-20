@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Placa } from './hud';
-import { TIPOS, porId } from './species';
+import { GOLPES_POR_POKEMON, TIPOS, porId, type Golpe } from './species';
 import {
   COR,
   RAIO,
@@ -11,6 +11,7 @@ import {
   hex,
   nomeComBrilho,
   pilula,
+  textoAjustado,
 } from './estilo';
 import { TAMANHO_TIME, type Dex, type Exemplar } from './state';
 import { recompensaPorSoltar, pedraDoTipo, type Achado } from './itens';
@@ -60,6 +61,7 @@ export type AlvoPc =
   | { tipo: 'curar' }
   | { tipo: 'soltar' }
   | { tipo: 'selecionar' }
+  | { tipo: 'golpes' }
   | { tipo: 'fechar' };
 
 /** O que a natureza devolveu pelo bicho que você soltou. Ver `soltarArrasto`. */
@@ -111,6 +113,31 @@ export class PainelPc {
   modoSelecao = false;
   /** Quem esta marcado, por indice em `dex.todosComVagas`. */
   private marcados = new Set<number>();
+
+  /**
+   * A TELA DE GOLPES: de quem estamos escolhendo os quatro, ou null.
+   *
+   * ## Por que ela mora no PC
+   *
+   * *"Quero mudar os golpes do Pokémon"* — playtest de 20/09. Até aqui os
+   * quatro golpes eram DEDUZIDOS do nível (os quatro últimos que ele aprendeu,
+   * ver `golpesNoNivel`) e o jogador não tinha voz nenhuma.
+   *
+   * A tela precisa de três coisas ao mesmo tempo: a lista inteira do que ele já
+   * aprendeu (que chega a mais de dez), os quatro que ele carrega, e de QUEM
+   * estamos falando. Só o PC tem espaço para as três — o painel do pulso tem
+   * dez centímetros e mostra sempre o bicho que está em campo, que é
+   * exatamente o que não serve para mexer no time inteiro.
+   *
+   * ## Por que os alvos são reaproveitados
+   *
+   * As vinte e quatro caixas invisíveis do PC já estão posicionadas e já são
+   * raycastadas. Nesta tela elas mudam de SIGNIFICADO — `time` vira "um dos
+   * quatro que ele carrega" e `caixa` vira "um da lista de aprendidos" —, e
+   * isso é muito melhor que uma segunda grade de malhas que passaria a vida
+   * invisível. O preço é este comentário.
+   */
+  private editandoGolpes: Exemplar | null = null;
 
   private placa = new Placa(LARGURA, ALTURA, PX);
   private alvos: THREE.Mesh[] = [];
@@ -170,6 +197,7 @@ export class PainelPc {
     // única coisa irreversível desta tela, e não pode ficar encostada no botão
     // de fechar. Ver `soltarArrasto`.
     novoAlvo({ tipo: 'soltar' }, PainelPc.SOLTAR_X, rodape, PainelPc.SOLTAR_L, 54);
+    novoAlvo({ tipo: 'golpes' }, PainelPc.SOLTAR_X + PainelPc.SOLTAR_L + 16, rodape, 180, 54);
     novoAlvo({ tipo: 'selecionar' }, PX - PainelPc.MARGEM - 620, rodape, 200, 54);
     novoAlvo({ tipo: 'curar' }, PX - PainelPc.MARGEM - 400, rodape, 190, 54);
     novoAlvo({ tipo: 'fechar' }, PX - PainelPc.MARGEM - 190, rodape, 190, 54);
@@ -209,6 +237,11 @@ export class PainelPc {
 
   get totalPaginas(): number {
     if (!this.dex) return 1;
+    // Na tela de golpes as páginas são as da LISTA DE APRENDIDOS, e não as da
+    // caixa: as mesmas dezoito vagas, outro conteúdo.
+    if (this.editandoGolpes) {
+      return Math.max(1, Math.ceil(this.dex.golpesAprendidosDe(this.editandoGolpes).length / POR_PAGINA));
+    }
     return Math.max(1, Math.ceil(this.dex.guardados.length / POR_PAGINA));
   }
 
@@ -225,6 +258,8 @@ export class PainelPc {
     this.pegou = -1;
     this.modoSelecao = false;
     this.marcados.clear();
+    this.editandoGolpes = null;
+    this.pagina = 0;
     this.assinatura = '';
 
     const cabeca = camera.getWorldPosition(new THREE.Vector3());
@@ -246,6 +281,7 @@ export class PainelPc {
     this.pegou = -1;
     this.modoSelecao = false;
     this.marcados.clear();
+    this.editandoGolpes = null;
   }
 
   virarPagina(direcao: 1 | -1) {
@@ -291,6 +327,7 @@ export class PainelPc {
     | 'marcou'
     | 'desmarcou'
     | 'soltouVarios'
+    | 'golpes'
     | 'recusou'
     | null {
     const alvo = this.destacado;
@@ -310,9 +347,22 @@ export class PainelPc {
       return 'curou';
     }
     if (alvo.tipo === 'selecionar') {
+      // Na tela de golpes este botão é o VOLTAR: é o mesmo lugar, e voltar é a
+      // única coisa que "cancelar" pode querer dizer ali.
+      if (this.editandoGolpes) {
+        this.fecharGolpes();
+        return 'selecao';
+      }
       this.alternarSelecao();
       return 'selecao';
     }
+    if (alvo.tipo === 'golpes') {
+      return this.abrirGolpes();
+    }
+
+    // A TELA DE GOLPES intercepta antes de tudo o mais: ali as caixas não são
+    // Pokémon, são golpes. Ver `editandoGolpes`.
+    if (this.editandoGolpes) return this.tocarGolpe(alvo);
 
     // No MODO SELEÇÃO o gatilho marca em vez de pegar, e o "soltar" solta
     // todos os marcados de uma vez. Ver `modoSelecao`.
@@ -335,6 +385,94 @@ export class PainelPc {
     this.pegou = indice;
     this.assinatura = '';
     return 'pegou';
+  }
+
+  /**
+   * Abre a tela de golpes do Pokémon que está sob a mira — ou do primeiro do
+   * time, quando não há ninguém apontado.
+   *
+   * O atalho do time existe porque é o caso comum: você abriu o PC para mexer
+   * nos golpes de quem vai brigar, e ele é o primeiro da fileira de cima.
+   */
+  private abrirGolpes(): 'golpes' | 'recusou' | null {
+    if (!this.dex) return null;
+    if (this.editandoGolpes) {
+      this.fecharGolpes();
+      return 'golpes';
+    }
+    const alvo = this.destacado;
+    const indice = alvo ? this.indiceReal(alvo) : -1;
+    const quem =
+      indice >= 0 ? (this.dex.todosComVagas[indice] ?? null) : (this.dex.time[0] ?? null);
+    if (!quem) return 'recusou';
+    this.editandoGolpes = quem;
+    this.pegou = -1;
+    this.modoSelecao = false;
+    this.marcados.clear();
+    this.assinatura = '';
+    return 'golpes';
+  }
+
+  private fecharGolpes() {
+    this.editandoGolpes = null;
+    this.assinatura = '';
+  }
+
+  /** A tela de golpes está aberta, e de quem. */
+  get golpesDe(): Exemplar | null {
+    return this.editandoGolpes;
+  }
+
+  /**
+   * Um toque na tela de golpes: marca ou desmarca.
+   *
+   * ## Por que é alternar, e não "escolher o slot e depois o golpe"
+   *
+   * Porque escolher slot é um gesto a mais para uma coisa que não tem ordem:
+   * os quatro golpes de um Pokémon são um CONJUNTO, não uma fila — nada no jogo
+   * depende de qual está no slot 2. Alternar é o gesto de caixa de seleção, que
+   * todo mundo já sabe fazer, e trocar um golpe por outro são dois toques em
+   * vez de três.
+   *
+   * Com quatro já escolhidos, um quinto é RECUSADO em vez de empurrar alguém
+   * para fora. Empurrar exigiria uma regra ("sai o mais antigo", "sai o mais
+   * fraco") que o jogador teria de adivinhar, e a recusa diz na hora o que
+   * fazer: tire um.
+   *
+   * E não dá para ficar com nenhum: um Pokémon sem golpe é um Pokémon que não
+   * pode brigar.
+   */
+  private tocarGolpe(alvo: AlvoPc): 'marcou' | 'desmarcou' | 'recusou' | null {
+    if (!this.dex || !this.editandoGolpes) return null;
+
+    const aprendidos = this.dex.golpesAprendidosDe(this.editandoGolpes);
+    const atuais = this.dex.golpesDe(this.editandoGolpes).map((g) => g.nome);
+
+    // `time` são os quatro que ele carrega; `caixa` é a lista de aprendidos.
+    // Ver o comentário de `editandoGolpes` sobre o reaproveitamento.
+    let nome: string | null = null;
+    if (alvo.tipo === 'time') nome = atuais[alvo.indice] ?? null;
+    else if (alvo.tipo === 'caixa') {
+      const i = this.pagina * POR_PAGINA + alvo.indice;
+      nome = aprendidos[i]?.nome ?? null;
+    }
+    if (!nome) return null;
+
+    const tem = atuais.includes(nome);
+    if (tem) {
+      if (atuais.length <= 1) return 'recusou';
+      this.dex.definirGolpes(
+        this.editandoGolpes,
+        atuais.filter((n) => n !== nome),
+      );
+      this.assinatura = '';
+      return 'desmarcou';
+    }
+
+    if (atuais.length >= GOLPES_POR_POKEMON) return 'recusou';
+    this.dex.definirGolpes(this.editandoGolpes, [...atuais, nome]);
+    this.assinatura = '';
+    return 'marcou';
   }
 
   /** Liga e desliga o modo seleção. Desligar sempre limpa. Ver `modoSelecao`. */
@@ -484,6 +622,10 @@ export class PainelPc {
 
   private desenhar() {
     if (!this.dex) return;
+    if (this.editandoGolpes) {
+      this.desenharGolpes(this.editandoGolpes);
+      return;
+    }
     const { ctx, canvas } = this.placa;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, {}, 26);
@@ -516,6 +658,9 @@ export class PainelPc {
     ctx.fillText(`${this.dex.todos.length} na coleção`, canvas.width - PainelPc.MARGEM, 40);
 
     // --- equipe ---
+    // A visibilidade volta ao normal: a tela de golpes esconde duas das seis
+    // vagas do time e as sobras da lista. Ver `desenharGolpes`.
+    for (const alvo of this.alvos) alvo.visible = true;
     const time = this.dex.time;
     for (let i = 0; i < TAMANHO_TIME; i++) {
       const { x, y } = this.vagaDoTime(i);
@@ -581,12 +726,233 @@ export class PainelPc {
       this.modoSelecao ? COR.ruim : COR.texto,
       this.modoSelecao,
     );
+    // O botão de GOLPES fica junto da área de soltar, e não com os outros
+    // três da direita: ele é do bicho que está sob a mira, como a área de
+    // soltar é — e os da direita (curar, fechar) são da tela inteira.
+    this.botao(
+      PainelPc.SOLTAR_X + PainelPc.SOLTAR_L + 16,
+      rodape,
+      180,
+      54,
+      'golpes',
+      this.destacado?.tipo === 'golpes',
+      COR.destaque,
+    );
     this.botao(canvas.width - PainelPc.MARGEM - 400, rodape, 190, 54, 'curar time', this.destacado?.tipo === 'curar', COR.bom);
     this.botao(canvas.width - PainelPc.MARGEM - 190, rodape, 190, 54, 'fechar', this.destacado?.tipo === 'fechar', COR.ruim);
 
     this.placa.marcarSujo();
   }
 
+  /**
+   * A TELA DE GOLPES. Ver `editandoGolpes`.
+   *
+   * O mesmo esqueleto do PC — fileira de cima, grade embaixo, rodapé — com
+   * outro conteúdo, porque são os mesmos alvos: em cima, os QUATRO que ele
+   * carrega; embaixo, TUDO o que ele já aprendeu, paginado de dezoito em
+   * dezoito; no rodapé, o voltar.
+   *
+   * O que ele já carrega aparece nos dois lugares, e aceso embaixo também:
+   * sem isso, procurar "cadê o Lança-Chamas que eu já tenho" numa lista de
+   * quinze seria comparar duas listas com o olho.
+   */
+  private desenharGolpes(quem: Exemplar) {
+    if (!this.dex) return;
+    const { ctx, canvas } = this.placa;
+    const especie = porId(quem.id);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cartao(ctx, 2, 2, canvas.width - 4, canvas.height - 4, {}, 26);
+    if (!especie) return;
+
+    const atuais = this.dex.golpesDe(quem).map((g) => g.nome);
+    const aprendidos = this.dex.golpesAprendidosDe(quem);
+    const nivel = this.dex.nivelDe(quem);
+
+    // --- cabeçalho ---
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = fonte(44, 700);
+    ctx.fillStyle = COR.texto;
+    ctx.fillText(`Golpes de ${especie.nome}`, PainelPc.MARGEM, 26);
+
+    ctx.font = fonte(26, 500);
+    ctx.fillStyle = COR.textoFraco;
+    ctx.fillText(
+      `nível ${nivel} · toque para marcar e desmarcar · leva até ${GOLPES_POR_POKEMON}`,
+      // Depois do título, que tem 44 px e o nome de um Pokémon dentro: a
+      // 440 px o "nível 18" caía em cima do "Charmander".
+      PainelPc.MARGEM + 640,
+      42,
+    );
+
+    ctx.textAlign = 'right';
+    ctx.font = fonte(26, 700);
+    ctx.fillStyle = atuais.length >= GOLPES_POR_POKEMON ? COR.bom : COR.atencao;
+    ctx.fillText(
+      `${atuais.length}/${GOLPES_POR_POKEMON} escolhidos`,
+      canvas.width - PainelPc.MARGEM,
+      40,
+    );
+
+    // --- os quatro que ele carrega ---
+    for (let i = 0; i < TAMANHO_TIME; i++) {
+      const { x, y } = this.vagaDoTime(i);
+      // Só as quatro primeiras vagas do time servem: são quatro golpes, não
+      // seis. As outras duas somem, para o olho não procurar nelas.
+      if (i >= GOLPES_POR_POKEMON) {
+        this.alvos[i].visible = false;
+        continue;
+      }
+      this.alvos[i].visible = true;
+      const golpe = aprendidos.find((g) => g.nome === atuais[i]) ?? null;
+      this.cartaDeGolpe(
+        x,
+        y,
+        PainelPc.CARD_L,
+        PainelPc.CARD_A,
+        golpe,
+        this.destacado?.tipo === 'time' && this.destacado.indice === i,
+        true,
+        `slot ${i + 1}`,
+      );
+    }
+
+    const yLista = PainelPc.TOPO + PainelPc.CARD_A + 32;
+    ctx.textAlign = 'left';
+    ctx.font = fonte(28, 700);
+    ctx.fillStyle = COR.textoFraco;
+    ctx.fillText(`TUDO O QUE ELE APRENDEU (${aprendidos.length})`, PainelPc.MARGEM, yLista);
+
+    // --- a lista ---
+    const inicio = this.pagina * POR_PAGINA;
+    for (let i = 0; i < POR_PAGINA; i++) {
+      const { x, y } = this.vagaDaCaixa(i);
+      const golpe = aprendidos[inicio + i] ?? null;
+      this.alvos[TAMANHO_TIME + i].visible = golpe !== null;
+      this.cartaDeGolpe(
+        x,
+        y,
+        PainelPc.CARD_L,
+        PainelPc.CARD_A * 0.72,
+        golpe,
+        this.destacado?.tipo === 'caixa' && this.destacado.indice === i,
+        golpe !== null && atuais.includes(golpe.nome),
+        null,
+      );
+    }
+
+    // --- rodapé ---
+    const rodape = canvas.height - 66;
+    this.botao(PainelPc.MARGEM, rodape, 120, 54, '‹', this.destacado?.tipo === 'pagina' && this.destacado.direcao === -1);
+    this.botao(PainelPc.MARGEM + 132, rodape, 120, 54, '›', this.destacado?.tipo === 'pagina' && this.destacado.direcao === 1);
+    ctx.textAlign = 'left';
+    ctx.font = fonte(26, 600);
+    ctx.fillStyle = COR.textoFraco;
+    ctx.fillText(`${this.pagina + 1}/${this.totalPaginas}`, PainelPc.MARGEM + 266, rodape + 14);
+
+    this.botao(
+      canvas.width - PainelPc.MARGEM - 620,
+      rodape,
+      200,
+      54,
+      '‹ voltar',
+      this.destacado?.tipo === 'selecionar',
+    );
+    this.botao(
+      canvas.width - PainelPc.MARGEM - 400,
+      rodape,
+      190,
+      54,
+      'golpes',
+      this.destacado?.tipo === 'golpes',
+      COR.bom,
+      true,
+    );
+    this.botao(canvas.width - PainelPc.MARGEM - 190, rodape, 190, 54, 'fechar', this.destacado?.tipo === 'fechar', COR.ruim);
+
+    this.placa.marcarSujo();
+  }
+
+  /** Uma carta de golpe: nome, tipo e potência. Vazia vira o rótulo do slot. */
+  private cartaDeGolpe(
+    x: number,
+    y: number,
+    l: number,
+    a: number,
+    golpe: Golpe | null,
+    sobMira: boolean,
+    escolhido: boolean,
+    vazio: string | null,
+  ) {
+    const { ctx } = this.placa;
+
+    if (!golpe) {
+      // Sem rótulo, a vaga não é uma vaga: é o FIM DA LISTA. Desenhar um
+      // tracejado ali enche a tela de caixas que não recebem nada — e a
+      // pergunta "quantos golpes ele tem?" passa a ter duas respostas na
+      // mesma imagem.
+      if (!vazio) return;
+      ctx.beginPath();
+      ctx.roundRect(x, y, l, a, 14);
+      ctx.fillStyle = sobMira ? 'rgba(28,40,60,0.8)' : 'rgba(14,20,30,0.45)';
+      ctx.fill();
+      ctx.setLineDash([9, 7]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = sobMira ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.12)';
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (vazio) {
+        ctx.textAlign = 'center';
+        ctx.font = fonte(24, 600);
+        ctx.fillStyle = 'rgba(160,176,200,0.5)';
+        ctx.fillText(vazio, x + l / 2, y + a / 2 - 12);
+        ctx.textAlign = 'left';
+      }
+      return;
+    }
+
+    const corTipo = TIPOS[golpe.tipo].cor;
+    cartao(ctx, x, y, l, a, { sobMira, ativo: escolhido, acento: corTipo }, RAIO.pequeno);
+
+    // O visto do escolhido, no canto de cima — o mesmo do modo seleção, e pelo
+    // mesmo motivo: o que tem de dar para ler de longe é QUANTOS estão marcados.
+    const recuo = escolhido ? 34 : 0;
+    if (escolhido) {
+      const cx = x + 26;
+      const cy = y + 26;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+      ctx.fillStyle = COR.bom;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#0b1018';
+      ctx.moveTo(cx - 6, cy);
+      ctx.lineTo(cx - 2, cy + 5);
+      ctx.lineTo(cx + 7, cy - 6);
+      ctx.stroke();
+    }
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = fonte(26, 700);
+    ctx.fillStyle = COR.texto;
+    ctx.fillText(textoAjustado(ctx, golpe.nome, l - 28 - recuo), x + 14 + recuo, y + 16);
+
+    ctx.font = fonte(21, 600);
+    ctx.fillStyle = hex(corTipo);
+    ctx.fillText(TIPOS[golpe.tipo].nome.toUpperCase(), x + 14, y + a - 34);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = golpe.categoria === 'status' ? COR.textoFraco : COR.texto;
+    ctx.fillText(
+      golpe.categoria === 'status' ? 'status' : `${golpe.potencia}`,
+      x + l - 14,
+      y + a - 34,
+    );
+    ctx.textAlign = 'left';
+  }
   /**
    * "Soltar na natureza": a porta de saída, e o que ela paga.
    *

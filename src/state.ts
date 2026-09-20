@@ -4,10 +4,13 @@ import {
   ESPECIES_PARA_AMULETO,
   NIVEL_MAXIMO,
   TOTAL_ESPECIES,
+  golpesAprendidos,
+  golpesDe,
   nivelPorXp,
   porId,
   statsNoNivel,
   xpParaNivel,
+  type Golpe,
   type SorteBrilhante,
 } from './species';
 
@@ -103,6 +106,20 @@ export interface Exemplar {
    * src/species.ts, para o que ele faz.
    */
   afeto?: number;
+  /**
+   * Os quatro golpes que VOCÊ escolheu que ele carrega, pelo nome.
+   *
+   * Ausente — que é o caso de todo save anterior a isto e de todo bicho recém-
+   * capturado — quer dizer "deduza do nível", que é o que o jogo sempre fez.
+   * Por isso o campo é opcional e não há migração nenhuma: um save sem ele
+   * continua se comportando exatamente como antes.
+   *
+   * Por NOME e não por índice porque índice não sobrevive a nada: o bicho sobe
+   * de nível e a lista cresce, evolui e a lista muda inteira, a tabela é
+   * regerada da PokeAPI e a ordem troca. O nome é validado na leitura, e o que
+   * não valer mais é ignorado. Ver `golpesDe` em src/species.ts.
+   */
+  golpes?: string[];
 }
 
 /** O que a Pokédex sabe de uma espécie, tenha você capturado ou não. */
@@ -246,6 +263,12 @@ export class Dex {
           caiuEm: e.caiuEm,
           recusouEvoluirEm: e.recusouEvoluirEm,
           afeto: e.afeto ?? 0,
+          // Só strings, e só se houver alguma: um `golpes: []` gravado por
+          // engano cairia na dedução de qualquer jeito (ver `golpesDe`), mas
+          // guardar um array vazio para sempre é lixo que viaja em todo save.
+          golpes: Array.isArray(e.golpes)
+            ? e.golpes.filter((n) => typeof n === 'string').slice(0, 4)
+            : undefined,
         }));
 
       this.estoque = new Map(
@@ -409,6 +432,36 @@ export class Dex {
 
   get exemplarAtivo(): Exemplar | null {
     return this.exemplares[this.ativo] ?? null;
+  }
+
+  /**
+   * Os golpes que este exemplar carrega agora. Ver `golpesDe`.
+   *
+   * Passa pela validação toda vez, de propósito: a escolha é por nome, e um
+   * nome pode deixar de valer quando o bicho evolui.
+   */
+  golpesDe(exemplar: Exemplar): readonly Golpe[] {
+    const especie = porId(exemplar.id);
+    if (!especie) return [];
+    return golpesDe(especie, this.nivelDe(exemplar), exemplar.golpes);
+  }
+
+  /** Tudo o que ele já aprendeu — a lista da tela de troca. */
+  golpesAprendidosDe(exemplar: Exemplar): readonly Golpe[] {
+    const especie = porId(exemplar.id);
+    if (!especie) return [];
+    return golpesAprendidos(especie, this.nivelDe(exemplar));
+  }
+
+  /**
+   * Grava a escolha. Lista vazia APAGA a escolha em vez de gravar o vazio:
+   * "nenhum" não é uma resposta, e a ausência já quer dizer "deduza".
+   */
+  definirGolpes(exemplar: Exemplar, nomes: readonly string[]) {
+    const limpos = nomes.slice(0, 4);
+    if (limpos.length === 0) delete exemplar.golpes;
+    else exemplar.golpes = [...limpos];
+    this.salvar();
   }
 
   nivelDe(exemplar: Exemplar): number {
